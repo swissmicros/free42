@@ -1,0 +1,10 @@
+#!/bin/bash
+
+make clean
+make -j16
+
+make clean
+BCD_MATH=1 make -j16
+
+make clean
+

@@ -1,0 +1,22 @@
+#!/bin/sh -e
+
+# This script builds and packages the Windows and Android versions,
+# and the Generic, iPhone, and Android skins packages, and the Upstream
+# source package.
+# It should be run in a Cygwin bash shell (under MS Windows, obviously).
+
+mkdir -p packages
+
+# Build Windows version
+
+cd windows
+sh ./build-intel-lib.sh
+cmd /c build-all.bat
+cd ..
+rm -rf Free42Windows
+mkdir Free42Windows
+cp windows/README.txt Free42Windows
+cp windows/Free42Binary.exe Free42Windows
+cp windows/Free42Decimal.exe Free42Windows
+zip -r packages/Free42Windows.zip Free42Windows
+rm -rf Free42Windows

@@ -1,0 +1,2374 @@
+2018-03-12: release 2.0.20
+
+* MATA, MATB, and MATX should exhibit the same stack lift behavior as EDIT and
+  EDITN, but didn't. Fixed.
+
+2018-03-10: release 2.0.19
+
+* Another EDIT/EDITN fix: in the real HP-42S, EDIT and EDITN don't actually
+  disable stack lift; they preserve the stack lift state, which you can observe
+  if you do ENTER vs. a stack-lift-enabling operation (say, X<>Y) just before
+  invoking them. This behavior is not really useful, but it needs to be
+  emulated anyway, since not doing so risks breaking HP-42S programs.
+  This does not affect GOTO Row/Column.
+
+2018-03-09: release 2.0.18
+
+* EDIT, EDITN, and GOTO Row/Column should disable stack lift, but they didn't.
+  Fixed.
+
+2018-03-02: release 2.0.17
+
+* Inserting or deleting an END would not always clear cached local GTO or XEQ
+  targets, potentially causing local GTO or XEQ commands to jump to the wrong
+  locations. Fixed, and also added code to repair such damage in existing state
+  files.
+
+2018-02-22: release 2.0.16
+
+* 0 SEED initialized the random seed incorrectly, wasting one digit of
+  randomness. Fixed.
+* When importing raw files, E and -E are now recognized as 1 and -1, for
+  compatibility with HP-41 raw files with synthetic numbers.
+* When importing raw files, synthetic instructions are now handled more like
+  the real HP-42S handles them. Basically, any argument >= 100 that isn't a
+  stack register and that isn't a local label is treated as numeric. Arguments
+  112-116 are always stack registers, even when that makes no sense (flags, 
+  SigmaREG, etc.); 102-111 and 123-127 are only considered as A-J and a-e in
+  LBL, GTO, and XEQ.
+  Note that nothing very interesting happens as a result of these changes. They
+  won't make synthetic HP-41C code work in Free42 any more than it does in the
+  HP-42S; the behavior is just more like the real 42S now.
+
+2018-02-17: release 2.0.15
+
+* POSA would not find the search string if its only occurrence was at the very
+  end of the alpha register. Fixed.
+* Android version: tweaked handling of low-battery indicator.
+
+2018-02-10: release 2.0.14
+
+* In Export Programs, removed the hard-coded buffer size for the list of
+  programs, so you should now see all your programs in the list, no matter how
+  many there are.
+* When Pasting complex numbers in a+bi notation, the imaginary unit must now be
+  either i or j; the alternative spellings I and J are no longer recognized.
+
+2018-02-06: release 2.0.13
+
+* Paste didn't handle numbers with negative exponents correctly. Fixed.
+
+2018-02-02: release 2.0.12d (iPhone only)
+
+* Fixed crash in GIF printing.
+
+2018-01-30: release 2.0.12c (Android only)
+
+* Another fix for crash on orientation change while printing.
+
+2018-01-29: release 2.0.12b (Android only)
+
+* Switching between portrait and landscape modes, while printing was in
+  progress, could cause a crash. Fixed.
+
+2018-01-28: release 2.0.12a (Android only)
+
+* Fixed handling of state files that were corrupted in a way that caused
+  persistent crashes on the first keystroke.
+
+2018-01-27: release 2.0.12
+
+* Fixed pasting of SIZE lines.
+* When pasting numbers, spaces are now allowed as thousands separators.
+* Mac and MacDashboard versions: are now 64-bit.
+* Mac and GTK versions: fixed Caps Lock handling, so Caps Lock + Esc no longer
+  exits.
+* Android and iPhone versions: implemented "continuous on" mode (ON function,
+  flag 44).
+
+2018-01-26: release 2.0.11a (Android only)
+
+* Removed the cleanup of variables in core_quit(); it looks like this was
+  responsible for the failure mode where the app would crash at the first
+  keystroke, consistently, forcing uninstall/reinstall.
+* Pasting numbers that ended in CRLF, as when copying a single cell from Excel,
+  didn't work; they were interpreted as strings. Fixed.
+
+2018-01-14: release 2.0.11
+
+* Copy now ignores flag 29 (thousands separators) and always copies numbers
+  without separators. This fixes certain surprising / undesirable behaviors
+  when pasting numbers into spreadsheets or programs.
+* When entering a program line in NORM or TRACE modes, the line would be
+  printed, even when printing was disabled. Fixed.
+* MATA and MATB, in the SIMQ menu, would crash if the MATA or MATB variables
+  were missing. Fixed, and also cleaned up type checks in MATX.
+* Android version: printing lots of output quickly, for example, by running a
+  program in TRACE mode, would cause the user interface to become sluggish or
+  even unresponsive on some devices. Fixed by posting UI updates less
+  aggressively.
+
+2018-01-07: release 2.0.10
+
+* Program Paste without line numbers didn't handle certain numbers,
+  specifically, those that started with a digit and didn't consist of only
+  digits. Fixed.
+
+2018-01-07: release 2.0.9
+
+* Program Paste no longer requires line numbers.
+* The CUSTOM command would toggle the CUSTOM menu, but that was wrong: it
+  should only activate that menu, never deactivate it. Fixed.
+* DIM?, EDIT, and EDITN didn't print X in TRACE mode. Fixed.
+* Selecting the already-active menu did not cause the display to be repainted,
+  even though it should: there might be a message, which should be removed in
+  that case. Fixed.
+* All versions except Mac Dashboard: made the print annunciator linger for one
+  second after printing stops. This makes it more noticeable, so printing is
+  less likely to go unnoticed on fast devices.
+* Mac application version (not Dashboard): implemented battery checker.
+* GTK version: added /sys/class/power_supply support in battery checker.
+
+2017-12-26: release 2.0.8
+
+* MENU (activating the programmable menu) while in ALPHA mode didn't turn off
+  the alpha_mode flag, leading to bad behavior or even crashes if any menu keys
+  were subsequently pressed.
+
+2017-12-21: release 2.0.7c (Windows only)
+
+* Decimal: SIN and COS of 45 degrees or 50 grads returned an inaccurate result,
+  correct to only 16 digits. Fixed.
+
+2017-12-18: release 2.0.7b (Android only)
+
+* The "Always Paint Entire Display" setting, introduced in the previous
+  version, didn't stick after app restart. Fixed.
+
+2017-12-17: release 2.0.7a (Android only)
+
+* Added "Always Paint Entire Display" option. This prevents display glitches
+  with certain combinations of devices and skins.
+
+2017-11-19: release 2.0.7
+
+* Changed the RAN and SEED functions to match the behavior of the real HP-42S.
+  The previous implementation used the algorithm from the HP-41C Standard Pac,
+  which produced numbers with only 6 significant digits.
+* The up/down annunciator (multi-row menu) did not get updated correctly when
+  VARMENU was activated, including in the solver and integrator. Fixed.
+* Windows version: restored the Calculator key mapping option, which I had
+  removed in 1.5.14. It turns out that keyboards with a dedicated Calculator
+  key do still exist.
+* Android version: the menu icons for Copy, Paste, and Print-Out were displayed
+  too large, overlapping the menu item labels on some devices. Fixed.
+* Windows, Linux, and Mac versions: added keyboard mappings g => GTO and
+  p => PI. On existing installations, users must delete or rename the existing
+  keymap and restart for this to take effect.
+* iPhone version: painting the display could be glitchy if either or both of
+  its coordinates were odd. Fixed by forcing them to be even.
+
+2017-08-12: release 2.0.6
+
+* Decimal version: fixed ISG and DSE for values >= 2^63 (9.2e18).
+* Fixed a couple of bugs in how changes to internal SOLVE and INTEG data
+  structures are handled.
+
+2017-07-30: release 2.0.5
+
+* Fixed INTEG termination condition. It would return inaccurate results in
+  certain cases.
+* Fixed importing numbers with exponent but no mantissa, e.g. E3, -E-5, etc.
+  This got broken in 1.5.
+* Fixed crash when trying to allocate ridiculously large matrices.
+* While entering a numeric argument, the up-arrow and down-arrow keys would
+  perform BST and SST, which should be blocked. Fixed.
+* Testing flag 75 would turn on the programmable menu. Fixed.
+* iPhone version: fixed a few display alignment issues with the built-in 4"
+  skin.
+
+2017-05-29: release 2.0.4
+
+* Implemented special-case code for pure real and pure imaginary numbers in all
+  the complex logarithmic, trigonometric, and hyperbolic functions.
+
+2017-05-28: release 2.0.3
+
+* Fixed a few edge cases in complex functions.
+* The last digit in full-precision representation (SHOW, Copy) could be off by
+  one in certain circumstances. Fixed.
+* On cold start, now clearing flags 21 (printer enable) and 55 (printer
+  existence), to match the behavior of the real HP-42S.
+* Removed "raw text" print option; it has been obsolete since the introduction
+  of UTF-8 printing in 1.5.11, since Unicode can represent the HP-42S character
+  set directly.
+* iPhone version: LOCAT didn't work when its initial invocation happened from a
+  program. Fixed.
+* In the About box, replaced the link to the Free42 discussion group with a
+  link to the Alternative HP-42S/Free42 Manual.
+
+2017-04-28: release 2.0.2
+
+* In Unicode-to-HP conversion, translate "\LF" and "[LF]" to 10, not 138.
+  Character 138 only exists to *represent* LF, but isn't available in the ALPHA
+  menu and therefore cannot appear in non-synthetic programs.
+* Unicode-to-HP conversion handles curly quotes now (U+2018, U+2019, U+201C,
+  U+201D).
+
+2017-04-23: release 2.0.1 (beta)
+
+* Change right-pointing triangle from Unicode U+25B6 (black right-pointing
+  triangle) to U+25B8 (black right-pointing small triangle); the former gets
+  rendered as an emoji in iOS, while the latter doesn't, plus, the smaller
+  triangle looks better in listings anyway.
+* MacDashboard version: Fixed multi-line pasting.
+
+2017-04-22: release 2.0 (beta)
+
+* Copy & Paste now handle matrices, ALPHA mode, and PRGM mode.
+
+2017-04-01: release 1.5.15
+
+* Instead of being limited to 12 mantissa digits, full precision (34 digits in
+  the Decimal version, 16 digits in Binary) is now supported for number entry,
+  SHOW, Copy, and Paste.
+
+2017-03-11: release 1.5.14
+
+* Changed complex TAN and TANH to use more accurate formulae.
+* The Time Module functions used to keep track of MDY/DMY modes using an
+  invisible flag. For better HP-41 compatibility, they now use flag 31.
+* Android version: Made state file writing more robust. If writing the state
+  file fails, it now keeps the previous one, instead of leaving behind a
+  partial or corrupt one.
+* GTK version, Free42 Binary only: Some (recent?) versions of GTK set the
+  LC_NUMERIC locale, which Free42 expects to always be "C". This causes number
+  entry and display to be messed up in locales where the decimal is not ".",
+  including most of Europe. I added code to force LC_NUMERIC back to "C" after
+  gtk_init(), fixing this problem.
+* Binary version: Fixed binary round-off problem in ADATE (for example,
+  10.102010 would be rendered as 10/10/2009).
+
+2017-01-22: release 1.5.13
+
+* When DIM, SIZE, or SIMQ resize the indexed matrix, and when CLV deletes the
+  indexed matrix, IJ should be set to (1, 1); and when DIM, SIZE, or SIMQ try
+  to resize the matrix currently being edited by EDITN, and when CLV tries to
+  delete the matrix currently being edited by EDITN, they should return a
+  "Restricted Operation" error. Neither happened, creating the potential for
+  memory corruption if IJ ended up pointing outside the matrix' data array.
+  Fixed.
+* STO and STO* allowed the target to be the matrix under edit by EDITN. They
+  should not allow this, but return "Restricted Operation" instead. Fixed.
+* CLALL didn't always exit all menus. Fixed.
+
+2016-10-03: release 1.5.12
+
+* Android version: Fixed UTF-8 printing, which was broken in 1.5.11.
+* All versions: when printing to text, up-arrow now looks like an up-arrow,
+  instead of a caret.
+
+2016-10-01: release 1.5.11
+
+* EXITALL didn't always exit all menus. Fixed.
+* Print-to-text now emits UTF-8 encoded text, instead of ISO-8859-1.
+* Print-to-text now emits CRLF line separators on all platforms.
+* Android version: didn't save the "raw text" print setting. Fixed.
+* Android version: added landscape skin; made it the default for landscape mode
+  in new installs.
+
+2016-09-04: release 1.5.10 (Android, Windows, Mac, and Linux)
+
+* Fixed AGRAPH bug with complex number in X.
+
+2016-09-04: release 1.5.9 (Android, Windows, Mac, and Linux)
+
+* Now building the Intel Decimal Floating-Point Math Library from source for
+  all targets. In terms of the end user, this makes no difference, but it will
+  make life easier for people who want to port Free42 to platforms that I don't
+  support myself (FreeBSD, Solaris, etc.); those platforms were left out in the
+  cold when I started using the Intel library and only provided pre-built
+  binaries for the supported platforms.
+* Implemented range reduction for more accurate TAN in DEG and GRAD modes.
+* Android version: now handles orientation change more efficiently.
+
+2016-04-26: release 1.5.8f (Android only)
+
+* Rolled back 8e, which was a disaster; it didn't fix the remaining black
+  line issues, but it did cause crashes everywhere.
+
+2016-04-26: release 1.5.8e (Android only)
+
+* The previous fix for the thin-black-line problem didn't do the job on some
+  devices. Here's another fix that should do a better job.
+
+2016-04-25: release 1.5.8d (Android only)
+
+* Fixed the thin black lines that would sometimes appear around the display.
+* In full-screen mode, swiping down from the top would post the menu, because
+  the initial touch would be in the same area that Free42 watches as the menu
+  trigger. I changed the code so that the trigger only fires if the user lifts
+  their finger while still inside that critical area, which will only happen
+  if the downward swipe is very short.
+* Fixed the top-of-screen menu trigger so that it no longer sabotages keys
+  that are also in that area, as in the HP_Mega_42 skin.
+
+2016-04-24: release 1.5.8c (Android only)
+
+* Implemented true full-screen mode. This hides the navigation bar as well the
+  status bar, on devices running Android 4.4 (KitKat) or later.
+
+2016-04-23: release 1.5.8b (Android only)
+
+* Print-Out is now scaled to make better use of available screen width.
+* Fixed key clicks.
+* Implemented Reverse Portrait (upside-down) mode.
+
+2016-04-17: release 1.5.8a (Android only)
+
+* Tapping in the top half of the display now brings up the app's option menu.
+
+2016-04-17: release 1.5.8
+
+* Entering an END into a program using the CUSTOM menu would leave the program
+  counter at an invalid value, leading to memory corruption, state file
+  corruption, and crashes. Fixed.
+* Android version: changed haptic feedback code back to using the old API.
+* Android version: changed targetSdkVersion from 3.0 to 2.2. This should make
+  the menu reliably accessible in all Android versions and with all display
+  styles.
+* Resurrected the Mac OS X Dashboard version; the display repaint logic now
+  supports Yosemite (10.10) and later.
+
+2016-03-19: release 1.5.7a (Android only)
+
+* Made the action/title bar optional.
+* Added full-screen mode (removes action/title bar and status bar).
+* Added installLocation=auto to the manifest, so the app can now be installed
+  on an SD card.
+
+2016-02-28: release 1.5.7
+
+* INSR should disable stack lift, but didn't. Fixed.
+* Android version: added Action Bar, reluctantly embracing the reality of
+  devices with no menu button (or hard-to-find menu buttons, like the "press
+  and hold the task switch button" behavior on some devices).
+
+2014-12-21: release 1.5.6
+
+* iPhone version: implemented Copy and Paste.
+* iPhone version: fixed LOCAT for iOS 8.
+* All versions, on hard reset, now initializing flag 28 (decimal point/comma)
+  to match the host's locale.
+* Paste didn't clear the message flags. Fixed.
+
+2014-11-12: release 1.5.5
+
+* Decimal version: entering a number with an empty exponent (e.g. 1E or 1E-)
+  would yield <Not a Number>. Fixed.
+* iPhone version: HTTP server: Fixed downloading individual programs from, and
+  uploading zip files of programs to, the /memory directory. This got broken in
+  release 1.4.77, while implementing local file download.
+* Android version: when the screen orientation was set to "automatic", it would
+  not honor any system-wide orientation lock. Fixed.
+
+2014-11-08: release 1.5.4a (Android only)
+
+* Fixed crash on startup in Android 5.0 (Lollipop).
+* Printing to text would truncate the file whenever it was reopened, opening it
+  for writing rather than appending. Fixed.
+
+2014-09-23: (no new code release)
+
+* Added nova1_1096 skin, for iPhone 5, to the Free42iPhoneSkins package.
+  Contributed by Keith Carangelo.
+
+2014-09-06: release 1.5.4a (iPhone only)
+
+* Fixed keyboard handling in the Preferences and Select File dialogs.
+* Fixed scrolling behavior (in 1.5.4, windows were sized 20 pixels beyond the
+  bottom of the screen, making the bottommost bit of scroll views drop off the
+  screen).
+* Added 4" skin for iPhone 5, and added code to select the best-fitting built-
+  in skin on first launch.
+
+2014-07-22: release 1.5.4
+
+* Decimal version: Fixed ACOS. It would return 0 for acos(-1).
+  This bug was introduced in release 1.5.
+
+2014-06-21: release 1.5.3a (Android only)
+
+* Made GPS optional. When I added the ACCESS_FINE_LOCATION permission in
+  1.4.78, that had the side effect of making GPS a requirement. In 1.5.3a,
+  the app manifest explicitly states that the GPS is not required.
+
+2014-05-25: release 1.5.3
+
+* Fixed crash in SIMQ if any of MATA, MATB, or MATX already existed and was a
+  scalar or string.
+
+2014-05-10: release 1.4.78 (Android only)
+
+* Fixed the LOCAT function, by adding the ACCESS_FINE_LOCATION permission.
+
+2014-03-16: release 1.5.2
+
+* Decimal version: fixed Y^X for complex Y and negative integral X.
+* Decimal version: made Y^X and 10^X for real Y and integral X more accurate.
+* All versions: sin(45°) now equals cos(45°), and sin(50grad) = cos(50grad).
+
+2014-03-15: release 1.5.1
+
+* All versions: fixed ASIN, ACOS, and ATAN so they return exact results in DEG
+  and GRAD modes for trivial parameters (asin(1), asin(-1), acos(0), atan(1),
+  atan(-1), atan(infinity).
+* Now displaying signed zero as zero, so you won't see -0 any more.
+* Windows version: removed the "Free42 Directory" setting from the Preferences.
+  The application now looks for a file or directory named "portable" in the
+  directory where Free42Decimal.exe or Free42Binary.exe itself is located; if
+  it exists, the state.bin, print.bin, and keymap.txt files will be stored in
+  this directory as well, and skins will only be loaded from this directory. If
+  there is no "portable" item in the executable's directory, it will store
+  state.bin, print.bin, and keymap.txt in %APPDATA%\Free42, and it will load
+  skins from that directory, and from the executable's directory.
+
+2014-03-09: release 1.5
+
+* Decimal version: switched from BCD20 to Intel's Decimal Floating-Point
+  Library v2.1.
+* Binary version: replaced the old binary-to-decimal and decimal-to-binary
+  conversions with code that uses the standard C library's equivalent
+  functionality. This fixes final-digit errors in the Binary version, and also
+  final-digit errors when switching from the Decimal to the Binary version.
+* All versions: added angle reduction code to make SIN, COS, and ->REC more
+  accurate in DEG and GRAD modes.
+* Windows version: now uses %APPDATA%\Free42 as the default Free42 directory
+  (for storing state.bin, print.bin, and keymap.txt). This avoids permissions
+  problems when people install the executable in a directory to which they
+  don't have write access (like the popular choice C:\Program Files).
+
+2013-12-08: release 1.4.78
+
+* All versions except Android: while parsing macros in skin layout files, tab
+  characters were not recognized as whitespace and caused parsing to fail.
+  Fixed.
+* GTK version did not repaint the skin when it was switched from one skin to
+  another with the same width and height. Fixed.
+* Windows version: downgraded my build environment from Visual C++ 2012 to 6.0.
+  This means the Free42 build for Windows will run on older versions of Windows
+  again.
+
+2013-12-07: release 1.4.77a (Android only)
+
+* Android version: The "external storage" filesystem is no longer referred to
+  by the hard-coded path /sdcard, but using the external storage directory name
+  provided by the Environment. This should help prevent problems like exporting
+  programs and then not being able to find them from the PC.
+* The file selection dialog will now append the file extension if the filename
+  doesn't include it already.
+
+2013-06-15: (no new code release)
+
+* Three new skins, and many tweaks to existing skins, contributed by KD0GLS.
+  The Free42Skins.zip, Free42iPhoneSkins.zip, and Free42AndroidSkins.zip
+  packages were all updated.
+* Added two new skins for large Android devices. Contributed by Tyge Loevset.
+
+2013-06-08: (no new code release)
+
+* Galaxy_Nexus skin to Android skins package. Contributed by Andrew Novinc.
+
+2013-03-02: release 1.4.77a (iPhone only)
+
+* iPhone version: fixed "Make Directory" in the file selection dialogs.
+* iPhone version: when the user turns off printing to text or to GIF in the
+  Preferences, or changes the print-out file name, the existing files are now
+  promptly flushed and closed.
+* iPhone version: fixed "garbage" in print-out window.
+* iPhone version: now highlights the currently selected skin in the Select Skin
+  menu.
+
+2013-02-17: release 1.4.77
+
+* iPhone version: the links in the About view now actually work.
+* iPhone version: implemented 'New directory' and 'Delete' in the HTTP Server.
+* iPhone version: implemented zip file upload and download in the HTTP Server.
+* iPhone version: implemented local program import/export.
+* iPhone version: implemented print-out window.
+
+2013-01-06: release 1.4.77
+
+* All versions except iPhone: the links in the About boxes now actually work.
+
+2013-01-01: release 1.4.76
+
+* Mac version: implemented print-out window.
+
+2012-12-17: release 1.4.75b (iPhone only)
+
+* iPhone version: fixed three issues with the HTTP Server (displaying the wrong
+  IP address, binding to the network incorrectly, and a crash when writing to
+  the on-screen log).
+
+2012-12-04: release 1.4.75a (iPhone only)
+
+* iPhone version: clicking Done on the HTTP Server window could cause the app
+  to freeze under certain circumstances. Fixed.
+
+2012-11-24: release 1.4.75
+
+* Android version: implemented haptic feedback option (vibrate on keypress).
+
+2012-10-27: release 1.4.75
+
+* iPhone version: in the HTTP Server view, tapping on the server URL switches
+  between the DNS name and the IP address.
+* GTK version: now uses ALSA to play BEEP and TONE sounds (but not when running
+  on remote displays).
+
+2012-07-29: release 1.4.74b (Android only)
+
+* Android version: now writes state file when moved to background.
+
+2012-05-06: release 1.4.74a (Android only)
+
+* Android version: fixed a couple of bugs that could cause crashes while
+  printing.
+
+2012-05-05: release 1.4.74
+
+* Decimal version: the overflow fix in 1.4.73 was incorrect. This one works.
+
+2012-05-05: release 1.4.73
+
+* iPhone version: now writes state file when moved to background.
+* OFF now refuses to shut down Free42 if there have been no keystrokes since
+  the application was started. It will stop program execution and display
+  the message "Suspicious OFF" instead.
+  This prevents code like LBL "OOPS"  SF 11  OFF  GTO "OOPS" from locking the
+  user out.
+* Decimal version: overflows would return zero in some cases, i.e.
+  9E9999 ENTER +. Fixed.
+
+2012-04-15: release 1.4.72
+
+* Android version: added "skin smoothing" and "display smoothing" check boxes
+  in the Preferences view.
+
+2012-04-14: release 1.4.71
+
+* HMS+ and HMS- would return results with the wrong sign under certain
+  circumstances: result < 0 and |result| < 59 seconds, or result < 0 and
+  |result| > maximum integer. Fixed.
+
+2012-04-09: release 1.4.70b (Android only)
+
+* Android version: fixed app manifest so the app no longer obtains the
+  READ_PHONE_STATE permission, which it never needed anyway.
+  Some background: Apps targeted at Android 1.5 automatically get
+  READ_PHONE_STATE and WRITE_EXTERNAL_STORAGE when installed in Android 1.6 or
+  higher, without the user being told, and this tends to look under-handed to
+  users who aren't aware of what's going on. Free42 now targets 1.6, which
+  means it doesn't get any permissions silently.
+  It does now request WRITE_EXTERNAL_STORAGE, because it needs it for printing
+  to files and for exporting programs.
+  Note that the app still runs on 1.5 and later; the requirements for running
+  it have not changed.
+
+2012-02-12: release 1.4.70a (Android only)
+
+* Android version: fixed app manifest to make the app work with screens other
+  than 320x480. This should fix the problem of skins not filling the whole
+  screen on some devices.
+
+2011-09-18: release 1.4.70
+
+* Fixed several bugs in complex ASIN, ASINH, ACOS, and ACOSH.
+* Android version: better printer icon in the main menu, by Günter Schink.
+* Mac version: OFF didn't work when invoked from a program. Fixed.
+
+2011-06-11: (no new code release)
+
+* Added two new skins to the Android skins package, designed for the Samsung
+  Galaxy S 9000, which has an 800x480 screen. Contributed by Günter Schink.
+
+2011-05-22: (no new code release)
+
+* Added Free42AndroidSkins.zip package, for skins designed for Android-based
+  devices; added HTC4800 skin for HTC Desire HD or other Android devices with
+  480x800 screens. Skin contributed by Michael Vogel, based on an iPhone skin
+  by Jerrod Hofferth.
+
+2011-04-22: release 1.4.69 (Android only)
+
+* Added "orientation" option in Preferences, allowing the user to lock the app
+  in landscape or portrait mode.
+* Improved the layout of the file selection and Preferences dialogs.
+* The file selection dialog no longer disables files that don't match the
+  filter; it now hides them.
+
+2011-04-20: release 1.4.68
+
+* INVRT did not perform any type checks, leading to badness when it was applied
+  to anything that wasn't a matrix. Fixed.
+
+2011-04-10: (no new code release)
+
+* Added six new skins to the iPhone skins package. Contributed by Javier
+  Goizueta.
+
+2011-03-13: release 1.4.67
+
+* ASIN returned incorrect results for large complex arguments. Fixed.
+* iPhone version: added support for 640x920 skins.
+* Added Silver And Blue skin to Free42PocketPCSkins.zip package. Contributed by
+  David Geiger.
+* The SST and BST key labels were switched in these skins:
+  ppcskins/Andy480x800.gif ppcskins/Ramos240x400.gif ppcskins/Ramos480x640.gif
+  ppcskins/SilverAndBlue.gif ppcskins/StandardPPC.gif
+  ppcskins/StandardPPCsm.gif skins/Andy480x800.gif
+  Fixed.
+
+2010-04-08: release 1.4.66
+
+* Removed the "Not Yet Implemented" Time functions; I decided not to implement
+  them. They're also gone from the FCN catalog.
+  The ADATE, ATIME, ATIME24, CLK12, CLK24, DATE, DATE+, DDAYS, DMY, DOW, MDY,
+  and TIME functions remain; those are the time/date-related functions from the
+  HP-41 Time Module that are actually useful in Free42.
+  The functions that I decided not to implement after all are the following:
+  Live clock display: CLKT CLKTD CLOCK
+  Stopwatch: RCLSW RUNSW SETSW STOPSW SW
+  Alarms: ALMCAT ALMNOW XYZALM
+  Clock control: CORRECT RCLAF SETAF SETDATE SETIME T+X
+* In DMY mode, DATE would display dates as DD:MM:YYYY, but that should be
+  DD.MM.YYYY. Fixed.
+
+2010-04-03: release 1.4.65
+
+* Implemented some more Time Module functions: ADATE, ATIME, ATIME24, CORRECT,
+  RCLAF, SETAF, SETDATE, SETIME, T+X.
+
+2010-03-30: release 1.4.64
+
+* Implemented some more Time Module functions: DATE+, DDAYS, and DOW.
+
+2010-03-28: release 1.4.63
+
+* iPhone version: implemented ACCEL, LOCAT, and HEADING functions, for querying
+  the device's accelerometer, location services (GPS on the 3G and 3GS; WiFi-
+  based on all other models), and compass (3GS only).
+* All versions except Mac Dashboard: for skins, increased the maximum macro
+  length from 31 to 63. The old limit was too small to allow macros that step
+  forward all the way to the end of the FCN catalog, and supporting such macros
+  is necessary now that the length of the FCN catalog is no longer fixed at 42
+  rows.
+* Also, changed several macros in the HP-41 and HP42CY skins where the FCN
+  catalog was being traversed backwards, replacing N repetitions of "up" with
+  42-N repetitions of "down", so they will work correctly in the presence of an
+  extended FCN catalog. (None of the other skins currently in the Free42
+  repository traverse the FCN catalog backwards, so they don't need updating.)
+* PalmOS version: turning off printing did not flush the GIF file, so you'd end
+  up with a truncated image. Fixed.
+* When COMPLEX is executed with a complex number or complex matrix in X, and
+  POLAR mode is active, it is possible for range errors to occur. Free42 would
+  simply substitute POS_HUGE_VAL in such cases, but that was incorrect; it
+  should report Out of Range or substitute POS_HUGE_VAL depending on the
+  setting of flag 24. Fixed.
+* R/S can now be pressed using the PC keyboard even when ALPHA mode is active.
+
+2010-03-07: release 1.4.62
+
+* Windows version: now has an option in the Preferences screen to map the
+  Calculator key, found on many newer keyboards, to launch Free42.
+* iPhone version: the hostname lookup for the HTTP Server window is now done in
+  a background thread, so that a slow or malfunctioning DNS server no longer
+  causes the app to freeze on startup.
+* When EDITN was active, you could overwrite the edited matrix with a scalar
+  using STO, or delete it using CLV -- and then you would be stuck in the
+  Matrix Editor, and even CLALL couldn't get you out. Fixed; you will now get
+  the Restricted Operation message when you try to change or delete the active
+  matrix behind EDITN's back.
+
+2009-12-29: (no new code release)
+
+* Added HP-41 skin to the Free42Skins.zip package. This skin mimics the HP-41
+  layout, and includes many macros to map additional functions to the keyboard.
+  Contributed by Guenny.
+
+2009-11-25: release 1.4.61
+
+* Decimal version: ->OCT (decimal-to-octal conversion) was broken; it actually
+  converted octal to decimal. Fixed.
+
+2009-11-11: (no new code release)
+
+* Added HP42CY skin to the Free42Skins.zip package. This skin includes many
+  macros to map additional functions to the keyboard. Contributed by Guenny.
+* Added kacskin and kacskin_yellow skins to the Free42Skins.zip package.
+  These are slightly modified versions of Michaels HP, and may be easier to
+  read on some screens. Contributed by Keith Carangelo.
+
+2009-11-08: release 1.4.60
+
+* Decimal version: SQRT could be off by 1 in the final digit. It now computes
+  one additional digit and rounds it into the mantissa, which should make it
+  accurate in all cases.
+* Decimal version: The BCDFloat add and subtract functions could return
+  denormalized results when one of the arguments was zero. Free42 would not
+  display these denormalized numbers correctly, leading to strange results like
+  1.0001 LOG returning something that looked like zero but wasn't. Fixed.
+
+2009-10-31: release 1.4.59
+
+* MacDashboard version: changed the background from green to gray, and changed
+  the transparency to fully opaque.
+* PalmOS Decimal version builds & works again; fixed the SQRT crash and the
+  divide bug (caused by 16-bit integer overflow, oops).
+* Decimal version: re-fixed the subtract bug which had originally been fixed in
+  1.4.53, but reappeared in the great BCDFloat/BCDFloat2 refactoring.
+* Decimal version: 1e-10000 LOG and 1e-10000 LN returned <Not a Number>. Fixed.
+* CLV and PRV didn't work from the CUSTOM menu, potentially even causing a
+  crash. Fixed.
+
+2009-10-24: release 1.4.58
+
+* Removed Byron's BIGSTACK and BIGLCD hacks; these will be maintained in a
+  separate fork from now on. This protects the other Free42 versions from bugs
+  in the 42S/iPhone code, and right now, it fixes some display glitches in the
+  other versions.
+
+2009-10-19: release 1.4.57
+
+* New LOG code (again), for exact results when the argument is a power of 10.
+  The bug from version 1.4.55 is fixed.
+* Subtract would lose one digit of precision for edge cases like
+  1 - 0.9999999999999999999999999; fixed.
+
+2009-10-12: release 1.4.56
+
+* The new LOG implementation introduced in Decimal version 1.4.55 was broken;
+  rolling back to 1.4.54 version. (Note that this means that powers of 10 do
+  not yield exact results, but at least everything *else* is OK again now.)
+
+2009-10-10: release 1.4.55
+
+* Some improvements in the new BCDFloat code:
+  . LOG (common log) is now precise for powers of 10.
+  . MOD function now works for large arguments.
+  . rounding fix in multiply now gets 1/3*3-1 and 10/3*3-10 the same answer,
+    10/7*7-10 is not the same, but this is correct (it depends on where you cut
+    off the number).
+  . optimisations to subtract routine.
+* Mac version: now uses $HOME/Library/Application Support/Free42 instead of
+  $HOME/.free42 for persistent state, keymap, and skins. If this directory
+  does not exist, but $HOME/.free42 does, the latter is renamed to the former.
+* Switching from a version using the old BCDFloat code (1.4.51 or earlier) to a
+  version using the new code (1.4.52 or later) wasn't handled properly; it
+  should handle the change in how Infinities and NaNs are represented, but it
+  didn't. This is related to the problem fixed in 1.4.54.
+  Starting with this version, all state files created by versions 1.4.51 and
+  older are assumed to contain old-style BCDFloat, and state files created by
+  versions 1.4.52 and newer are assumed to contain new-style BCDFloat.
+  This means that BCDFloat numbers created by all previous versions of Free42
+  Decimal will now be interpreted correctly, however, any state file that has
+  become damaged by upgrading from <= 1.4.51 Decimal to 1.4.52-54 will still
+  be damaged, and the only way to make sure no such damage remains is to do
+  CLALL and reload all programs and data.
+
+         to| <=51| <=51|52-53|52-53|  54 |  54 | >=55| >=55
+  from     | dec | bin | dec | bin | dec | bin | dec | bin
+  ---------+-----+-----+-----+-----+-----+-----+-----+-----
+   <=51 dec|  +  |  +  |  -  |  +  |  -  |  -  |  +  |  +
+   <=51 bin|  +  |  +  |  -  |  +  |  +  |  +  |  +  |  +
+  52-54 dec|  c  |  c  |  +  |  -  |  +  |  +  |  +  |  +
+  52-54 bin|  c  |  c  |  -  |  +  |  +  |  +  |  +  |  +
+   >=55 dec|  c  |  c  |  c  |  c  |  c  |  c  |  +  |  +
+   >=55 bin|  c  |  c  |  c  |  c  |  c  |  c  |  +  |  +
+
+  LEGEND: This chart shows compatibility between Free42 state file versions. To
+  check if version A will correctly handle state files produced by version B,
+  check the cell at column A, row B. The numbers 51..55 in the chart refer to
+  Free42 releases 1.4.51 through 1.4.55.
+  A 'c' means you will get a "State File Corrupt" message; "+" means the state
+  file will be read correctly, and "-" means the state file will be read, but
+  some numbers will be converted incorrectly.
+  Note that once the Free42 state has become damaged by an upgrade marked with
+  "-" in this chart, it will stay damaged; so, for example, upgrading from
+  1.4.51 Decimal to 1.4.52 Decimal, and then to 1.4.55 Decimal, may result in a
+  damaged state, while upgrading from 1.4.51 Decimal to 1.4.55 Decimal directly
+  will not.
+
+2009-08-28: release 1.4.54
+
+* The new BCDFloat code, introduced in version 1.4.52, uses a different
+  convention for representing NaN and infinities: instead of using special
+  values in the exponent, it now uses dedicated flags, and has a narrower
+  exponent field. The code that converts between decimal and binary, when
+  switching between Free42 Decimal and Free42 Binary while keeping the same
+  state file, did not deal with this new convention, and, as a result,
+  switching between those versions could cause numbers to become NaN or
+  Infinity when they shouldn't.
+  This release fixes this. It is only relevant to those who switch between
+  Free42 Decimal and Free42 Binary.
+
+2009-08-17: release 1.4.53
+
+* Decimal version: fixed a bug in the subtract routine that could cause
+  incorrect, malformed results in some cases, e.g. 4 ENTER 3 / 1 - 3 * 1 -
+  returned -:.E-25.
+
+2009-08-08: release 1.4.52
+
+* New: Mac version. This is a native application, not a Dashboard widget; it
+  is functionally identical to the PC versions (Windows, GTK, and Motif).
+  The print-out window doesn't work yet, though printing to files does;
+  everything else is working. The print-out window will be finished in a two
+  or three weeks, barring the unforeseen. I'm releasing the app in this
+  incomplete state because I feel it is stable and usable, and should be a
+  big improvement for those currently using the Dashboard widget.
+  This is a Universal application, so it should run on PowerPC and Intel-
+  based Macs. It requires Mac OS X 10.5 or later.
+* Decimal version: Merged Hugh Steers' latest BCD code. This provides more
+  accurate transcendentals and some bug fixes.
+* Also, Hugh improved the error estimate for the Romberg integration code;
+  it now converges more quickly in many cases.
+* MacDashboard version: now recognizes '*' and '+' on the numeric keypad.
+
+2009-07-10: release 1.4.51
+
+* Changed the homepage URL to http://thomasokken.com/free42/.
+
+2009-06-29: release 1.4.50
+
+* Adding or subtracting two complex matrices, and adding or subtracting a
+  complex matrix in X to or from a complex scalar in Y, would cause memory
+  corruption, resulting in a crash soon after. Fixed.
+
+2009-06-13: (no new code release)
+
+* Added "Realistic42s240x400" skin for 240x400 Pocket PC devices
+  (Free42PocketPCSkins.zip package). Contributed by Denis Cesar.
+
+2009-06-07: release 1.4.49
+
+* BASE/ tried to catch division by zero by looking at Y instead of X. Oops! The
+  result was that 0/1 would return "Divide by 0" and 1/0 would cause Free42 to
+  crash. Fixed.
+* PalmOS version: tall skins can now be selected on all devices, regardless of
+  whether they have tall screens or not. On most devices, this isn't useful,
+  but the tallness check had the effect of suppressing the 320x450 Ehrling42sm
+  skin on the Tapwave Zodiac, which has a 480x320 screen; the result was that
+  you couldn't use that skin even if you switched to portrait mode.
+
+2009-05-05: (no new code release)
+
+* Added "Ramos240x400" skin for 240x400 Pocket PC devices
+  (Free42PocketPCSkins.zip package). Contributed by Miguel Toro; based on
+  Ramos480x640 by Noe Ramos.
+
+2009-04-04: release 1.4.48
+
+* Fixed PSE; it no longer freezes the UI for one second, but uses a proper
+  timeout, so event processing can continue, and keystrokes during PSE have
+  the proper effect (of stopping program execution and then being handled
+  normally).
+
+2009-03-04: release 1.4.47
+
+* Another UVEC bug: it should return Invalid Data when the magnitude of its
+  argument (|z| for complex scalars, FNRM for real matrices) is zero. It
+  returned its argument unchanged instead. Fixed.
+
+2009-02-22: release 1.4.46
+
+* UVEC returned Invalid Type for complex scalar arguments. Fixed; it now returns
+  z/|z| (same as the SIGN function for such arguments), like the real HP-42S.
+* When functions with arguments, e.g. STO, FIX, etc., were entered into a
+  program from the CUSTOM menu, they would get inserted before the current
+  program line instead of after. Fixed.
+
+2009-01-28: release 1.4.45
+
+* ASTO IND ST X was broken; instead of storing the first 6 characters of the
+  ALPHA register into the register or variable pointed to by X, it stored them
+  into the variable pointed to by the first six characters of ALPHA itself.
+  Fixed.
+
+2009-01-14: (no new code release)
+
+* Added "Lienhard480x800" skin for 480x800 Pocket PC devices
+  (Free42PocketPCSkins.zip package). Contributed by Thomas Lienhard.
+* Added "Sven320x240mini" skin for 320x240 Pocket PC devices
+  (Free42PocketPCSkins.zip package). This skin only shows the keys for basic
+  arithmetic and stack manipulation, making the keys large enough to use easily
+  without a stylus. Contributed by Sven from Vienna.
+* Added "Ramos480x640" skin for 480x640 Pocket PC devices
+  (Free42PocketPCSkins.zip package). It has a distinctive, sparse look.
+  Contributed by Noe Ramos.
+
+2008-08-16: release 1.4.44
+
+* Made auto-repeat for number entry and ALPHA modes optional. The auto-repeat
+  feature, introduced in release 1.4.11, is not found on the real HP-42S, and
+  can cause problems if you don't expect this kind of behavior in a calculator.
+  It can now be turned off in the Preferences dialog, though the default is
+  still for it to be on.
+  Note that this is unrelated to the auto-repeat for the 'up' and 'down' keys,
+  which is authentic HP-42S behavior, and cannot be turned off.
+
+2008-04-12: release 1.4.43
+
+* MacDashboard version: fixed event handling so that program execution now
+  works. There's still plenty of room for improvement: key timeouts (so
+  pressing and holding a key behaves like it does on the real HP-42S and on
+  the other Free42 versions) and auto-repeat come to mind... But at least
+  programs, the solver, the integrator, and interruptible matrix functions
+  should all be usable now.
+
+2008-03-10: release 1.4.42
+
+* Pocket PC version: I added a HI_RES_AWARE resource so that Free42 will now be
+  able to take advantage of high-resolution displays without the help of
+  Tweaks2k2 or similar utilities.
+
+2008-01-11: (no new code release)
+
+* Added "Khor" skin for Windows and Unix versions (Free42Skins.zip package).
+  Contributed by Michael Khor.
+
+2008-01-01: release 1.4.41
+
+* PalmOS version: when opening the print-out database fails with a 0x0209 error
+  (database corrupt), it now deletes the database, creates a new one, and tries
+  again.
+
+2007-12-15: release 1.4.40
+
+* The 'Paste' command now handles binary, octal, and hexadecimal values when
+  the calculator is in the respective base modes. Note that 'Copy' has
+  supported non-decimal bases since times immemorial, so this simply makes
+  clipboard handling consistent at last.
+
+2007-12-15: release 1.4.39
+
+* Windows version: the single-instance option did not work when the previous
+  instance was minimized. Fixed.
+
+2007-12-14: release 1.4.38
+
+* Windows, GTK and Motif versions: implemented single-instance option. This is
+  on by default in the Windows version, but off by default in the GTK and Motif
+  versions, since many X11 window managers won't let clients raise themselves.
+  (PalmOS is single-tasking, and Pocket PC enforces single-instance behavior
+  for all applications, so this option does not apply to those environments.)
+
+2007-12-08: release 1.4.37
+
+* Changed the homepage URL to http://free42.sourceforge.net/.
+
+2007-08-15: (no new code release)
+
+* The Motif version did not compile under Ubuntu 64-bit; its version of g++
+  considers the loss of precision that occurs when casting a void* to an int to
+  be a fatal error, and motif/shell_main.cc used such casts in two places
+  (those casts were legit -- not a bug!). I fixed shell_main.cc so that it
+  first casts to a long, then to an int: the loss of precision when casting
+  between integer types is not frowned upon, so this should compile anywhere
+  with no errors or warnings.
+  I'm only updating the free42.tgz package, and not releasing any new
+  executables, since this code change does not actually affect any of the
+  existing builds.
+
+2007-07-28: (no new code release)
+
+* Added "Ehrling42ss240sq" and "SemiReal240sq" skins for 240x240 Pocket PC
+  devices (Free42PocketPCSkins.zip package).
+* Added information about keyboard mapping to the README files for Pocket PC,
+  Windows, Motif, and GTK.
+
+2007-05-12: release 1.4.36
+
+* PalmOS 68k version: under PalmOS < 3.2, importing and exporting programs
+  would cause a crash, because I was using a Progress Manager API that did not
+  yet exist in those versions. Fixed now; as it turns out, I never needed that
+  newer API in the first place; the PalmOS 3.0 version does the job just fine.
+
+2007-05-06: release 1.4.35
+
+* Binary version: AIP would mangle some numbers; the underlying function to
+  extract the digit in a number's units position was broken. Fixed.
+* Decimal version: Modified BCDFloat::_usub() so that it performs the
+  subtraction using an extended (8-digit) mantissa. This fixes the behavior of
+  borderline cases like 0.9999999999999999999999999 - 1 (used to yield 0, now
+  -1e-25) and 1 - 1e-25 (used to yield 1, now 0.9999999999999999999999999).
+
+2007-04-04: (no new code release)
+
+* The "Standard" skin for the PalmOS version (Free42PalmOSSkins.zip package)
+  had the labels for SST and BST switched. Fixed.
+  
+2007-04-01: release 1.4.34
+
+* SOLVER: when the Ridders algorithm made no further progress, because the
+  interpolated value coincided with one of the interval's endpoints, it would
+  use the interpolated value as the final estimate of the root, without
+  checking if it was in fact the best estimate; the best estimate can
+  sometimes be the opposite endpoint. Added a check to make sure the best
+  estimate is returned.
+* GTK and Motif versions: now set the WM_WINDOW_ROLE property on all top-level
+  windows, to allow window managers to use different policies on the various
+  windows depending on their role. This property is set to "Free42 Calculator"
+  for the main window, "Free42 Print-Out" for the print-out window, and to
+  "Free42 Dialog" for all dialogs.
+
+2007-03-23: release 1.4.33
+
+* PalmOS ARM version: would not run on some Palm Tungsten T models, because
+  they report an incorrect ROM version number. Made the version number check a
+  bit more lenient so that it will accept "Development" versions as well as
+  "Release" versions.
+
+2007-03-20: (no new code release)
+
+* Added "StandardPPCsm" skin for 240x240 Pocket PC devices
+  (Free42PocketPCSkins.zip package).
+
+2007-02-27: release 1.4.32
+
+* When the BASE application was active, the arithmetic keys and +/- would be
+  reassigned the BASE+, BASE-, BASE*, BASE/, and BASE+/- functions -- which is
+  good, but these assignments would stay in effect even if a non-application
+  menu was active on top of BASE, and that was wrong. Fixed now.
+
+2007-02-18: release 1.4.31
+
+* Decimal version: Floating-point addition would return an incorrectly rounded
+  result under certain circumstances. Fixed.
+
+2007-02-14: release 1.4.30
+
+* INTEG reported the difference between the final iteration and the one before
+  in the Y register (the error estimate), but without taking the absolute
+  value first. As a result, the reported accuracy could be negative. Fixed.
+
+2007-01-27: release 1.4.29
+
+* Decimal version: did not handle numbers without mantissa correctly while
+  importing programs (i.e. lines like "E4"; see the notes for release 1.3.5).
+  The binary version has handled this kind of thing correctly since release
+  1.3.5, but the decimal version did not. Fixed.
+
+2007-01-06: release 1.4.28
+
+* INTEG used to treat ACC as an absolute error bound, but that is not
+  consistent with the behavior of the real HP-42S. Fixed; it is now treated as
+  a relative error.
+
+2006-11-11: (no new code release)
+
+* Added "Realism" skin for high-density (320x320 and higher) PalmOS devices
+  (Free42PalmOSSkins.zip package). Contributed by Curtis Cameron.
+
+2006-08-21: release 1.4.27
+
+* The int2string() function did not handle numbers with more than 9 digits
+  correctly. This caused MEM to display gibberish on machines with more than
+  999,999,999 bytes of available physical memory.
+  Fixed; also, the code now interprets free memory as an unsigned number,
+  rather than signed, so that free memory up to 4,294,967,295 bytes should now
+  be reported correctly.
+
+2006-07-11: release 1.4.26
+
+* PalmOS ARM version: Paste didn't work; it caused a Fatal Exception instead.
+  Fixed.
+
+2006-06-21: release 1.4.25
+
+* Motif version: now gets the selected items from the Export Program dialog
+  using the XmListGetSelectedPos() function, rather than using the
+  selectedPositionCount and selectedPositions resources; those resources are
+  a Motif 2.0 feature, and are not supported by the Lesstif library. With this
+  change, Export Program now works with Lesstif as well as with OpenMotif.
+
+2006-06-19: release 1.4.24
+
+* Under certain conditions, SOLVE would return not the final value in X, but
+  the previous one (which is also returned in Y). Fixed.
+* Pocket PC version: now building the CAB files using the Cabwiz.exe from the
+  PPC 2002 SDK, instead of the PPC 2003 SDK. Hopefully this will fix the
+  problem of Free42 not installing properly on some PPC 2002 devices.
+
+2006-06-09: release 1.4.23
+
+* PalmOS version: fixed a bug that would cause reading the state file to fail
+  if there were no variables.
+* GTK version: the position of the print-out window would not be remembered if
+  it was closed when the application exited. It appears that the
+  gtk_window_get_position() function returns the original postition (from the
+  window's geometry hints) if it is called while the window is not mapped.
+  I'm now working around this by making sure I get the window position while
+  the print-out window is actually mapped.
+* Windows version: Show Print-Out did not work when the Print-Out window was
+  minimized. Fixed.
+* Decimal version: changed the definition of POS_HUGE_PHLOAT and
+  NEG_HUGE_PHLOAT to have a mantissa with 25 nines, rather than 28. (These are
+  the numbers that are returned when a range error occurs while flag 24 is
+  set.)
+* CLALL did not clear the CUSTOM menu and the programmable menu. Fixed.
+* STO+, STO-, and STO/, where the destination was the indexed matrix, would
+  reset I and J, but that was wrong (only STO and STO* should do that, since
+  only they can actually cause the destination's dimensions to change).
+  This caused the MLR program from the HP-42S Programming Examples and
+  Techniques book to return incorrect results. Fixed.
+* In HEXM and OCTM modes, SHOW should display X in decimal, but it showed it in
+  the selected base instead. On the real HP-42S, SHOW only shows the number in
+  base in BINM mode, and in decimal in all other modes. Fixed.
+
+2006-05-22: release 1.4.22
+
+* Decimal version: numbers are always rounded to 25 decimal digits now. The 7-
+  digit base-10000 representation, which Free42 uses internally, is equivalent
+  to 25 to 28 decimal digits, but the extra digits tend to introduce noise
+  which can interfere with the convergence tests of certain iterative numerical
+  algorithms. Rounding to 25 decimal digits makes Free42 behave like a regular
+  decimal calculator, preventing such problems.
+* GTK version: explicitly realizes the print widget now, which prevents GTK
+  warnings being written to the console when print instructions are performed
+  before the print-out window is first opened.
+
+2006-05-20: release 1.4.21
+
+* Decimal version: for values < 1e-8, SQRT returned results that were a factor
+  10000 too large. This was due to a bug in the underlying BCDFloat::sqrt()
+  method, which probably affected other functions as well. Fixed.
+
+2006-05-19: (no new code release)
+
+* Added "HP-42C" voyager-style skins for Windows and Unix (Free42Skins.zip
+  package). Contributed by Egan Ford.
+
+2006-05-11: release 1.4.20
+
+* GTK version: added periodic battery check (once per minute). The other
+  versions already had this. Note that the GTK and Motif versions use /proc/apm
+  to inspect battery status; on systems without /proc/apm, this check does not
+  work, and the battery is assumed to always be OK. /proc/acpi support is not
+  implemented yet.
+* All versions except PalmOS: the keyboard handling changes in release 1.4.17
+  broke auto-repeat from the PC keyboard. Fixed.
+
+2006-05-08: (no new code release)
+
+* HP-41 to HP-42S character code conversion in the rom2raw program did not
+  work; alpha LBL, GTO, XEQ, and string program lines were not converted.
+  Fixed, and updated the free42.tgz and rom2raw.zip packages.
+
+2006-05-07: release 1.4.19
+
+* GTK version: auto-start (flag 11) did not work. Fixed.
+* Auto-start did not work if the program counter was at line 00. Fixed.
+* When auto-start causes program execution to begin while PRGM mode is active,
+  any pending command should be cancelled and PRGM mode should be exited before
+  program execution starts. This wasn't handled properly; fixed now.
+
+2006-05-01: release 1.4.18
+
+* Decimal version: fixed a bug in exp() that caused it to return wrong results
+  for very large negative parameters. This affects E^X, SINH, COSH, and TANH.
+* Decimal version: fixed a bug in TANH that caused it to return NaN or other
+  nonsense for very large parameters.
+* Decimal version: fixed a bug in the BCD20 library that caused -Infinity not
+  to be recognized as a negative number.
+
+2006-05-01: release 1.4.17
+
+* Pocket PC version: fixed a couple of cosmetic bugs in menu key highlighting.
+* Added support for CShift mappings. These are keyboard mappings that take
+  effect if the Calculator's Shift annunciator is on. This makes it possible
+  for [CShift] [Key] to activate a different keystroke or macro than the
+  unshifted [Key], so you can, for example, make CShift SQRT be something other
+  than X^2.
+* Display repainting is temporarily disabled during macro playback, to prevent
+  distracting "flashing" for complex macros.
+
+2006-04-23: (no new code release)
+
+* Added 160x160 version of the Standard skin to the Free42PalmOSSkins.zip
+  package.
+
+2006-04-22: release 1.4.16
+
+* Complex matrices took up twice as much memory as they actually needed, due to
+  an erroneous extra multiplication by 2 while allocating the memory chunk for
+  the matrix elements. Fixed.
+* Shared matrices now remain shared even after application exit and restart.
+* PalmOS version: removed the 64 kilobyte matrix size limit. Matrix size is now
+  limited only by available application heap space. (On PalmOS < 3.5, the 64k
+  limit still exists.)
+
+2006-04-13: release 1.4.15
+
+* Windows and Pocket PC versions: when print commands were executed before the
+  print-out window was created, the scroll-back buffer would not grow properly.
+  Fixed.
+
+2006-04-11: release 1.4.14
+
+* PalmOS version: tweaked the layout of the Preferences dialog a bit. The
+  version for PalmOS < 3.5 was particularly bad.
+* PalmOS ARM version: Export Program would only export the first program in
+  memory, and write garbage (or even freeze) for any others that were selected.
+  Fixed.
+
+2006-04-10: release 1.4.13
+
+* New: ARM-native PalmOS version. It's not for everyone -- it's big, it starts
+  up much slower than the 68k version, and of course you need a Palm with an
+  ARM CPU -- but once it gets going, it's pretty fast!
+  Note that the ARM state file is not compatible with the 68K version, so
+  whenever you switch from the 68K version to the ARM version or back, you will
+  get the "State File Corrupt" message. Be sure to export all important
+  programs before switching!
+* Implemented instance caching for scalars and strings. This eliminates the
+  memory management overhead from most simple instructions and speeds up
+  program execution.
+
+2006-04-04: release 1.4.12
+
+* Pocket PC version: implemented proper beeper.
+
+2006-04-04: release 1.4.11
+
+* Implemented auto-repeat for number entry and ALPHA modes.
+* In the previous release, I broke the annunciators in the Standard skin for
+  the Pocket PC. Fixed.
+
+2006-04-03: release 1.4.10
+
+* Pocket PC version: made orange (shifted) legends in the Standard skin a bit
+  larger. The original 5x4 characters were way too small; hopefully the new 7x5
+  characters will be more to people's liking.
+* Tweaked the PalmOS version of the Ehrling42sm skin a little: I increased the
+  vertical key spacing by 4 pixels. It has a more balanced appearance now;
+  should be nicer to use, too.
+* PalmOS version: changed the display background color in the Ehrling42sm,
+  SemiReal42, SemiReal42HD, and SemiAuto42HD skins, from LCD greenish to gray.
+  The reason is that the standard PalmOS 8-bit palette does not contain the
+  right shade of green, so in the skin bitmaps, the color ended up becoming
+  gray anyway; displaying the actual LCD contents on top of it (which happens
+  in true color on devices that support it) then gives an ugly appearance.
+  I modified skin2prc so that it can now also generate true-color (16-bit) skin
+  bitmaps, but those tend to get pretty big, so I'm not using that
+  functionality yet while building the Free42PalmOSSkins.zip package; maybe
+  later, I'll create separate true-color versions of Ehrling42sm etc. to keep
+  the fans of green happy...
+
+2006-04-02: release 1.4.9
+
+* PalmOS version: optimized display updating code. For high-density skins,
+  display updates are now about 3 times faster than before; this should make
+  HD skins much more usable (more responsive).
+* PalmOS version: added support for tall (320x450) skins.
+* Added new "realistic" 320x450 skin to Free42PalmOSSkins.zip package. It's
+  not great; just a quick-and-dirty, proof-of-concept adaptation of Ehrling42sm
+  from the Windows/Unix skin collection.
+
+2006-04-01: release 1.4.8
+
+* Changed implementations of X<=Y? and X>=Y? so they now actually return x<=y
+  and x>=y, respectively; formerly, they returned !(x>y) and !(x<y), which is
+  fine in most cases, except when NaNs are involved.
+* Decimal versions: rewrote BCDFloat comparison functions so they now handle
+  NaNs properly; also, inequalities now return correct results for numbers
+  whose difference is too small to represent (e.g. 1.1e-10000 1e-10000 X<Y?
+  used to return 'false', because it would subtract the two numbers and then
+  compare the result to 0 -- with no check for underflow).
+
+2006-04-01: release 1.4.7
+
+* Decimal versions: in BCDFloat::mul(), multiplications by zero could return
+  values with zero mantissas (good) but nonzero exponents (bad). After several
+  such multiplications, the exponents could get into the "special" ranges (i.e.
+  Infinities and NaNs). Result: 0 * 0 => NaN, etc. Fixed.
+* Fixed BCDFloat::sub() so that it will not return -0. It used to do that when
+  computing 0 - 0. I think this was harmless, but I fixed it anyway.
+* Added new Pocket PC skin with single-click activation of shifted functions to
+  Free42PocketPCSkins.zip package. Contributed by Jeff O.
+
+2006-03-26: release 1.4.6
+
+* New: Pocket PC version.
+* Added a new voyager-style skin to the Free42Skins.zip package (Windows and
+  Unix), and created a new package, Free42PocketPCSkins.zip, with skins
+  specifically designed for the Pocket PC.
+* ->POL now detects the case that the real and/or imaginary parts are zero, and
+  returns exact results for those cases.
+* Canceling a partially-entered DEL, LIST, or PRP command in PRGM mode could
+  cause the instruction pointer to be set to an invalid location. Fixed.
+
+2006-03-19: release 1.4.5
+
+* Decimal version: 1 ACOS returned <Not a Number> instead of 0. Fixed.
+
+2006-03-13: release 1.4.4
+
+* GTK version: when initially presented, the print-out window was not
+  automatically scrolled to the bottom sometimes. Fixed.
+* GTK version: when the print-out window's scroll-back buffer was full, and the
+  window was not scrolled to the bottom, and print-out took place, the window
+  would get updated wrong. Fixed.
+* In TRACE mode, while running a program, clearing flag 21 should not suppress
+  auto-print, but it did. Fixed.
+* The "Paste" command no longer uses sscanf() to parse real or complex numbers;
+  instead, it now uses the same string-to-number conversion code that is used
+  when the user enters a number on the keyboard. This means that numbers like
+  0.1 can now be pasted in the Decimal version with no binary round-off error.
+
+2006-03-12: release 1.4.3
+
+* GTK version: refused to close the print-out window. Fixed.
+
+2006-03-11: release 1.4.2
+
+* New: GTK+ version. For Unix users who think Motif is not cool enough. ;-)
+* Fixed handling of large complex arguments in ABS and SIGN.
+* Decimal version: fixed a bug in BCDFloat addition and subtraction that could
+  cause the result to be rounded wrong under certain circumstances.
+* Some minor maintenance stuff: changed the type of BASE (in bcdfloat.h) from
+  'long' back to 'int' in order to make the PalmOS code slightly more
+  efficient; removed the -O2 option from the MinGW makefile, because the
+  optimizer was breaking the solver.
+* Fixed a bug that could cause the PalmOS version to fail while converting
+  programs from decimal to binary.
+
+2006-03-03: release 1.4.1
+
+* Decimal version: fixed a bug in BCDFloat addition and subtraction that could
+  cause the result to have the wrong sign under certain circumstances.
+  This seems to have fixed the poor SOLVE performance; apparently that was
+  *not* caused by transcendentals not being evaluated to the full 28 digits.
+* PalmOS version: when entering text using Graffiti, case switching is now
+  performed even on Graffiti 2.
+
+2006-02-27: release 1.4
+
+* Added decimal floating point, implemented using BCDFloat code by Hugh Steers.
+  The decimal code is a compile-time option; I can (and will!) still build
+  Free42 with binary floating point as well.
+* Removed "IP Hack" option. It never really did the job anyway, and with the
+  introduction of the Decimal version, it is now obsolete.
+* VIEW, AVIEW, and ADV now talk to the printer when invoked from the keyboard,
+  even if flag 21 is clear.
+* In TRACE mode, when the X register is printed automatically (not because of
+  an explicit PRX), and it contains a matrix, print only the matrix descriptor,
+  not its whole contents.
+* Fixed handling of large complex arguments in LOG and LN.
+* Windows version: the default location for the Free42 directory is once again
+  the executable's directory. This change only affects new installations; the
+  Free42 directory location is still stored in the Registry, and any already
+  existing setting will be honored.
+* On hard reset, the printer is enabled now (flags 21 and 55 are set instead of
+  cleared). This is not what the real HP-42S does, but, then again, the real
+  HP-42S does not have a built-in printer, while Free42 does; this new behavior
+  should be more intuitive.
+  (Note: flags 21 and 55, and the PRON and PROFF commands, still work as
+  before; the only change is their initial setting.)
+* Fixed a crash that could occur when ridiculously large numbers were used for
+  indirect addressing (meaning numbers >= 2147483648 absolute).
+
+2006-02-10: release 1.3.17
+
+* Clicking in the display now only activates softkeys if a menu is active. This
+  means that programs that "fake" menus by painting in the display and calling
+  GETKEY are no longer supported -- but then again, you can still use the top
+  six keys of the keyboard in that case, and for all I know there is only one
+  program on the whole planet that actually does a fake menu (hi Erik :-) ).
+* Code import now converts "" (empty string, a synthetic HP-41 construct) to
+  |-"", instead of dropping it on the floor. This is consistent with the
+  behavior of "" on the 41: it is a NOP, sometimes used after DSE or ISG, in
+  cases where the 'skipping' behavior of those functions is not wanted.
+* In lowercase print mode (flag 13 set), functions with hidden characters,
+  e.g. COMPLEX/CPLX, were printed wrong ("cOMplEx" instead of "complex").
+  Fixed.
+* Added rom2raw.c to the source tree. This is a program that extracts user code
+  from *.ROM format HP-41 module images; it converts XROM calls to user code
+  within the same module to XEQ, and warns about all other XROMs (except the
+  ones that correspond to HP-42S instructions). At some point it would be nice
+  to integrate module support into Free42 itself; meanwhile here's hoping this
+  will also be useful. I'll put it on my web page as a separate download,
+  complete with a ready-to-run Windows executable, once I iron out the
+  wrinkles.
+* Added KR and Widgi42 skins (for the Motif & Windows versions).
+  Contributed by Klaus Reckermann.
+
+2006-02-07: release 1.3.16
+
+* A few obscure printing fixes (PRX now prints complex scalars left-justified
+  if they do not fit on one line; the same now happens for command printing in
+  NORM and TRACE modes).
+* Modified most skins so all the sensitive rectangles are now as large as
+  possible, making keys easier to hit with the mouse. (The sensitive rectangle
+  for a key is the area on the screen where a mouse click will cause the key to
+  be pressed; in several skins this area was the size of the keys themselves,
+  but after this modification, the area extends several pixels beyond the keys,
+  meaning you can be a bit sloppier now, which is good because it reduces
+  strain on the arm muscles and tendons.)
+  I did not change the Semi-Auto skins yet, because my automatic rectangle-
+  stretching program currently only handles 37-key layouts. Fortunately, the
+  Semi-Auto skins already have large sensitive rectangles, which cannot be
+  enlarged much further anyway. (I know, lame excuse!)
+* In skins/SemiReal42.gif and palmskins/SemiReal42HD.gif, moved the Rv key one
+  pixel to the left. It's been annoying me forever -- can't think why I didn't
+  fix this earlier. :-)
+
+2006-02-06: release 1.3.15
+
+* The PRX command no longer prints three asterisks when printing a complex
+  number or a matrix. Also, when printing a matrix, in addition to printing
+  the descriptor line (as shown in the display), it now prints the matrix
+  contents as well. These changes bring the Free42 PRX command in line with
+  the HP-42S.
+* Windows & Motif versions: fixed handling of PC keyboard key rollover (i.e.
+  pressing a key before the previous key is released). This should fix the
+  problem of keystrokes being missed when typing rapidly.
+* Windows & Motif versions: when the A..F menu in the BASE application is
+  active, the A through F keys are now mapped to the corresponding menu keys,
+  regardless of the keyboard map -- so you can now enter a number like FCE2
+  without having to use the mouse or the F1-F6 keys.
+* Added MacDashboard version to the source distribution. No binary
+  distribution, alas, because I don't have a MacOS X build environment.
+  MacDashboard code written by D. Jeff Dionne.
+
+2006-02-01: release 1.3.14
+
+* Windows version: added always-on-top feature.
+* Windows version: in the previous release, when I fixed the code that saves
+  the window positions when exiting using the OFF command, I broke the code
+  that saves the window positions when exiting using the close box and the Quit
+  command. Fixed, so now window positions should be remembered correctly
+  regardless of how Free42 is exited.
+
+2006-01-29: release 1.3.13
+
+* Fixed behavior of Y^X for certain special cases (namely, 0^(0,0); (0,0)^0;
+  (0,0)^(0,0); 0^(1,0); (0,0)^(1,0). Note that the first three of those now
+  return (1,0); this is not consistent with the real HP-42S, which returns
+  "Invalid Data", but it is consistent with the way Free42 already treated
+  0^0).
+* SIN, COS, P->R, and COMPLEX, when used in DEG and GRAD modes, now return
+  exact results for multiples of 90 degrees (100 grads). Also, the TAN function
+  now returns exact results for multiples of 45 degrees (50 grads).
+* Added range checks to the complex versions of SIN and COS.
+* In PRGM mode, the A..F command in the BASE menu now says "Restricted
+  Operation".
+* Windows version: when exiting the emulator using the OFF command (shift-EXIT
+  or XEQ "OFF"), the positions of the main and print-out windows would not get
+  updated in the state file.
+
+2005-06-20: release 1.3.12
+
+* Motif version: closing the print-out window did not work in the Cygwin build.
+  The problem appears to be in the Cygwin Lesstif library: the XmUNMAP setting
+  for the deleteResponse resource in TopLevelShell does not work.
+  I now work around this by using the XmDO_NOTHING setting instead, and calling
+  XWithdrawWindow() explicitly in the WM_DELETE_WINDOW protocol handler.
+
+2005-06-19: release 1.3.11
+
+* DOT did not drop the stack; it placed the result in X but left Y intact.
+  Fixed.
+
+2005-06-14: release 1.3.10
+
+* PalmOS version: in the file selection dialog, sorting was broken. It sorted
+  the volume list, which it shouldn't, and when sorting directory listings, it
+  sorted the names but not the types, and it did not force directories to the
+  top of the list. Oops! So many bugs in such a trivial enhancement... Well,
+  it's fixed now, and I'm taking a vacation from this project. :-)
+
+2005-06-14: release 1.3.9
+
+* PalmOS version: in the file selection dialog, file names are now sorted
+  alphabetically.
+
+2005-06-09: release 1.3.8
+
+* PalmOS version: Added Copy and Paste icons to the command bar for the
+  calculator form.
+* PalmOS version: The Edit and Skin menus were switched in the print-out form.
+  Fixed.
+
+2005-05-12: release 1.3.7
+
+* PalmOS version: hardware Up and Down keys now scroll the print-out window.
+
+2005-05-12: release 1.3.6
+
+* Windows version: fixed computation of scroll bar width, so Windows 2000 users
+  who use "Large Fonts" (or otherwise wider-than-normal scroll bars) don't lose
+  pixels at the right edge of the print-out window.
+* PalmOS version: pressing and holding the 5-way navigator's center button now
+  exits to the Application Launcher (this is an automatic PalmOS behavior,
+  which I had unintentionally sabotaged before by mis-handling auto-repeat
+  events).
+
+2005-05-11: release 1.3.5
+
+* Improved import of HP-41 programs: numbers with exponent but no mantissa are
+  now handled correctly (e.g. 'e4' becomes '1e4', rather than '0'); XROM
+  instructions that do not correspond to HP-42S built-in functions are now
+  imported as XROM instructions, rather than being skipped.
+  Note that XROM instructions always return the "Nonexistent" error message, so
+  HP-41 programs that rely on non-HP-42S extensions still won't actually work
+  in Free42, but at least now you will be able to see more easily *why* such
+  programs fail.
+* PalmOS version: PalmOS 5.0 (and 5.1?) has a bug in FileControl(): the
+  fileOpGetOpenDbRef command returns a bogus value; when using this value in
+  subsequent Data Manager calls, a crash results. This was noticed on a Palm
+  Tungsten T and on PalmOS Simulator 5.
+  This bug caused Free42 to crash on exit on some devices (it would crash while
+  trying to set the "backup" bit on the Free42State file). I changed my code so
+  that it obtains the necessary information another way.
+* Motif version: fixed a bug that could cause a crash whenever a file selection
+  dialog was created. I never noticed it causing a problem in Linux, but it
+  did crash the Cygwin build, and it was incorrect code anyway. Fixed now.
+
+2005-04-21: release 1.3.4
+
+* PalmOS version: yet another 'program import' bug, this time due to a
+  difference of opinion between gcc and g++ about sign extension. Fixed.
+
+2005-04-21: release 1.3.3
+
+* PalmOS version: program import and HP-41 synonym lookup were broken, again
+  apparently because the PalmOS version of g++ does not handle const globals
+  properly. I removed the 'const' qualifier from a few lookup tables and that
+  seems to have solved the problem.
+
+2005-04-21: release 1.3.2
+
+* PalmOS version: added key click sound, to give the user audible feedback when
+  Free42 receives a key press (pen tap) on the emulated keyboard.
+* Added skins with single-click activation for shifted keys (Windows/Motif and
+  high-density PalmOS versions). Contributed by Jeff O.
+* Added compact version of Erik Ehrling's realistic skin (Windows/Motif only).
+  Contributed by Michael Vogel.
+
+2005-04-06: release 1.3.1
+
+* In the previous release, I broke the FCN catalog in the PalmOS version.
+  Those pesky 'const' globals again! Oops...
+
+2005-04-06: release 1.3
+
+* Converted the project to C++ in preparation for implementing BCD support.
+
+2005-03-23: release 1.2.10
+
+* The code in ->HMS, HMS+, and HMS-, that was supposed to prevent results such
+  as ->HMS(61/60) = 1.006 (by adding 0.4 to fix the minutes, or 0.004 to fix
+  the seconds, to get 1.01 in this example) was incorrect; it would apply the
+  correction in cases where the intermediate result was rounded down due to
+  binary round-off; this would cause ->HMS(119/60) to return 1.594 instead of
+  1.59. Fixed by making the test for when to perform the adjustment more
+  accurate.
+
+2005-03-21: release 1.2.9
+
+* PalmOS version: fixed a couple of problems with the hardware Up and Down
+  keys: auto-repeat events are now ignored (Free42 handles that on its own),
+  and SST in RUN mode now shows the instruction to be executed, and goes to
+  NULL, if held down for 1/4 second and 2 seconds, respectively.
+
+2005-03-21: release 1.2.8
+
+* Motif version: file selection dialogs now use option menus for file type
+  selection. The only remaining difference between these, and the Windows and
+  PalmOS versions, is that the Motif version uses case-sensitive matching, so
+  the "*.raw" filter won't match "foo.RAW". You'd think this would be a
+  simple matter of using a custom file search procedure, but there turn out to
+  be weird side effects (with Open Motif 2.2.2, though not with Lesstif,
+  interestingly enough). That'll require some more research.
+* Motif & Windows versions: did not repaint the skins after skin switching in
+  certain circumstances. I added code to force a full repaint.
+* Windows version: the message and title on several message boxes were
+  switched. I guess nobody ever saw those messages anyway. :-)
+* Did some serious spring cleaning in my TODO list. There were a lot of goals
+  there, which, to my mind, were just too much effort for too little gain.
+  At this moment, BCD and Pocket PC support are my only *serious* remaining
+  objectives, apart from continuing to fix bugs of course.
+  Maybe I will reconsider some of the deleted objectives eventually, but that's
+  unlikely to happen before the gloomy days and long nights of winter return
+  (oh, how conducive they are to the coding mind-set!). I'll keep them off the
+  TODO list, so as to avoid giving the impression that stuff like a larger
+  display or algebraic equations are actually planned and likely to arrive
+  sometime soon, and also to give myself the satisfied feeling of "not much
+  left to do". :-)
+
+2005-03-20: release 1.2.7
+
+* Windows version: could not write the registry value to store the Free42
+  directory location (HKEY_CURRENT_USER\Software\Thomas Okken Software\Free42
+  \HomeDir) unless the parent key existed already -- which, unless you have the
+  Free42 Conduit for the PalmOS version installed, it won't! Oops! Fixed now.
+
+2005-03-20: release 1.2.6
+
+* Windows version: with the ALPHA menu active, some PC keys that generate
+  printable ASCII codes (e.g., shift-equals for '+'; also backslash, period,
+  comma) were not handled properly and went through the regular non-ALPHA
+  mapping, meaning the corresponding characters could not be typed directly.
+  Fixed.
+* PalmOS version: the hardware "Up" and "Down" keys are now mapped to the
+  emulated "Up" and "Down" keys.
+* 'Paste' didn't enable stack lift. It does now.
+* 'Paste' now accepts numbers in the same format that 'Copy' produces, which is
+  the format used on the calculator's display -- so flag 28 controls whether
+  '.' or ',' is the decimal. Thousands separators are ignored regardless of the
+  setting of flag 29.
+* 61 ENTER 60 / ->HMS now returns 1.01 instead of 1.006. I added a check to
+  see if round-off after the final computation step caused the seconds or
+  minutes to reach 60. I also added this same check to HMS+ and HMS-.
+* Clicking in the bottom half of the display now activates "soft" (menu) keys.
+  This actually means you now simply have another way of clicking the six keys
+  in the top row of the keyboard, but the visual feedback is different, and
+  some may find it more intuitive than clicking the keyboard keys when working
+  with menus.
+* Windows version: now allows 'Alt' to be used in keyboard mappings. I'm a bit
+  uneasy about my keyboard message handling code; it took some trial and error
+  before I got to the point where Free42's mappings were coexisting with the
+  standard Windows Ctrl/Alt behavior in the menu bar, and I don't fully
+  understand *why* my code works. Maybe that's just what programming Windows is
+  supposed to be like <g>. Anyway, if it turns out that this code breaks on
+  more recent versions of Windows (I use 98SE myself), I'm sure I'll hear about
+  it, and if so, I'll just rip it out. The code that deals only with Ctrl and
+  Shift seems to have been fine, so I can always fall back on that if need be.
+* Windows version: now allows the user to choose the location of the Free42
+  directory (meaning, the directory where the state, print-out, keymap, and
+  skin files are stored). Also, skin files are now looked for in the Free42
+  directory *and* in the directory containing the executable, so a shared
+  installation of Free42 can also have a shared set of skins.
+
+2005-03-18: release 1.2.5
+
+* Skins now handle multiple keys with the same key code properly: the key that
+  is clicked is the one that is highlighted, instead of the last matching one
+  in the layout description; and when a PC keyboard key is pressed that is
+  mapped to a calculator key for which multiple keys exist in the skin
+  description, the first one is highlighted, instead of the last one.
+* Macro keys: in the *.layout files, it is now possible to define keys with
+  keycodes in the range 38..255; these keys are mapped using "Macro:"
+  definitions in the same *.layout file. The macro is a sequence of zero or
+  more standard key codes (1..37).
+* Windows & Motif versions: key mappings can now be defined in the skin *.layout
+  file. The syntax is identical to that used in the keymap.txt/keymap file.
+  When the skin maps a key that is also mapped in the default keymap file, the
+  skin's mapping takes precedence.
+  Note that such customized *.layout files are OS-dependent, since the way PC
+  keyboard keys are specified is different between Windows and Motif: Windows
+  uses numeric key codes, while Motif uses X11 KeySyms.
+
+2005-03-18: release 1.2.4
+
+* PalmOS version: the Delete Skin feature would crash when there were no
+  external skins installed. Fixed.
+
+2005-03-16: release 1.2.3
+
+* DELR, with 'I' pointing to the bottom row, would leave 'I' pointing past the
+  bottom of the matrix, and, when used in EDIT or EDITN mode, display a bogus
+  value in X. When writing a new value to the matrix after this happens, memory
+  corruption could result. Fixed now.
+
+2005-03-15: release 1.2.2
+
+* PalmOS version: added a feature to let the user remove external skins (i.e.
+  skins that aren't built into Free42, but that were installed as separate
+  PRC files). So, now you don't need to use Filez any more to accomplish this
+  task, never mind having to uninstall everything and start all over.
+* PalmOS version: on devices with Graffiti 1, upper- and lower-case characters
+  are now switched, so that uppercase characters are easier to enter. This was
+  done because uppercase is much more common than lowercase in Free42. On
+  devices with Graffiti 2, case switching is not performed, since there
+  uppercase requires no extra gestures, but can be entered simply by jotting in
+  the center of the input area.
+* Added two new skins to the Free42PalmOSSkins.zip package, and another to the
+  Free42Skins.zip package. Thanks to Jeff O. for contributing these!
+
+2005-03-15: release 1.2.1
+
+* Windows version: in 1.2, I broke the Skin menu so switching skins didn't work
+  any more. Fixed now.
+
+2005-03-14: release 1.2
+
+* Implemented simple Copy and Paste: 'Copy' puts a text representation of the
+  X register on the clipboard (identical to what you see in the display, except
+  the exponent 'E' in numbers is changed to a plain lowercase 'e'); 'Paste'
+  tries to parse the clipboard contents as a complex number (formatted as
+  "a ib", "a + bi", or "(a, b)", or if that fails, as a real number; if it
+  can't parse the clipboard, it just pastes it as a string.
+
+2005-03-13: release 1.1.19
+
+* Using the keyboard to enter the first character of a LBL name or number
+  caused a crash (all versions). Fixed.
+* Windows and Motif versions: the 0-9 keys on the PC keyboard now act like the
+  number keys on the virtual keyboard *even* at the beginning of a LBL. This
+  allows the keyboard to be used to enter numeric labels.
+
+2005-03-13: release 1.1.18
+
+* PalmOS version: improved support for PalmOS < 3.5: now has a sound volume
+  control in the Preferences dialog (ugly but functional); and now allows skin
+  switching (using a dialog instead of a dynamic menu).
+* Motif and Windows versions: implemented keyboard mapping. When Free42 is run,
+  it looks for $HOME/.free42/keymap (Motif) or "My Documents"\Free42\keymap.txt
+  (Windows), and if it doesn't exist, it creates a new one, which provides
+  mappings for all calculator keys and also contains comments explaining the
+  keymap file format.
+* PalmOS version: now accepts Graffiti input when the ALPHA menu is active.
+  Printable ASCII characters (codes in the range 32..126), and Backspace and
+  Enter, can be entered this way.
+* Motif and Windows versions: now accept keyboard input when the ALPHA menu is
+  active. Keystrokes that do not correspond to printable ASCII characters
+  (codes in the range 32..126) are handled according to the keyboard mapping
+  (see above).
+
+2005-03-08: release 1.1.17
+
+* PalmOS version: relaxed system requirements to PalmOS 3.0 or later (it used
+  to require 3.5 or later). Note that the oldest PalmOS version this has
+  actually been tested with is 3.3 (so far). Also note that pre-3.5, there are
+  a couple of restrictions: the volume control in the Preferences dialog is
+  missing, because pre-3.5 does not support sliders; the Skin menu only shows
+  one item named "Default", because pre-3.5 does not support dynamic menus (and
+  I have been too lazy to work around that using a dialog box; since pre-3.5
+  does not have color, I figure there's not that much need for changing skins
+  anyway), and there may be other miscellaneous bits of flakiness (e.g. pen
+  events on menus getting reported to the underlying form as well -- this can
+  lead to surprising behavior). So, bottom line, you can now use Free42 on your
+  trusty old Palm V etc., but I still *recommend* PalmOS 3.5 or later.
+
+2005-03-07: release 1.1.16
+
+* PalmOS version: implemented pluggable skin support. Skins are PRC files that
+  are generated from the same type of *.layout and *.gif files that the Windows
+  and Motif versions use directly.
+
+2005-03-02: release 1.1.15
+
+* SOLVE: When the secant extrapolation makes no more progress (the extrapolated
+  value coincides with one of the previous two 'x' values), we assume we've
+  found a root -- but the code would not necessarily return the right 'x' to
+  the X register. This means that when the iteration was started with one
+  starting value being a root, and the other starting value being way off, the
+  way-off value could be returned in X. Oops! Fixed now.
+* SOLVE: when the search for a sign change reaches infinity, it would report
+  the final value of X to be POS_HUGE_DOUBLE or NEG_HUGE_DOUBLE. That wasn't
+  really correct, since it would return that value without actually having
+  evaluated the function at that point. I changed it so that it returns the
+  last 'x' that was actually used.
+* Windows version: the Free42State.bin and Free42Print.bin files are now called
+  state.bin and print.bin, respectively, and they're no longer stored in the
+  directory containing Free42.exe, but rather in "My Documents"\Free42 (this
+  directory is automagically created if necessary). Storing the state under
+  My Documents means multiple users sharing one PC no longer share one Free42
+  state.
+* Windows version: implemented pluggable skin support. Each skin consists of a
+  pair of files, named <skinname>.layout and <skinname>.gif. Skins are loaded
+  from the "My Documents"\Free42 directory; this is also the directory where
+  Free42 stores its persistent state, starting with this release.
+* In the "Standard" skin (Standard.gif), 10^X and E^X were swapped. Fixed now.
+* Motif version: three XtVaSetValues() calls were missing the final NULL
+  parameter, which could cause segmentation faults. Miraculously, this never
+  seems to have done any harm in my Linux/x86 builds, but it did cause a crash
+  under MacOS X, and it's wrong anyway. Fixed now.
+
+2005-02-27: release 1.1.14
+
+* Removed "f42" program file format support. The f42 format wasn't portable: it
+  was just a dump of Free42's in-memory representation of programs, and the way
+  noninteger number literals are stored (as native 'double') was a potential
+  source of trouble, because of endianness and because of format differences
+  (in case anyone is running Free42 on a non-IEEE-754 platform).
+  At present, the format isn't needed anyway, because the Free42 instruction
+  set is identical to that of the HP-42S, so all Free42 programs can be
+  unambiguously encoded using the "raw" format; by the time I start extending
+  the instruction set, I'll have to design a new format (without f42's
+  portability problems!) or just define extensions to "raw", using the same
+  mechanisms that were used to add the HP-42S instructions to the HP-41C
+  instruction set (XROM and special strings).
+* Because programs are now only stored in HP-42S-compatible "raw" files, there
+  is no longer any point in showing program sizes in Free42 units, so the
+  "HP-42S byte counts" option has been removed from the Preferences dialog, and
+  program sizes are now always shown in HP-42S units.
+* Pluggable skin support (Motif version only at the moment; this will be added
+  to the PalmOS and Windows versions in the next week or so).
+
+2005-02-11: release 1.1.13
+
+* It wasn't possible to enter FIX/SCI/ENG IND nn when nn > 11; in that case, nn
+  would be changed to 11 -- which is the right thing to do for FIX/SCI/ENG nn,
+  but not for the IND case. Fixed.
+* In the previous release, I was a bit too zealous about deleting the code that
+  handles ARGTYPE_COMMAND for FCN catalog assignments: I mistakenly removed the
+  code that displays and executes this type of assignment in a program. Oops!
+  It's restored now. Note: it has not been possible to *create* such program
+  lines since release 1.1.5 (see the first item in the release 1.1.5 notes,
+  below), but this code is needed for compatibility with programs created with
+  Free42 release 1.1.4 and earlier.
+
+2005-02-11: release 1.1.12
+
+* SOLVE: if the search for two points with function values with opposite signs
+  reaches infinity suspiciously quickly (in less than 10 steps), and only one
+  initial guess was given, retry with initial guesses of 0 and 1.
+  This can help in some cases where the left-over value in the variable, and
+  the previous starting value, are identical (and misleading), and no new
+  starting value was given before invoking SOLVE.
+* When entering a LBL command, it wasn't possible to specify the label name by
+  selecting it from a catalog -- the top-level catalog could be brought up, but
+  pressing any of its keys would take you back to the ALPHA menu.
+* It wasn't possible to enter commands with IND "string" arguments by selecting
+  the argument from the FCN catalog; the IND would disappear in that case.
+* Fixed a couple of extremely obscure Free42/HP-42S incompatibilities:
+  1) When a program line like LBL "ENTER" is created by selecting ENTER from
+  the FCN catalog, the label now contains the command name with "meta"
+  characters for the letters that are suppressed in the FCN catalog (e.g., the
+  second E in ENTER) -- so the string ENTER in this example is encoded as 0x45,
+  0x4E, 0x54, 0xC5, 0x52. This means that, with a label as above, GTO "ENTER",
+  with the word ENTER typed using the ALPHA menu, now results in "Label Not
+  Found", since in that case, the string ENTER is encoded as 0x45, 0x4E, 0x54,
+  0x45, 0x52, which does not match the label.
+  Note that this does not just apply to LBL and GTO, but in *all* situations
+  where the FCN catalog is used to create a string argument.
+  2) In ASSIGN, when the command to be assigned is selected from the FCN
+  catalog, it is now assigned by name, and no longer by command ID. This means
+  that such assignments can now change meaning if a label or variable with a
+  matching name is created (as was already the case when the command name was
+  entered by any means *other* than the FCN catalog).
+
+2005-02-10: release 1.1.11
+
+* SOLVE: if the search for two points with function values with opposite signs
+  reaches infinity suspiciously quickly (in less than 10 steps), assume that
+  the larger of the initial guesses is bad, and retry with just the smaller.
+  This can help in some cases where a left-over value in the variable to be
+  solved for can send SOLVE in the wrong direction.
+
+2005-02-02: release 1.1.10
+
+* Another DET problem: the fix in 1.1.9 was itself broken; it would set 'det'
+  to 1 each time the real-valued LU decomposition worker procedure was entered,
+  instead of only doing that the first time; this would not cause a problem if
+  the matrix in question was small enough to be decomposed in only 1 invocation
+  of the worker (12x12 or less), but result in bogus determinants otherwise.
+  Fixed.
+* Yet another couple of DET bugs: singular matrices weren't handled properly:
+  in "Singular Matrix" mode, they would return the "Singular Matrix" error,
+  instead of 0, and when "Singular Matrix" mode was off, they would return a
+  small value that resulted from the HP-42S-compatible zero-pivot fudging that
+  takes place in that mode (it shouldn't do that fudging when computing only
+  the determinant, regardless of whether "Singular Matrix" mode is on or off).
+  Both of those bugs applied to both the real and complex cases; they're all
+  fixed now.
+* The "left arrow", "right arrow", "up arrow", and "down arrow" commands for
+  matrix editing (EDIT/EDITN/INDEX) did not work correctly when editing a 1x1
+  matrix. Fixed.
+
+2005-02-02: release 1.1.9
+
+* DET returned bogus results for real nonsingular matrices -- nasty bug that I
+  introduced when I made the LU decomposition code interruptible in release
+  1.0.17 (the 'det' field in the LU decomposition state was not initialized to
+  1 at the start of the decomposition). The complex case did work correctly;
+  the real case does so too, again, now.
+
+2005-01-31: release 1.1.8
+
+* It was possible to enter and leave PRGM mode while in the middle of command
+  entry. Fixed.
+* It wasn't possible to enter the number -2147483648 as a program line. Fixed.
+* Flag 47 was set when VARMENU was active, *and* when the variable menus in the
+  SOLVE and INTEG applications were active. It should *only* be set when the
+  regular VARMENU is active. Fixed.
+* Flags 76 and 77 (matrix edge wrap, and matrix end wrap, respectively) were
+  set wrong by the I+, I-, "up-arrow", and "down-arrow" commands: when the
+  top/bottom edge was crossed, flag 77 would be set (should have been 76), and
+  when it jumped from the top-left corner to the bottom-right (or vice versa),
+  flag 76 would be set (should have been 77). Fixed. Note: J+, J-,
+  "left-arrow", and "right-arrow" did the right thing already.
+* GETKEY no longer causes the display to be refreshed.
+* GETKEY now turns off the 'running' annunciator while it is waiting.
+* If Free42 is exited while GETKEY is waiting (or if the power was cycled
+  (PalmOS only)), it returns code 70 (OFF) and stops program execution, just as
+  if OFF had been pressed twice on a real 42S: once to get out of GETKEY and
+  stop the program, and again to actually switch the calculator off.
+* PalmOS version: if the system requests permission to perform auto-poweroff,
+  and Free42 refuses while a GETKEY is pending, GETKEY returns 70, program
+  execution continues (if applicable), and the power stays on. (This is how it
+  works on the real HP-42S, too; presumably, the idea is to allow GETKEY-using
+  programs to implement battery-friendly behavior.)
+
+2005-01-29: release 1.1.7
+
+* When XEQ was performed in a program, while the return stack was already full,
+  the previous top-of-stack would be lost (really silly off-by-one error in the
+  code that shifts the stack for this case). I noticed this while playing Erik
+  Ehrling's Okie Dokie: it would start to act weird if you played 8 fields in
+  a row. Oops!
+
+2005-01-29: release 1.1.6
+
+* In store_var(), added a check to see if the target variable is the indexed
+  matrix; if it is, I and J need to be reset to 1 (top-left corner). Without
+  this, the code was not HP-42S compatible, and what's worse, it could leave
+  I and J pointing outside the new array, so that a subsequent STOEL would
+  cause memory corruption.
+
+2005-01-27: release 1.1.5
+
+* When storing ASSIGN in a program, and the function to be assigned was
+  selected from the FCN catalog, the function's opcode would be stored with the
+  instruction, rather than its string representation. As far as Free42 itself
+  is concerned, this is fine, but it is not how the HP-42S works, and what's
+  worse, the "raw" mode export code and the HP-42S-compatible byte counter both
+  couldn't handle it, and generated bogus code and nonsense byte counts.
+  I decided to kill all birds with one stone by forcing the FCN-to-string
+  conversion in store_command(); for backward compatibility, export_hp42s() and
+  hp42s_size() now handle the FCN version correctly as well.
+* It wasn't possible to enter DIM IND, EDITN IND, INDEX IND, INTEG IND ST, and
+  SOLVE IND ST. Fixed.
+* Thanks to Vini Matangrano for stress testing Free42's command entry and thus
+  finding these bugs & bringing them to my attention!
+
+2005-01-26: release 1.1.4
+
+* PalmOS version: when printing to GIF, and the GIF file name field in the
+  preferences dialog was blank, the resulting files would be named .0000.gif
+  etc., which is OK, but the path that was stored in the file's data records
+  would be //.0000.gif -- and that extra slash would make the file impossible
+  to delete. This is now fixed, but if you have a Free42 filesystem with such
+  undeletable files, you will have to download the entire filesystem to a PC,
+  then erase it, and then upload it back to the Palm. This will get rid of all
+  bad pathnames. Simply resetting the Palm while Free42 is running will *not*
+  fix this problem; resetting the Palm with Free42 active causes the directory
+  to be rebuilt using information from the data record headers, but in this
+  case, the problem isn't the directory at all, it's the data record headers,
+  and fixing *them* requires the download-erase-upload method.
+* PalmOS version: no longer allows open files to be deleted from the Free42
+  filesystem.
+* Motif version: the .free42rc and .free42print files are now called
+  .free42/state and .free42/print, respectively; creating the .free42 directory
+  was necessary anyway in preparation for pluggable-skin support (gotta put
+  those skins somewhere!), and so I moved the state and print-out files there,
+  too, in order to clean up the home directory a little.
+* CLP would not update the current_prgm index. This meant that if the current
+  program was after the deleted program, the pc could end up pointing at an
+  invalid location, and if the current program was the last program, the
+  current_prgm index would end up pointing beyond the end of the prgms array;
+  this could lead to memory corruption or a crash. Now fixed.
+
+2005-01-21: release 1.1.3
+
+* Multi-row VARMENUs could cause a crash when switching rows. Fixed.
+* When a command is completed by making a selection from the PGM catalog, the
+  selected label or END is now echoed on the screen, even if the key isn't held
+  down for 1/4 a second. This is necessary for commands that take a long time
+  to execute: when printing a program, you should not be seeing PRP "_ while
+  the program is being printed; the display should show the full PRP "name",
+  which it now does.
+* PalmOS version: MEM now reports the number of free bytes in the dynamic
+  (application) heap, rather than the total number of free bytes in the system.
+  This is better because the dynamic heap is where Free42 actually stores
+  programs and variables, and it can get full even though the system as a whole
+  still has lots of free space.
+
+2005-01-19: release 1.1.2
+
+* PRP & LIST: in strings and in string arguments, translate character code 10
+  (LF) to 138, so that it shows up properly in text-mode program listings,
+  rather than becoming an actual line break. In "raw text" listings, this means
+  it becomes Ctrl-Meta-J, but that's the best I can do, I guess. In "normal"
+  mode listings, it is now rendered as "\LF". Graphics-mode listings (GIF and
+  on-screen) already did the right thing.
+* It was possible to do SST and BST while in the middle of command entry; this
+  made it possible to go to line 00 and have an instruction inserted in the
+  program at pc = -1, which caused memory corruption because it would write a
+  byte before the start of the program block. (Line 01 corresponds with pc = 0,
+  in other words, the pc is a byte offset from the beginnig of the program;
+  pc = -1 is a special value used to indicate line 00, which isn't a physical
+  program line at all.) I plugged the SST/BST hole and for good measure, I also
+  added a check to store_command() to make sure that it never inserts anything
+  at pc = -1.
+* PalmOS version: when a file was deleted from the Free42 filesystem, and the
+  directory entry immediately preceding it was a directory, that directory
+  would be resized just as if the deleted file had been in it, resulting in a
+  bogus directory length and a corrupted directory structure (which can be
+  repaired by resetting the Palm while Free42 is running; when this happens,
+  Free42 will rebuild the directory the next time it starts up). Fixed now.
+* Windows & Motif versions: GIF file names looked like foobar0000.gif, should be
+  foobar.0000.gif, like in the PalmOS version. Fixed.
+* Motif version: when the print window scrolls because of a print command, while
+  it is partially obscured, the region that is scrolled out from under the
+  obscuring window did not get painted. I added a GraphicsExpose event handler
+  that schedules a full repaint whenever that happens. Not pretty, but unless I
+  can find a way to handle those events synchronously (as they are caused by
+  the scroll operation), it's the best I can do.
+
+2005-01-17: release 1.1.1
+
+* Free42 Conduit: fixed a bug that would cause it to write past the end of a
+  memory block, causing it to crash (and take down HotSync Manager with it).
+* PalmOS version: fixed a bug in the file selection dialog, that would cause
+  the file list to be initially empty under certain circumstances.
+* The auto-repeat feature on the 'up' and 'down' keys would leave the
+  'repeating' mode flag set, even after the key was released. This would cause
+  the next key pressed to act like 'up' or 'down', even if it was a different
+  key -- provided it was held down long enough for the auto-repeat timeout to
+  expire.
+* SOLVE: in the situation where f(x1) and f(x2) have the same sign but
+  different values, x3 is computed by the secant method; if f(x3) is worse than
+  f(x1) and f(x2), the interval is bisected -- but this code had a bug: if
+  f((x1+x2)/2) was *also* worse than f(x1) and f(x2), it would repeat the
+  bisection step without changing x1 and x2 first, and so the algorithm could
+  get stuck. I fixed this by *always* assigning x3 to the worse of x1 and x2
+  after bisection, thus making sure that there is always change (if not
+  necessarily progress, but that's another story).
+
+2005-01-15: release 1.1
+
+* Implemented program import and export, both in original HP-42S format (which
+  is also the format used by Emu42), and in Free42's own internal format.
+* PalmOS version: implemented a simple filesystem (using a PalmOS database
+  underneath) which makes it possible to support program import and export, and
+  printing to text and GIF files, on PalmOS devices that lack VFS support.
+  A HotSync Conduit is provided to mirror this filesystem on a PC (Windows
+  only, for now; maybe I'll do a Java version later).
+* Added an option to display the byte count on line 00 assuming HP-42S format.
+  Note: program lines containing numbers are stored in binary in Free42; this
+  means that 1e3 and 1000 end up being the same -- unlike on the HP-42S, where
+  those lines are different, and have different numbers of bytes.
+  When computing the HP-42S byte count, Free42 always assumes the most compact
+  form of a number -- but this means that if you import a program containing
+  numbers that are *not* maximally compact, the byte count given by Free42
+  will be lower than that on the HP-42S.
+* Changed many of the special character substitutions that are made when
+  sending printer output to text files or PalmOS memos, hopefully making them
+  more readable; also added an option to suppress those substitutions
+  altogether ("Raw text" in the Preferences dialog).
+* PalmOS version: can now activate the menu bar by tapping in the top part of
+  the screen.
+* The BCD conversion table (37 kilobytes) is no longer stored in the state
+  file. The Windows and Motif versions now rebuild it each time they start up
+  (PCs are fast enough to do this) and the PalmOS version now stores it in a
+  database. Windows and Motif users will probably not notice any difference
+  (apart from a smaller state file); PalmOS users may notice that they now have
+  more application heap space to play with, startup and shutdown are faster,
+  and HotSyncing the state file is faster.
+* PalmOS version: added a sound volume control to the Preferences dialog.
+* PalmOS version: fixed a bug that would cause the state file to become
+  corrupted when writing large matrices (real matrices with >= 4096 elements,
+  complex matrices with >= 2048 elements).
+* Windows version: when the print-out window is partially obscured, no longer
+  scrolls the obscuring window into the print-out.
+
+2004-12-20: release 1.0.17
+
+* NORM and TRACE print modes: numbers entered by the user are now printed as
+  entered, not formatted according to the active display mode -- except for one
+  detail: if the display mode is FIX n, and the entered number does not contain
+  an exponent, and the fractional part has fewer than n digits, it is padded
+  with zeroes to n digits, so that decimal points will line up. (I got this
+  from the HP-97 manual; here's hoping that the HP-42S/HP-82240A are similar.)
+* All O(n^3) matrix functions (INVRT, DET, SIMQ (MATX), matrix-matrix division,
+  and matrix-matrix multiplication) are now interruptible (by EXIT).
+* LIST, PRP, PRUSR, and PRV are now interruptible (by EXIT and R/S).
+* Changed the Makefile for the Motif version slightly, so that the mask bitmap
+  that it generates is called Mask1.pbm (and Mask1.xbm); this way the name does
+  not clash with the unscaled mask.pbm on case-insensitive filesystems.
+* Windows version: the print-out window scrolling code now actually scrolls the
+  window, instead of invalidating and repainting everything all the time. This
+  makes programs that print a lot of output run faster.
+  (If LIST, PRP, PRUSR, and PRV seem *slower* than in the previous release,
+  that's because they're interruptible now: after each line, Free42 returns to
+  the message loop, and during an interruptible print operation, each time
+  there will be a WM_PAINT message to paint the most recent line -- so each
+  line is actually painted on the screen *as it is generated*; the previous
+  release didn't render anything on the screen until the whole printout was
+  finished, and that was obviously faster, but not very pretty.)
+
+2004-12-17: release 1.0.16
+
+* NORM and TRACE print modes implemented, including the different formats used
+  by PRP and LIST (right-justified and compact, respectively).
+  I'm sure many differences remain between Free42 printer emulation and the
+  real HP-42S + HP-82240A, but hopefully this NORM and TRACE implementation is
+  close enough to be useful.
+  (If you spot a discrepancy between Free42 and the original, please feel free
+  to report it to the author so he can fix it. It will be appreciated!)
+* Motif Version: the print-out window scroll bar now has its increment (i.e.,
+  the amount by which it scrolls when the arrows are clicked) set to 18 pixels.
+  This corresponds to one text-mode output line. (The Windows version already
+  behaved like this; the PalmOS version will, too, as soon as I figure out how
+  to control this aspect of scroll bar behavior on that platform.)
+* PRP now prints a highlight ("goose" character) in front of LBLs.
+* PRP now allows the argument to be an END from the PGM catalog when in program
+  mode (it already did the right thing when in normal mode).
+* Flag 21 now controls PRA, PRLCD, PRX, PRSIGMA, PRSTK, PRUSR, and PRV during
+  program execution. It is still ignored when these commands are executed
+  interactively, and it still affects VIEW, AVIEW, ADV, and PROMPT regardless
+  of whether a program is running or not (note that PROMPT prints only in NORM
+  and TRACE modes).
+* GTO . now allows the argument to be an END from the PGM catalog.
+* Power cycles (exit/restart, and also power off/on on PalmOS) now cause
+  program execution to stop if flag 11 is clear.
+* CROSS with two matrix arguments did not drop the stack; it placed the result
+  in X but left Y intact. Fixed.
+* SST and BST now work properly even if invoked in unusual ways (XEQ, ASSIGN,
+  the FCN catalog).
+
+2004-12-14: release 1.0.15
+
+* FIX and ALL mode now round to at most 12 digits before deciding how to
+  display. This fixes two bugs: (1) in ALL mode, 0.00009999999999999999 is now
+  displayed as 0.0001 instead of 1.e-4, because it now understands that the
+  former does not hide any information; (2) in FIX 01 mode, 123456123456.9 is
+  now displayed as 123456123457 instead of 123456123456.
+* PRA now prints an empty line if the alpha register is empty; the previous
+  release printed nothing in this case.
+* PRSIGMA could print numbers instead of strings and vice versa (it checked the
+  wrong location of the REGS matrix' is_string array). Fixed.
+* Windows version: takes display resolution ("Small/Large Fonts" desktop
+  setting) into account when calculating scroll bar width, instead of assuming
+  96 dpi.
+* Motif version: now remembers window positions between sessions.
+
+2004-12-13: release 1.0.14
+
+* Windows version: when using saved window geometry information, don't trust
+  the saved width and height for the main window, and don't trust the saved
+  width of the print-out window: the decor dimensions and menu bar height may
+  have changed, and since we don't allow the user to resize the window in those
+  directions, the result is a bit embarrassing. Also, instead of assuming that
+  scroll bars are 16 pixels wide, get the value from the desktop settings in
+  the registry.
+* PalmOS version: limit size of generated memos to 4096 bytes; the previous
+  release had a 32767 byte limit, which turns out to cause problems with old
+  versions of Memo Pad and with PACE, and to make things worse, the check for
+  that limit wasn't even implemented properly (I used a 16-bit signed int.
+  Oops.).
+* IP hack: in addition to IP, FP, and AIP, this now applies to all functions
+  that treat arguments as integers by truncating them: AROT, DIM, NEWMAT, POSA,
+  R<>R, STOIJ, XTOA; BASE functions (AND, BASE+, BASE-, BASE*, BASE/, BASE+/-,
+  BIT?, NOT, OR, ROTXY, XOR); and indirect addressing when the target is a
+  numbered register.
+  AGRAPH and PIXEL are not affected: they don't truncate their arguments, but
+  round them to the nearest integer.
+* Indirect address resolution: IND nn, where Rnn contains a string, did not
+  work. Oops! Fixed now.
+
+2004-12-10: release 1.0.13
+
+* Printer emulation -- on-screen, and also prints to plain text and GIF files,
+  and on PalmOS, also prints to memos. Still needs to be verified against some
+  more actual HP-82240 output; also, NORM and TRACE modes not implemented yet.
+* The user can now control whether or not singular matrices during matrix
+  division/inversion, and range errors during matrix multiplication/division/
+  inversion, generate error messages or not.
+* Added "IP hack" option; this causes IP, FP, and AIP to use the value in X
+  rounded to 8 decimal digits. This enables some programs that rely on BCD
+  behavior to work correctly on Free42. (For example, code that stores two
+  2-digit numbers in one number as AA.BB: to extract AA, it does IP, and to
+  extract BB it does FP 100 x IP. In binary math, this is not reliable, since
+  the representation of the BB part of AA.BB is not exact; by rounding off a
+  few digits internally before doing IP/FP/AIP, the binary round-off error can
+  be compensated for in many cases.)
+* PalmOS version: set "backup" flag on Free42State file, so that it is backed
+  up during HotSync operations.
+* PalmOS version: fixed annoying bug that caused a beep after executing any
+  menu command (the pull-down menus, not the emulated HP-42S menus!).
+* Windows version: now remembers window positions between sessions.
+* Fixed menu behavior of MVAR, SOLVE, and INTEG in the case where no real
+  variables exist.
+* Fixed PRA in the case where it should print multiple lines (because of LF
+  characters or because it doesn't fit on a line). Also affects AVIEW.
+* DOT didn't accept the case where X and Y are complex scalars. Fixed.
+
+2004-11-23: release 1.0.12
+
+* Windows version: added better definitions of asinh(), acosh(), atanh(),
+  log1p(), and expm1(), all taken from the GNU C library, version 2.2.5.
+
+2004-11-20: release 1.0.11
+
+* Printer support skeleton. Doesn't actually print yet, except for the Motif
+  version which can send plain text to standard output -- but now all printer-
+  related functions at least behave like they would on a real HP-42S with no
+  printer. This means: no more "Not Yet Implemented" error messages; PRP, LIST,
+  and PRV accept the appropriate argument types, and VIEW/AVIEW stop program
+  execution if flag 21 is set while flag 55 is clear.
+
+2004-11-18: release 1.0.10
+
+* Error handling while SOLVE and/or INTEG are active: INTEG no longer affects
+  error handling (previously INTEG was treated like SOLVE, but that was wrong);
+  SOLVE now traps Stat Math Error (in addition to Out of Range, Divide by 0,
+  and Invalid Data, which were already being trapped), and the same set of
+  errors is now trapped while RUNning as while SSTing (previously *all* errors
+  were trapped while RUNning, but that was wrong).
+
+2004-11-18: release 1.0.9
+
+* When performing a hard reset, initialize the random number generator using
+  shell_random_seed() instead of setting it to 0.
+* While in command entry mode, entering a numeric argument, and the argument
+  length is still 0 (e.g. just press STO or XEQ), shift-ENTER should activate
+  alpha argument entry (like ENTER without shift) and not beep. Fixed.
+* When used in INDEX mode, INSR would store X at IJ before inserting the new
+  row, and replace X with the new contents of IJ after having inserted the new
+  row (always 0). In other words, it behaved like you would expect in EDIT or
+  EDITN mode. DELR had a similar bug although it was less noticeable (it would
+  leave the wrong value in X but at least it did not store an incorrect value
+  in the matrix). Both fixed.
+* Fixed a couple of bugs that would cause INSR and DELR to update a matrix
+  incorrectly if its data was shared.
+
+2004-11-13: release 1.0.8
+
+* CLALL would crash if invoked using XEQ or ASSIGN while spelling out the name
+  (selecting it from the FCN catalog did work).
+* Variable catalogs would show the up/down (multi-row menu) annunciator, even
+  if they contained just one row of items.
+
+2004-11-10: release 1.0.7
+
+* Changed the LU decomposition code so that it will keep going when it finds
+  a zero pivot, or even a whole zero column. Also added range checking to the
+  back-substitution code; it replaces infinities and NaNs with
+  (POS|NEG)_HUGE_DOUBLE. (NaNs should never be caused by divisions by 0, since
+  I think I'm checking for that wherever it could occur, but they can also
+  result from adding two infinities of opposite sign.) There is no check for
+  flag 24, because the 42S ignores it in this situation, too; I also removed
+  the flag-24 checks from matrix-matrix multiplication for compatibility.
+* AVIEW, when displaying one line, now clears flag 51, instead of leaving it
+  unchanged.
+* A couple of "goose" fixes: clear row 0 before painting the goose after a PSE,
+  and restart the goose at its last position when re-enabling it after a PSE or
+  CLD.
+* After selecting a program in the INTEG application and entering the variable
+  menu, pressing a menu key immediately no longer performs a STO operation, but
+  instead selects the corresponding variable as the integration variable (and
+  moves on to the integration parameter menu (LLIM/ULIM/ACC/INTEG)).
+  Previously, you needed two keystrokes to achieve the same effect, which was
+  consistent with the other variable menus (VARMENU and SOLVER), but not with
+  the real HP-42S.
+
+2004-11-09: release 1.0.6
+
+* Matrix-matrix division computed Y * inv(X); the HP-42S does inv(X) * Y.
+  Most embarrassing Free42 bug to date! And it also means that I never
+  needed the _trn_ versions of the LU decomposition and back-substitution
+  functions to begin with -- so they're gone again now.
+* With the INTEG Parameter menu (LLIM/ULIM/ACC/INTEG) active, STO and RCL,
+  followed by one of the right 3 menu keys, caused a beep (good), but also
+  caused the commands to be completed, with a bogus argument (bad).
+
+2004-11-08: release 1.0.5
+
+* Yet another AVIEW bug: the new line breaking logic introduced in release
+  1.0.1 still does not handle LF in position 23 properly. If an LF occurs when
+  the current line is full (i.e., at position 23, but that can change when I
+  start supporting bigger display sizes), the result should be just one line
+  break, not two.
+* [MIN] and [MAX] should search column J from row I on down. My original
+  implementation searched the entire column. Fixed.
+
+2004-11-08: release 1.0.4
+
+* SOLVE performance improvement: for the case when f(x1) and f(x2) have
+  opposite signs, compute the next guess using Ridders' method instead of the
+  secant method. (The secant method is still used if f(x1) and f(x2) have the
+  same sign.) For well-behaved functions, this improves performance to about as
+  good as the HP-42S.
+* SOLVE now displays the two most recent guesses, and the signs of their
+  results (or a question mark if an error was trapped while evaluating the
+  function). This display is updated at most 4 times per second -- display
+  operations are MUCH more expensive in the emulator than in the original, so
+  you have to be careful not to throw away most of your CPU cycles on animating
+  a progress indicator (especially if said progress indicator is likely to turn
+  into an unreadable blur on faster machines). (This is similar to the "goose"
+  situation.)
+* SOLVE bug fixes: now returns not just the root in X, but also: the previous
+  guess in Y, f(x) in Z, and the result code (0=root, 1=sign reversal,
+  2=extremum, 3=bad guesses, 4=constant) in T. Finally, "Bad Guess(es)" is not
+  an error, just a message.
+* INTEG performance improvement: switched from using Simpson's Rule to the
+  Romberg method. Still not quite as good as the HP-42S, but getting pretty
+  close. It converges much faster than Simpson's Rule and seems quite stable.
+* INTEG bug fix: now returns not just the integral in X, but also the error
+  estimate in Y.
+* Thank You to Hugh Steers for the Romberg implementation, and for reminding
+  of the Numerical Recipes book, where I got the Ridders code.
+
+2004-11-06: release 1.0.3
+
+* CLALL caused memory corruption because clear_all_prgms() didn't clean up the
+  'prgms' and 'labels' arrays properly. How on Earth did this manage to not
+  crash when I tested it three weeks ago?!?
+* When the calculator is switched off in the middle of command entry, with
+  flag 11 set, command entry should be cancelled on the next power-up.
+* While entering a LBL command, if the argument length is still 0, and one of
+  the alpha submenus is active, interpret the number keys as alphanumeric
+  rather than numeric. This allows labels like LBL "123" to be created easily.
+
+2004-11-06: release 1.0.2
+
+* In number entry mode, the MODES menu does not come up (the code does not
+  recognize the difference between +/- and SHIFT +/- in this case). Fixed.
+
+2004-11-06: release 1.0.1
+
+* Reduce arguments to SIN, COS, TAN, ->REC, and COMPLEX (in POLAR mode)
+  by applying fmod(x, 360) (in DEG mode) or fmod(x, 400) (in GRAD mode).
+  In RAD mode, the behavior is unchanged. See angle_to_rad().
+* Fixed a bug in keydown_command_entry() that made it impossible to create
+  alpha LBLs where the first character was a shifted alpha menu key (e.g.
+  LBL a, LBL "foo").
+* Fixed bugs in keydown_normal_mode() that caused program instructions
+  generated by several menus to be inserted before the current line, instead of
+  after. The affected menus were CATALOG (except FCN), VARMENU (including
+  variable menus displayed by the SOLVE and INTEG applications), INTEG
+  parameter (LLIM/ULIM/ACC/INTEG), and CUSTOM (LCLBL mode only).
+* Fixed the behavior of the XEQ (and GTO) key when the CUSTOM menu is active in
+  LCLBL mode while in program entry mode. It now starts the command by calling
+  do_interactive() instead of start_incomplete_command(), and the former takes
+  care of the additional bookkeeping necessary in program mode, which fixes
+  problems that would occur on line 00, or when cancelling the command
+  (returning to the wrong line).
+* Flags 47 (variable menu), 53 (input), 65 (matrix editor), and 75
+  (programmable menu) did not work, because they were missing from the
+  virtual_flags list in core_commands2.c. Fixed.
+* A linefeed character at position 23 in the alpha register would be displayed
+  as 'LF' by AVIEW. The check for LF should not be skipped immediately after a
+  line wrap. Fixed, and also made the code a bit more general (not so tied to
+  exactly two display lines).
+* The BINM, OCTM, DECM, and HEXM commands, when executed from a program, should
+  activate the BASE application, and they didn't. Fixed, and also fixed a menu
+  highlighting bug which I noticed while stepping through the test case for the
+  BASE bug (highlights would disappear while SST was held down).
+* When entering number entry mode while in normal mode AND a menu is active,
+  redraw the display to force the menu to be repainted; it could be invisible
+  due to a recent two-line AVIEW.
+* Added [MIN], [MAX], and [FIND] functions. See README for more information
+  about these.
+* PalmOS version: reduced the beep volume from full volume to half. It really
+  was a bit loud on some devices. (Of course now other people will complain
+  that it's too quiet! There should be a sound volume control, but that will
+  have to wait until release 1.1.)
+
+2004-11-04: release 1.0
