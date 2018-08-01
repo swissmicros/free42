@@ -428,12 +428,13 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
         shell_finish_gif(gif_seeker, gif_writer);
         fclose(print_gif);
         print_gif = NULL;
+        gif_seq = -1;
     }
     strcpy(state.printerGifFileName, buf);
     [[prefsPrintGIFMaxHeight stringValue] getCString:buf maxLength:50 encoding:NSUTF8StringEncoding];
     if (sscanf(buf, "%d", &state.printerGifMaxLength) == 1) {
-        if (state.printerGifMaxLength < 32)
-            state.printerGifMaxLength = 32;
+        if (state.printerGifMaxLength < 16)
+            state.printerGifMaxLength = 16;
         else if (state.printerGifMaxLength > 32767)
             state.printerGifMaxLength = 32767;
     } else
@@ -1173,7 +1174,7 @@ void shell_print(const char *text, int length,
         char buf[1000];
         
         if (print_gif != NULL
-            && gif_lines + height > state.printerGifMaxLength) {
+                && gif_lines + height > state.printerGifMaxLength) {
             shell_finish_gif(gif_seeker, gif_writer);
             fclose(print_gif);
             print_gif = NULL;
@@ -1231,7 +1232,13 @@ void shell_print(const char *text, int length,
         
         shell_spool_gif(bits, bytesperline, x, y, width, height, gif_writer);
         gif_lines += height;
-    done_print_gif:;
+
+        if (print_gif != NULL && gif_lines + 9 > state.printerGifMaxLength) {
+            shell_finish_gif(gif_seeker, gif_writer);
+            fclose(print_gif);
+            print_gif = NULL;
+        }
+        done_print_gif:;
     }
 }
 

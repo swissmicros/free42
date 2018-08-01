@@ -28,10 +28,11 @@
 #include "core_variables.h"
 #include "shell.h"
 
+int no_menu_key_this_time = 0;
 
 static int is_number_key(int shift, int key) {
     int *menu = get_front_menu();
-    if (menu != NULL && *menu == MENU_BASE_A_THRU_F
+    if (menu != NULL && *menu == MENU_BASE_A_THRU_F && !no_menu_key_this_time
             && (key == KEY_SIGMA || key == KEY_INV || key == KEY_SQRT
                 || key == KEY_LOG || key == KEY_LN || key == KEY_XEQ))
         return 1;
@@ -1792,7 +1793,6 @@ void keydown_alpha_mode(int shift, int key) {
         do_interactive(command);
 }
 
-int no_menu_key_this_time = 0;
 
 void keydown_normal_mode(int shift, int key) {
     int command;
@@ -1936,16 +1936,16 @@ void keydown_normal_mode(int shift, int key) {
             }
             if (!shift && key == KEY_UP) {
                 if (varmenu_rows > 1) {
-                    if (++varmenu_row >= varmenu_rows)
-                        varmenu_row = 0;
+                    if (--varmenu_row < 0)
+                        varmenu_row = varmenu_rows - 1;
                     pending_command = CMD_CANCELLED;
                 }
                 return;
             }
             if (!shift && key == KEY_DOWN) {
                 if (varmenu_rows > 1) {
-                    if (--varmenu_row < 0)
-                        varmenu_row = varmenu_rows - 1;
+                    if (++varmenu_row >= varmenu_rows)
+                        varmenu_row = 0;
                     pending_command = CMD_CANCELLED;
                 }
                 return;
