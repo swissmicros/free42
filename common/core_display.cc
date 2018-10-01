@@ -1901,13 +1901,23 @@ void redisplay() {
         flush_display();
         return;
     }
-
+#ifndef ARM
     if (flags.f.two_line_message)
         return;
+#else
+    if (flags.f.two_line_message)
+    {
+        if (!core_menu())
+            return;
+    } else {
+#endif
     if (flags.f.message)
         clear_row(1);
     else
         clear_display();
+#ifdef ARM
+    }
+#endif
 
     if (mode_commandmenu != MENU_NONE)
         menu_id = mode_commandmenu;
