@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2018  Thomas Okken
+ * Copyright (C) 2004-2019  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -419,6 +419,7 @@ int docmd_input(arg_struct *arg) {
         return ERR_INVALID_TYPE;
     }
 
+    docmd_cld(NULL);
     recall_result(v);
     return ERR_STOP;
 }
@@ -1910,6 +1911,7 @@ int docmd_on(arg_struct *arg) {
 }
 
 int docmd_off(arg_struct *arg) {
+    shell_always_on(0);
 #ifdef IPHONE
     if (!off_enabled()) {
         squeak();

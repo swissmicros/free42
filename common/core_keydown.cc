@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2018  Thomas Okken
+ * Copyright (C) 2004-2019  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -228,12 +228,7 @@ void keydown(int shift, int key) {
     }
 
     if (mode_command_entry
-            && (shift || (!incomplete_alpha && incomplete_length > 0)
-                      || ((incomplete_argtype == ARG_NUM9
-                          || incomplete_argtype == ARG_NUM11
-                          || incomplete_argtype == ARG_NUM99
-                          || incomplete_argtype == ARG_COUNT)
-                            && incomplete_length == 0))
+            && (shift || get_front_menu() == NULL)
             && (key == KEY_UP || key == KEY_DOWN)) {
         /* Trying to do SST or BST while in command entry mode */
         squeak();
@@ -663,6 +658,19 @@ void keydown_command_entry(int shift, int key) {
             redisplay();
             return;
         }
+    }
+    
+    if (incomplete_command == CMD_LBL && !incomplete_alpha && incomplete_length == 1
+            && shift && key == KEY_ENTER) {
+        /* More LBL weirdness: you can switch to ALPHA mode while entering
+         * a numeric LBL
+         */
+        incomplete_alpha = 1;
+        incomplete_str[0] = '0' + incomplete_num;
+        incomplete_num = 0;
+        mode_commandmenu = MENU_ALPHA1;
+        redisplay();
+        return;
     }
 
     if ((incomplete_command == CMD_ASTO || incomplete_command == CMD_ARCL)

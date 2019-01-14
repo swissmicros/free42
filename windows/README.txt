@@ -68,14 +68,14 @@ LOG:      F4, or 'o' as in "lOg, not ln"
 LN:       F5, or 'l' as in "Ln, not log"
 E^X:      Shift F5, or 'L" (Shift l)
 XEQ:      F6, or 'x' as in "Xeq"
-GTO:      Shift F6, or 'X' (Shift x)
+GTO:      Shift F6, or 'X' (Shift x), or 'g' as in "Gto"
 
 STO:      'm' as in "Memory"
 COMPLEX:  'M' (Shift m)
 RCL:      'r' as in "Rcl"
 %:        'R' (Shift r)
 Rdown:    'd' as in "Down"
-pi:       'D' (Shift d)
+pi:       'D' (Shift d), or 'p' as in "Pi"
 SIN:      's' as in "Sin"
 ASIN:     'S' (Shift s)
 COS:      'c' as in "Cos"
@@ -173,7 +173,7 @@ If you don't fully understand the above, it is best to play safe and use
 Free42 Decimal.
 
 
-Free42 is (C) 2004-2018, by Thomas Okken
+Free42 is (C) 2004-2019, by Thomas Okken
 Contact the author at thomasokken@gmail.com
 Look for updates, and versions for other operating systems, at
 http://thomasokken.com/free42/
