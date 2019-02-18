@@ -388,13 +388,15 @@ int core_keyup() {
 
     if (pending_command == CMD_SILENT_OFF) {
 #ifdef IPHONE
-        if (off_enabled())
+        if (off_enabled()) {
+            shell_always_on(0);
             shell_powerdown();
-        else {
+        } else {
             set_running(false);
             squeak();
         }
 #else
+        shell_always_on(0);
         shell_powerdown();
 #endif
         pending_command = CMD_NONE;
@@ -1637,7 +1639,6 @@ void core_import_programs() {
     arg_struct arg;
     int assign = 0;
     int at_end = 1;
-    int instrcount = -1;
 
     set_running(false);
 

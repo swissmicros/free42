@@ -77,7 +77,7 @@ static FILE *external_file;
 
 static int skin_type;
 static int skin_width, skin_height;
-static int skin_scale;
+static double skin_scale;
 static int skin_ncolors;
 static const SkinColor *skin_colors = NULL;
 static int skin_y;
@@ -493,8 +493,10 @@ void skin_load(long *width, long *height) {
     if (skin.width >= 640) {
         display_loc.x &= ~1;
         display_loc.y &= ~1;
-        display_scale.x &= ~1;
-        display_scale.y &= ~1;
+        if (skin.width < 750) {
+            display_scale.x &= ~1;
+            display_scale.y &= ~1;
+        }
     }
 
     skin_close();
@@ -564,7 +566,7 @@ int skin_init_image(int type, int ncolors, const SkinColor *colors,
     // TODO - handle memory allocation failure
     skin_width = width;
     skin_height = height;
-    skin_scale = width <= 320 ? 1 : 2;
+    skin_scale = width / [UIScreen mainScreen].bounds.size.width;
     skin_y = skin_height;
     return skin_bitmap != NULL;
 }
