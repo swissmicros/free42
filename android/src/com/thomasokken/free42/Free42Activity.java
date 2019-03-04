@@ -102,6 +102,8 @@ public class Free42Activity extends Activity {
     
     public static Free42Activity instance;
     
+    public static final String MY_STORAGE_DIR = Environment.getExternalStorageDirectory() + "/Android/data/com.thomasokken.free42";
+    
     static {
         System.loadLibrary("free42");
     }
@@ -311,7 +313,11 @@ public class Free42Activity extends Activity {
         if (stateFileOutputStream != null) {
             try {
                 stateFileOutputStream.close();
-            } catch (IOException e) {}
+            } catch (IOException e) {
+                stateFileOutputStream = null;
+            }
+        }
+        if (stateFileOutputStream != null) {
             // Writing state file succeeded; rename state.new to state
             stateFile.renameTo(new File(filesDir, "state"));
             stateFileOutputStream = null;
@@ -471,9 +477,7 @@ public class Free42Activity extends Activity {
                 if (!checkStorageAccess())
                     return;
                 FileSelectionDialog fsd = new FileSelectionDialog(this, new String[] { "layout", "*" });
-                if (externalSkinName[orientation].length() == 0)
-                    fsd.setPath(topStorageDir() + "/Free42");
-                else
+                if (externalSkinName[orientation].length() > 0)
                     fsd.setPath(externalSkinName[orientation] + ".layout");
                 fsd.setOkListener(new FileSelectionDialog.OkListener() {
                     public void okPressed(String path) {
@@ -511,7 +515,6 @@ public class Free42Activity extends Activity {
         if (!checkStorageAccess())
             return;
         FileSelectionDialog fsd = new FileSelectionDialog(this, new String[] { "raw", "*" });
-        fsd.setPath(topStorageDir());
         fsd.setOkListener(new FileSelectionDialog.OkListener() {
             public void okPressed(String path) {
                 doImport2(path);
@@ -592,7 +595,6 @@ public class Free42Activity extends Activity {
                 }
             if (!none) {
                 FileSelectionDialog fsd = new FileSelectionDialog(this, new String[] { "raw", "*" });
-                fsd.setPath(topStorageDir());
                 fsd.setOkListener(new FileSelectionDialog.OkListener() {
                     public void okPressed(String path) {
                         doExport2(path);
@@ -948,7 +950,11 @@ public class Free42Activity extends Activity {
     private class PrintView extends View {
         
         private static final int BYTESPERLINE = 18;
-        private static final int LINES = 16384;
+        // Certain devices have trouble with LINES = 16384; the print-out view collapses.
+        // No idea how to detect this behavior, so unclear how to work around it.
+        // Playing safe by making the print-out buffer smaller.
+        // private static final int LINES = 16384;
+        private static final int LINES = 8192;
         
         private byte[] buffer = new byte[LINES * BYTESPERLINE];
         private int top, bottom;
@@ -964,6 +970,11 @@ public class Free42Activity extends Activity {
                 if (printInputStream.read(intBuf) != 4)
                     throw new IOException();
                 int len = (intBuf[0] << 24) | ((intBuf[1] & 255) << 16) | ((intBuf[2] & 255) << 8) | (intBuf[3] & 255);
+                int maxlen = (LINES - 1) * BYTESPERLINE;
+                if (len > maxlen) {
+                    printInputStream.skip(len - maxlen);
+                    len = maxlen;
+                }
                 int n = printInputStream.read(buffer, 0, len);
                 if (n != len)
                     throw new IOException();
@@ -1682,6 +1693,19 @@ public class Free42Activity extends Activity {
         finish();
     }
     
+    private class AlwaysOnSetter implements Runnable {
+        private boolean set;
+        public AlwaysOnSetter(boolean set) {
+            this.set = set;
+        }
+        public void run() {
+            if (set)
+                getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            else
+                getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        }
+    }
+    
     /**
      * shell_always_on()
      * Callback for setting and querying the shell's Continuous On status.
@@ -1690,10 +1714,7 @@ public class Free42Activity extends Activity {
         int ret = alwaysOn ? 1 : 0;
         if (ao != -1) {
             alwaysOn = ao != 0;
-            if (alwaysOn)
-                getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-            else
-                getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            runOnUiThread(new AlwaysOnSetter(alwaysOn));
         }
         return ret;
     }
@@ -2036,8 +2057,11 @@ public class Free42Activity extends Activity {
     }
     
     private boolean checkStorageAccess2() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED)
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
+            if (android.os.Build.VERSION.SDK_INT >= 19 /* KitKat; 4.4 */)
+                new File(MY_STORAGE_DIR).mkdirs();
             return true;
+        }
         ActivityCompat.requestPermissions(this, new String[] { Manifest.permission.WRITE_EXTERNAL_STORAGE }, MY_PERMISSIONS_REQUEST_ACCESS_FINE_LOCATION);
         return false;
     }

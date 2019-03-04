@@ -1,6 +1,7 @@
 package com.thomasokken.free42;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -13,6 +14,7 @@ import android.database.DataSetObserver;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManager;
 import android.widget.Adapter;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
@@ -27,6 +29,7 @@ import android.widget.AdapterView.OnItemClickListener;
 import android.widget.AdapterView.OnItemSelectedListener;
 
 public class FileSelectionDialog extends Dialog {
+    private Button homeButton;
     private Spinner dirListSpinner;
     private ListView dirView;
     private Spinner fileTypeSpinner;
@@ -42,6 +45,14 @@ public class FileSelectionDialog extends Dialog {
         super(ctx);
         boolean landscape = ctx.getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
         setContentView(landscape ? R.layout.file_selection_dialog_landscape : R.layout.file_selection_dialog_portrait);
+        getWindow().setLayout(WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT);
+        homeButton = (Button) findViewById(R.id.homeButton);
+        homeButton.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View view) {
+                doHome();
+            }
+        });
         dirListSpinner = (Spinner) findViewById(R.id.dirListSpinner);
         dirListSpinner.setOnItemSelectedListener(new OnItemSelectedListener() {
             public void onItemSelected(AdapterView<?> view, View parent, int position, long id) {
@@ -123,7 +134,7 @@ public class FileSelectionDialog extends Dialog {
             }
         });
         setTitle("Select File");
-        setPath("/");
+        doHome();
     }
     
     public interface OkListener {
@@ -176,6 +187,16 @@ public class FileSelectionDialog extends Dialog {
         dirView.setAdapter(new DirListAdapter(list, type));
     }
 
+    private void doHome() {
+        String homePath;
+        try {
+            homePath = new File(Free42Activity.MY_STORAGE_DIR).getCanonicalPath();
+        } catch (IOException e) {
+            homePath = Free42Activity.MY_STORAGE_DIR;
+        }
+        setPath(homePath);
+    }
+    
     private void doUp() {
         if (currentPath.length() > 1) {
             int n = currentPath.lastIndexOf("/", currentPath.length() - 2);
