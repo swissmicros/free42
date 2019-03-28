@@ -21,6 +21,7 @@
 #import "RootViewController.h"
 #import "core_main.h"
 #import "shell.h"
+#import "shell_skin_iphone.h"
 
 @implementation PreferencesView
 
@@ -28,8 +29,11 @@
 @synthesize singularMatrixSwitch;
 @synthesize matrixOutOfRangeSwitch;
 @synthesize autoRepeatSwitch;
-@synthesize keyClicksSwitch;
 @synthesize alwaysOnSwitch;
+@synthesize keyClicksSwitch;
+@synthesize hapticFeedbackSwitch;
+@synthesize orientationSelector;
+@synthesize maintainSkinAspectSwitch;
 @synthesize printToTextSwitch;
 @synthesize printToTextField;
 @synthesize printToGifSwitch;
@@ -54,8 +58,11 @@
     [singularMatrixSwitch setOn:core_settings.matrix_singularmatrix];
     [matrixOutOfRangeSwitch setOn:core_settings.matrix_outofrange];
     [autoRepeatSwitch setOn:core_settings.auto_repeat];
-    [keyClicksSwitch setOn:state.keyClicks != 0];
     [alwaysOnSwitch setOn:shell_always_on(-1)];
+    [keyClicksSwitch setOn:state.keyClicks != 0];
+    [hapticFeedbackSwitch setOn:state.hapticFeedback != 0];
+    [orientationSelector setSelectedSegmentIndex:state.orientationMode];
+    [maintainSkinAspectSwitch setOn:state.maintainSkinAspect[[CalcView isPortrait] ? 0 : 1] != 0];
     [printToTextSwitch setOn:(state.printerToTxtFile != 0)];
     [printToTextField setText:[NSString stringWithCString:state.printerTxtFileName encoding:NSUTF8StringEncoding]];
     [printToGifSwitch setOn:(state.printerToGifFile != 0)];
@@ -146,8 +153,19 @@
     core_settings.matrix_singularmatrix = singularMatrixSwitch.on;
     core_settings.matrix_outofrange = matrixOutOfRangeSwitch.on;
     core_settings.auto_repeat = autoRepeatSwitch.on;
-    state.keyClicks = keyClicksSwitch.on;
     shell_always_on(alwaysOnSwitch.on);
+    state.keyClicks = keyClicksSwitch.on;
+    state.hapticFeedback = hapticFeedbackSwitch.on;
+    state.orientationMode = (int) orientationSelector.selectedSegmentIndex;
+    int isPortrait = [CalcView isPortrait] ? 0 : 1;
+    int maintainSkinAspect = maintainSkinAspectSwitch.on ? 1 : 0;
+    if (maintainSkinAspect != state.maintainSkinAspect[isPortrait]) {
+        state.maintainSkinAspect[isPortrait] = maintainSkinAspect;
+        long w, h;
+        skin_load(&w, &h);
+        core_repaint_display();
+        [CalcView repaint];
+    }
     state.printerToTxtFile = printToTextSwitch.on;
     NSString *s = [printToTextField text];
     if ([s length] > 0 && ![[s lowercaseString] hasSuffix:@".txt"])

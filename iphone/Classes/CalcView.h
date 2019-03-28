@@ -17,7 +17,7 @@
 
 #import <UIKit/UIKit.h>
 
-#define SHELL_VERSION 3
+#define SHELL_VERSION 5
 #define FILENAMELEN 1024
 
 struct state_type {
@@ -27,8 +27,12 @@ struct state_type {
     char printerGifFileName[FILENAMELEN];
     int printerGifMaxLength;
     char skinName[FILENAMELEN];
+    char landscapeSkinName[FILENAMELEN];
     int alwaysOn;
     int keyClicks;
+    int hapticFeedback;
+    int orientationMode; // 0=auto 1=portrait 2=landscape
+    int maintainSkinAspect[2];
 };
 
 extern state_type state;
@@ -39,6 +43,10 @@ extern state_type state;
 }
 
 - (void) awakeFromNib;
+- (void) layoutSubviews;
++ (BOOL) isPortrait;
++ (CGFloat) width;
++ (CGFloat) height;
 - (void) actionSheet:(UIActionSheet *) actionSheet clickedButtonAtIndex:(NSInteger) buttonIndex;
 - (void) touchesBegan: (NSSet *) touches withEvent: (UIEvent *) event;
 - (void) setNeedsDisplayInRectSafely:(CGRect) rect;
