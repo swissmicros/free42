@@ -61,6 +61,7 @@
 #define ERR_INTERRUPTIBLE          30
 #define ERR_NO_VARIABLES           31
 #define ERR_SUSPICIOUS_OFF         32
+#define ERR_RTN_STACK_FULL         33
 
 typedef struct {
     const char *text;
@@ -341,7 +342,7 @@ typedef union {
         char f64;
         char VIRTUAL_matrix_editor;
         char grow;
-        char f67;
+        char ymd; /* Programming extension YMD mode; overrides dmy flag */
         char base_bit0; /* Note: dec=0, bin=1, oct=7, hex=15 */
         char base_bit1;
         char base_bit2;
@@ -365,13 +366,11 @@ extern flags_struct flags;
 typedef struct {
     unsigned char length;
     char name[7];
+    int2 level;
+    bool hidden;
+    bool hiding;
     vartype *value;
 } var_struct;
-typedef struct {
-    unsigned char length;
-    char name[7];
-    int4 value;
-} var_struct_32bit;
 extern int vars_capacity;
 extern int vars_count;
 extern var_struct *vars;
@@ -545,11 +544,14 @@ int4 line2pc(int4 line);
 int4 find_local_label(const arg_struct *arg);
 int find_global_label(const arg_struct *arg, int *prgm, int4 *pc);
 int push_rtn_addr(int prgm, int4 pc);
+int push_indexed_matrix(const char *name, int len);
 void step_out();
 void step_over();
 bool should_i_stop_at_this_level();
 void pop_rtn_addr(int *prgm, int4 *pc, bool *stop);
+void pop_indexed_matrix(const char *name, int namelen);
 void clear_all_rtns();
+int get_rtn_level();
 bool solve_active();
 bool integ_active();
 bool unwind_stack_until_solve();

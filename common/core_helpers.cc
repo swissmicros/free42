@@ -59,11 +59,13 @@ int resolve_ind_arg(arg_struct *arg) {
                 if (num >= size)
                     return ERR_SIZE_ERROR;
                 if (rm->array->is_string[num]) {
-                    int i;
                     phloat *d = &rm->array->data[num];
+                    int len = phloat_length(*d);
+                    if (len == 0)
+                        return ERR_RESTRICTED_OPERATION;
                     arg->type = ARGTYPE_STR;
-                    arg->length = phloat_length(*d);
-                    for (i = 0; i < phloat_length(*d); i++)
+                    arg->length = len;
+                    for (int i = 0; i < len; i++)
                         arg->val.text[i] = phloat_text(*d)[i];
                 } else {
                     phloat x = rm->array->data[num];
@@ -105,10 +107,11 @@ int resolve_ind_arg(arg_struct *arg) {
                 return ERR_NONE;
             } else if (v->type == TYPE_STRING) {
                 vartype_string *s = (vartype_string *) v;
-                int i;
+                if (s->length == 0)
+                    return ERR_RESTRICTED_OPERATION;
                 arg->type = ARGTYPE_STR;
                 arg->length = s->length;
-                for (i = 0; i < s->length; i++)
+                for (int i = 0; i < s->length; i++)
                     arg->val.text[i] = s->text[i];
                 return ERR_NONE;
             } else
@@ -852,8 +855,10 @@ int dimension_array(const char *name, int namelen, int4 rows, int4 columns, bool
         newmatrix = new_realmatrix(rows, columns);
         if (newmatrix == NULL)
             return ERR_INSUFFICIENT_MEMORY;
-        store_var(name, namelen, newmatrix);
-        return ERR_NONE;
+        int err = store_var(name, namelen, newmatrix);
+        if (err != ERR_NONE)
+            free_vartype(newmatrix);
+        return err;
     } else if (size == 0) {
         purge_var(name, namelen);
         return ERR_NONE;

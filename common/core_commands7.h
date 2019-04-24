@@ -39,7 +39,10 @@ int docmd_dmy(arg_struct *arg);
 int docmd_dow(arg_struct *arg);
 int docmd_mdy(arg_struct *arg);
 int docmd_time(arg_struct *arg);
+int docmd_ymd(arg_struct *arg);
 
 int docmd_fptest(arg_struct *arg);
+
+int docmd_lsto(arg_struct *arg);
 
 #endif

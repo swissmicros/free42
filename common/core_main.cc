@@ -132,6 +132,15 @@ int core_hex_menu() {
     return menu != NULL && *menu == MENU_BASE_A_THRU_F;
 }
 
+static int ascii2hp(char *dst, const char *src, int maxchars);
+
+int core_keydown_command(const char *name, int *enqueued, int *repeat) {
+    char hpname[70];
+    int len = ascii2hp(hpname, name, 63);
+    int cmd = find_builtin(hpname, len, false);
+    return core_keydown(cmd == CMD_NONE ? 0 : cmd + 2048, enqueued, repeat);
+}
+
 int core_keydown(int key, int *enqueued, int *repeat) {
 
     *enqueued = 0;
@@ -1508,7 +1517,7 @@ static int hp42ext[] = {
     CMD_DIM     | 0x0000,
     CMD_INPUT   | 0x0000,
     CMD_EDITN   | 0x0000,
-    CMD_NULL    | 0x4000,
+    CMD_LSTO    | 0x0000,
     CMD_NULL    | 0x4000,
     CMD_VARMENU | 0x1000,
     CMD_NULL    | 0x3000, /* KEYX IND name */
@@ -1516,7 +1525,7 @@ static int hp42ext[] = {
     CMD_DIM     | 0x1000,
     CMD_INPUT   | 0x1000,
     CMD_EDITN   | 0x1000,
-    CMD_NULL    | 0x4000,
+    CMD_LSTO    | 0x1000,
 
     /* DO-DF */
     CMD_INPUT    | 0x2000,
@@ -1550,7 +1559,7 @@ static int hp42ext[] = {
     CMD_INTEG  | 0x2000,
     CMD_SOLVE  | 0x2000,
     CMD_DIM    | 0x2000,
-    CMD_NULL   | 0x4000,
+    CMD_LSTO   | 0x2000,
     CMD_INPUT  | 0x2000,
     CMD_EDITN  | 0x2000,
 

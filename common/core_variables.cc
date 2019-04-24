@@ -376,11 +376,10 @@ int disentangle(vartype *v) {
 }
 
 int lookup_var(const char *name, int namelength) {
-    /* TODO: memoize lookups.
-     * Also make sure that purge_var updates the lookup cache!
-     */
     int i, j;
-    for (i = 0; i < vars_count; i++) {
+    for (i = vars_count - 1; i >= 0; i--) {
+        if (vars[i].hidden)
+            continue;
         if (vars[i].length == namelength) {
             for (j = 0; j < namelength; j++)
                 if (vars[i].name[j] != name[j])
@@ -400,22 +399,57 @@ vartype *recall_var(const char *name, int namelength) {
         return vars[varindex].value;
 }
 
-void store_var(const char *name, int namelength, vartype *value) {
+bool ensure_var_space(int n) {
+    int nc = vars_count + n;
+    if (nc > vars_capacity) {
+        var_struct *nv = (var_struct *) realloc(vars, nc * sizeof(var_struct));
+        if (nv == NULL)
+            return false;
+        vars_capacity = nc;
+        vars = nv;
+    }
+    return true;
+}
+
+int store_var(const char *name, int namelength, vartype *value, bool local) {
     int varindex = lookup_var(name, namelength);
     int i;
     if (varindex == -1) {
         if ( store_vvar(name, namelength, value) )
-            return;
+            return ERR_NONE;
         if (vars_count == vars_capacity) {
-            vars_capacity += 25;
-            vars = (var_struct *)
-                        reallocU(vars, vars_capacity * sizeof(var_struct));
-            // TODO - handle memory allocation failure
+            int nc = vars_capacity + 25;
+            var_struct *nv = (var_struct *) realloc(vars, nc * sizeof(var_struct));
+            if (nv == NULL)
+                return ERR_INSUFFICIENT_MEMORY;
+            vars_capacity = nc;
+            vars = nv;
         }
         varindex = vars_count++;
         vars[varindex].length = namelength;
         for (i = 0; i < namelength; i++)
             vars[varindex].name[i] = name[i];
+        vars[varindex].level = local ? get_rtn_level() : -1;
+        vars[varindex].hidden = false;
+        vars[varindex].hiding = false;
+    } else if (local && vars[varindex].level < get_rtn_level()) {
+        if (vars_count == vars_capacity) {
+            int nc = vars_capacity + 25;
+            var_struct *nv = (var_struct *) realloc(vars, nc * sizeof(var_struct));
+            if (nv == NULL)
+                return ERR_INSUFFICIENT_MEMORY;
+            vars_capacity = nc;
+            vars = nv;
+        }
+        vars[varindex].hidden = true;
+        varindex = vars_count++;
+        vars[varindex].length = namelength;
+        for (i = 0; i < namelength; i++)
+            vars[varindex].name[i] = name[i];
+        vars[varindex].level = get_rtn_level();
+        vars[varindex].hidden = false;
+        vars[varindex].hiding = true;
+        push_indexed_matrix(name, namelength);
     } else {
         if (matedit_mode == 1 &&
                 string_equals(name, namelength, matedit_name, matedit_length))
@@ -424,19 +458,29 @@ void store_var(const char *name, int namelength, vartype *value) {
     }
     vars[varindex].value = value;
     update_catalog();
+    return ERR_NONE;
 }
 
-int purge_var(const char *name, int namelength) {
+void purge_var(const char *name, int namelength) {
     int varindex = lookup_var(name, namelength);
-    int i;
     if (varindex == -1)
-        return 0;
+        return;
+    if (vars[varindex].level != -1 && vars[varindex].level != get_rtn_level())
+        // Won't delete local var not created at this level
+        return;
     free_vartype(vars[varindex].value);
-    for (i = varindex; i < vars_count - 1; i++)
+    if (vars[varindex].hiding) {
+        for (int i = varindex - 1; i >= 0; i--)
+            if (vars[i].hidden && string_equals(vars[i].name, vars[i].length, name, namelength)) {
+                vars[i].hidden = false;
+                break;
+            }
+        pop_indexed_matrix(name, namelength);
+    }
+    for (int i = varindex; i < vars_count - 1; i++)
         vars[i] = vars[i + 1];
     vars_count--;
     update_catalog();
-    return 1;
 }
 
 void purge_all_vars() {
@@ -449,6 +493,8 @@ void purge_all_vars() {
 int vars_exist(int real, int cpx, int matrix) {
     int i;
     for (i = 0; i < vars_count; i++) {
+        if (vars[i].hidden)
+            continue;
         switch (vars[i].value->type) {
             case TYPE_REAL:
             case TYPE_STRING:

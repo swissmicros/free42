@@ -1495,7 +1495,7 @@ static extension_struct extensions[] = {
     { CMD_HEADING, CMD_HEADING, &core_settings.enable_ext_heading  },
     { CMD_ADATE,   CMD_SWPT,    &core_settings.enable_ext_time     },
     { CMD_FPTEST,  CMD_FPTEST,  &core_settings.enable_ext_fptest   },
-    { CMD_SST_UP,  CMD_SST_RT,  &core_settings.enable_ext_prog     },
+    { CMD_LSTO,    CMD_YMD,     &core_settings.enable_ext_prog     },
     { CMD_NULL,    CMD_NULL,    NULL                               }
 };
 
@@ -1650,6 +1650,8 @@ static void draw_catalog() {
 
         for (i = 0; i < vars_count; i++) {
             int type = vars[i].value->type;
+            if (vars[i].hidden)
+                continue;
             switch (type) {
                 case TYPE_REAL:
                 case TYPE_STRING:
@@ -1683,6 +1685,8 @@ static void draw_catalog() {
             catalogmenu_row[catindex] = catalogmenu_rows[catindex] - 1;
         j = -1;
         for (i = vars_count - 1; i >= 0; i--) {
+            if (vars[i].hidden)
+                continue;
             int type = vars[i].value->type;
             switch (type) {
                 case TYPE_REAL:
@@ -2340,7 +2344,7 @@ int command2buf(char *buf, int len, int cmd, const arg_struct *arg) {
             || !core_settings.enable_ext_heading && cmd == CMD_HEADING
             || !core_settings.enable_ext_time && cmd >= CMD_ADATE && cmd <= CMD_SWPT
             || !core_settings.enable_ext_fptest && cmd == CMD_FPTEST
-            || !core_settings.enable_ext_prog && cmd >= CMD_SST_UP && cmd <= CMD_SST_RT
+            || !core_settings.enable_ext_prog && cmd >= CMD_LSTO && cmd <= CMD_YMD
             || (cmdlist(cmd)->hp42s_code & 0xfffff800) == 0x0000a000 && (cmdlist(cmd)->flags & FLAG_HIDDEN) != 0) {
         xrom_arg = cmdlist(cmd)->hp42s_code;
         cmd = CMD_XROM;
@@ -2823,14 +2827,10 @@ void do_prgm_menu_key(int keynum) {
         return;
     }
     if (!progmenu_is_gto[keynum]) {
-        if (oldpc == -1)
-            oldpc = 0;
-        err = push_rtn_addr(oldprgm, oldpc);
+        err = push_rtn_addr(oldprgm, oldpc == -1 ? 0 : oldpc);
         if (err != ERR_NONE) {
-            /* Solve/Integ RTN Lost. Someone is writing weird programs
-             * if they're using a programmable menu in the middle of
-             * a solver invocation...
-             */
+            current_prgm = oldprgm;
+            pc = oldpc;
             set_running(false);
             display_error(err, 1);
             flush_display();
