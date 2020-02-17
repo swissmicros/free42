@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -55,7 +55,7 @@ static NSString *unicode(NSString *src) {
             strcat(buf, " ");
         sprintf(buf + strlen(buf), "0x%x", c);
     }
-    return [NSString stringWithCString:buf encoding:NSUTF8StringEncoding];
+    return [NSString stringWithUTF8String:buf];
 }
 
 - (void)keyDown:(NSEvent *)theEvent {
@@ -72,30 +72,6 @@ static NSString *unicode(NSString *src) {
 
 - (void)flagsChanged:(NSEvent *)theEvent {
     calc_keymodifierschanged([theEvent modifierFlags]);
-}
-
-- (void) setNeedsDisplayInRectSafely2:(id) rect {
-    NSRect *r = (NSRect *) [((NSValue *) rect) pointerValue];
-    [self setNeedsDisplayInRect:*r];
-    delete r;
-}
-
-- (void) setNeedsDisplayInRectSafely:(CGRect) rect {
-    if ([NSThread isMainThread]) {
-        NSRect invalRect;
-        invalRect.origin.x = rect.origin.x;
-        invalRect.origin.y = rect.origin.y;
-        invalRect.size.width = rect.size.width;
-        invalRect.size.height = rect.size.height;
-        [self setNeedsDisplayInRect:invalRect];
-    } else {
-        NSRect *r = new NSRect;
-        r->origin.x = rect.origin.x;
-        r->origin.y = rect.origin.y;
-        r->size.width = rect.size.width;
-        r->size.height = rect.size.height;
-        [self performSelectorOnMainThread:@selector(setNeedsDisplayInRectSafely2:) withObject:[NSValue valueWithPointer:r] waitUntilDone:NO];
-    }
 }
 
 @end

@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -34,7 +34,7 @@
     if (height < 0)
         height += PRINT_LINES;
     NSSize s;
-    s.width = 286;
+    s.width = 358;
     s.height = height;
     [self setFrameSize:s];
     [self setNeedsDisplay:YES];
@@ -49,18 +49,16 @@
     [self scrollPoint:p];
 }
 
-- (void) updatePrintout:(id) params {
-    update_params *ppar = (update_params *) [((NSValue *) params) pointerValue];
+- (void) updatePrintout:(update_params *) ppar {
     int newlength = ppar->newlength;
     int oldlength = ppar->oldlength;
     int height = ppar->height;
-    delete ppar;
     if (newlength >= PRINT_LINES) {
         printout_top = (printout_bottom + 2) % PRINT_LINES;
         newlength = PRINT_LINES - 2;
         if (newlength != oldlength) {
             NSSize s;
-            s.width = 286;
+            s.width = 358;
             s.height = newlength;
             [self setFrameSize:s];
         }
@@ -73,7 +71,7 @@
         [self setNeedsDisplay:YES];
     } else {
         NSSize s;
-        s.width = 286;
+        s.width = 358;
         s.height = newlength;
         [self setFrameSize:s];
         NSPoint p;
@@ -83,7 +81,7 @@
         NSRect r;
         r.origin.x = 0;
         r.origin.y = oldlength;
-        r.size.width = 286;
+        r.size.width = 358;
         r.size.height = 2 * height;
         [self setNeedsDisplayInRect:r];
     }
@@ -108,9 +106,12 @@
         if (v2 >= PRINT_LINES)
             v2 -= PRINT_LINES;
         for (int h = xmin; h < xmax; h++) {
-            int pixel = (print_bitmap[v2 * PRINT_BYTESPERLINE + (h >> 3)] & (1 << (h & 7))) != 0;
-            if (pixel)
-                CGContextFillRect(myContext, CGRectMake(h, v, 1, 1));
+            int h2 = h - 36;
+            if (h2 >= 0 && h2 < 286) {
+                int pixel = (print_bitmap[v2 * PRINT_BYTESPERLINE + (h2 >> 3)] & (1 << (h2 & 7))) != 0;
+                if (pixel)
+                    CGContextFillRect(myContext, CGRectMake(h, v, 1, 1));
+            }
         }
     }
 }

@@ -2,11 +2,7 @@
 Free42 is a software clone of the Hewlett-Packard 42S calculator. If you know
 how to use an HP-42S, you know how to use Free42.
 If you're new to the HP-42S and its clones, you may want to take a peek at the
-manual. You can get a scan of the original manual, wrapped in a rather large
-PDF file, by ordering the HP Museum CD/DVD-ROM set (highly recommended for any
-HP calculator enthusiast). Go to http://hpmuseum.org/ to learn more.
-Alternatively, you can get a free manual for the HP-42S and Free42 at
-http://thomasokken.com/free42/42s.pdf.
+manual. You can find documentation at https://thomasokken.com/free42/#doc
 
 The remainder of this README file covers some miscellaneous tidbits that I had
 no other decent place to put.
@@ -17,7 +13,7 @@ Binary vs. Decimal
 Starting with release 1.4, Free42 can be built with binary or with decimal
 floating point. Building the binary versions works as always (just say "make");
 to build the decimal versions, set the BCD_MATH environment variable, or use
-"make -e BCD_MATH=1".
+"make BCD_MATH=1".
 When switching between building the decimal and binary version (or vice versa),
 be sure to do "make clean", to avoid linking the wrong objects.
 When building the Windows version using Visual C++, choose the Free42Binary or
@@ -28,27 +24,33 @@ about cleaning up object files.
 
 
 -------------------------------------------------------------------------------
-Building the Unix version:
+Creating Free42 build environment in FreeBSD
 
-Different operating systems require different compiler and linker flags. One
-day I would like to use autoconf or something similar to make it easier to
-provide a Free42 source package that builds easily on all sorts of different
-flavors of Unix; until then, here are a few hints that may help in case simply
-saying 'make' doesn't to the job for you.
+Create VirtualBox VM (using VirtualBox 5.2.22)
+Install FreeBSD-12.0-RELEASE-amd64-dvd1.iso
 
-One known source of confusion is the LIBS line in the Makefile. Depending on
-your system's specifics, you may have to list more libraries there than I have
-in my Makefile. Apparently, different linkers have different abilities to
-automatically include required libs: on my system, -lXm (Motif) automatically
-includes -lXp -lXmu -lXt -lX11, but on others, some or all of these may have
-to be specified explicitly. Additional libraries may also be needed.
+then:
 
-If your build fails due to a missing sincos(), add -DNO_SINCOS to the
-CXXFLAGS in the Makefile.
+pkg install gnome3
+pkg install xorg
+pkg install virtualbox-ose-additions
 
-The Makefiles were all written for GNU make. On Linux, this is usually the
-default anyway, but if you're using FreeBSD or other BSD derivatives, you may
-have to use 'gmake' instead of 'make'.
+in /etc/fstab, added:
+proc           /proc       procfs  rw  0   0
+
+in /etc/rc.conf, added:
+vboxguest_enable="YES"
+vboxservice_enable="YES"
+dbus_enable="YES"
+hald_enable="YES"
+gdm_enable="YES"
+gnome_enable="YES"
+
+That brings up the desktop.
+Now, some more stuff:
+
+pkg install devel/pkgconf
+pkg install devel/gmake
 
 
 -------------------------------------------------------------------------------
@@ -112,15 +114,15 @@ and PERM would be sensitive to a hardware bug (and *only* they, apparently),
 but who am I to question what I've heard others report? I'm not about to spend
 weeks poring over ROM disassemblies to make sure...
 
-In LINSigma mode, summing a matrix is buggy. I have seen it sum only the first
-row, and report a bogus value back in X (8.47216900137e-489), and also seen it
-say Insufficient Memory when that clearly wasn't true; I have heard a report
-from someone else about the machine even locking up to the point where it needs
-a hard reset.
+In LINΣ mode, summing a matrix is buggy. I have seen it sum only the first row,
+and report a bogus value back in X (8.47216900137e-489), and also seen it say
+Insufficient Memory when that clearly wasn't true; I have heard a report from
+someone else about the machine even locking up to the point where it needs a
+hard reset.
 
-In some versions, LINSigma mode, Sigma+ and Sigma- do not update LASTx.
-I read about this in a manual addendum from HP; however, I cannot reproduce
-this, neither on my real HP-42S nor on Emu42 (both rev. C ROM).
+In some versions, in LINΣ mode, Σ+ and Σ- do not update LASTx. I read about
+this in a manual addendum from HP; however, I cannot reproduce this, neither on
+my real HP-42S nor on Emu42 (both rev. C ROM).
 
 I have also heard a report that FCSTX is buggy in PWRF mode; I have not been
 able to confirm this yet but there appears to be more I have to read about it.
@@ -128,17 +130,14 @@ Probably depends on your ROM version; I tested with rev. C but it seemed fine.
 
 Not sure if this is a bug or not:
 
-When KEYX or KEYG are used to reprogram the UP and DOWN keys, it would be nice
-if the 'updown' annunciator in the display got turned on to tip the user off.
-I'm not sure if the manual mentions this behavior (TODO - check), but the
-Programming Examples and Techniques book does (page 34, bottom). I've seen
-a discussion about this on the hpmuseum.org forum, and all were agreed it would
-be a nice feature, but it doesn't actually seem to work. At least it doesn't on
-my HP-42S, and I haven't heard anyone claim that it does work on theirs,
-either.
-Note: Free42 does turn on the 'updown' annunciator. Although my general rule is
-to mimic the HP-42S as closely as possible, I felt that this was a nice feature
-and that it's pretty unlikely to break anything. :-)
+When KEYX or KEYG are used to reprogram the ▲ and ▼ keys, it would be nice if
+the user would be alerted to this by the ▼▲ annunciator in the display turning
+on. The manual does not mention this behavior, but older editions of the
+Programming Examples and Techniques book do (page 34, bottom). It doesn't work
+on the actual calculator, at least not on any that I've heard of.
+Free42 does turn on the ▼▲ annunciator. Although my general rule is to mimic
+the HP-42S as closely as possible, I felt that this was a nice feature and that
+it's pretty unlikely to break anything. :-)
 
 
 -------------------------------------------------------------------------------
@@ -162,7 +161,7 @@ The indexed matrix may be real or complex, and the search value may be real,
 complex, or string; real or string values are only found in real matrices, and
 complex values are only found in complex matrices; in other words, 5 is not
 considered equal to 5 + 0i -- mathematically speaking this is wrong, but on the
-other hand it is consistent with the behavior of the X=Y? and X!=Y? functions.
+other hand it is consistent with the behavior of the X=Y? and X≠Y? functions.
 
 
 -------------------------------------------------------------------------------

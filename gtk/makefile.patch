@@ -2,15 +2,6 @@ Index: Makefile
 ===================================================================
 --- Makefile	(revision 56)
 +++ Makefile	(working copy)
-@@ -35,7 +35,7 @@
- 	 -D_WCHAR_T_DEFINED
- 
- LDFLAGS = -L/usr/X11R6/lib
--LIBS = gcc111libbid.a -lXmu $(shell pkg-config --libs gtk+-2.0)
-+LIBS = gcc111libbid.a -lXmu -lX11 $(shell pkg-config --libs gtk+-2.0)
- 
- ifeq "$(shell uname -s)" "Linux"
- LDFLAGS += -Wl,--hash-style=both
 @@ -57,6 +57,9 @@
  	core_math1.o core_math2.o core_phloat.o core_sto_rcl.o \
  	core_tables.o core_variables.o

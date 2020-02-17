@@ -1,6 +1,6 @@
 ###############################################################################
 # Free42 -- an HP-42S calculator simulator
-# Copyright (C) 2004-2019  Thomas Okken
+# Copyright (C) 2004-2020  Thomas Okken
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License, version 2,
@@ -19,10 +19,17 @@ CFLAGS = -MMD \
 	 -Wall \
 	 -Wno-parentheses \
 	 -Wno-write-strings \
+	 -Wno-sign-compare \
+	 -Wno-narrowing \
+	 -Wno-constant-conversion \
+	 -Wno-sometimes-uninitialized \
+	 -Wno-format-truncation \
+	 -Wno-unknown-warning-option \
 	 -g \
-	 -I/usr/X11R6/include \
-	 $(shell pkg-config --cflags gtk+-2.0) \
-	 -DVERSION="\"$(shell cat ../VERSION)\"" \
+	 $(shell pkg-config --cflags gtk+-3.0) \
+	 -DGDK_DISABLE_DEPRECATION_WARNINGS -DGTK_DISABLE_SINGLE_INCLUDES -DGSEAL_ENABLE \
+	 -DVERSION="\"$(shell cat VERSION)\"" \
+	 -DVERSION_PLATFORM="\"$(shell uname -s)\"" \
 	 -DDECIMAL_CALL_BY_REFERENCE=1 \
 	 -DDECIMAL_GLOBAL_ROUNDING=1 \
 	 -DDECIMAL_GLOBAL_ROUNDING_ACCESS_FUNCTIONS=1 \
@@ -34,12 +41,14 @@ CXXFLAGS = $(CFLAGS) \
 	 -fno-rtti \
 	 -D_WCHAR_T_DEFINED
 
-LDFLAGS = -L/usr/X11R6/lib
-LIBS = gcc111libbid.a -lXmu -lX11 $(shell pkg-config --libs gtk+-2.0)
+LIBS = gcc111libbid.a $(shell pkg-config --libs gtk+-3.0)
 
-ifeq "$(shell uname -s)" "Linux"
-LDFLAGS += -Wl,--hash-style=both
-LIBS += -lpthread
+ifdef AUDIO_ALSA
+LIBS += -lpthread -ldl
+endif
+
+ifneq "$(findstring 6162,$(shell echo ab | od -x))" ""
+CFLAGS += -DF42_BIG_ENDIAN -DBID_BIG_ENDIAN
 endif
 
 SRCS = shell_main.cc shell_skin.cc skins.cc keymap.cc shell_loadimage.cc \
@@ -78,14 +87,13 @@ ifdef AUDIO_ALSA
 # the executable is defined in the corresponding *.la file, in the 'dlname'
 # property. I suppose it would be better to grab it from there at build time,
 # rather than hard-coding it into the Makefile like this, but as long as the
-# build environment doesn't change (still Fedora 6 at the time of writing),
-# this is fine.
+# build environment doesn't change (currently Ubuntu 12.04), this is fine.
 CXXFLAGS += -DAUDIO_ALSA -DALSALIB="\"libasound.so.2\""
 SRCS += audio_alsa.cc
 OBJS += audio_alsa.o
 endif
 
-$(EXE): $(OBJS)
+$(EXE): $(OBJS) gcc111libbid.a
 	$(CXX) -o $(EXE) $(LDFLAGS) $(OBJS) $(LIBS)
 
 $(SRCS) skin2cc.cc keymap2cc.cc skin2cc.conf: symlinks
@@ -108,31 +116,30 @@ keymap2cc: keymap2cc.cc
 keymap.cc: keymap2cc keymap.txt
 	./keymap2cc
 
-symlinks:
-	for fn in `cd ../common; /bin/ls`; do ln -s ../common/$$fn; done
+gcc111libbid.a:
 	sh ./build-intel-lib.sh
 	ln -s IntelRDFPMathLib20U1/TESTS/readtest.c
+
+symlinks:
+	for fn in `cd ../common; /bin/ls`; do ln -s ../common/$$fn; done
 	touch symlinks
 
 clean: FORCE
-	rm -f `find . -type l` \
+	rm -f `find . -type l ! -name readtest.c` \
 		skin2cc skin2cc.exe skins.cc \
 		keymap2cc keymap2cc.exe keymap.cc \
-	        readtest_lines.cc \
-	        gcc111libbid.a \
 		*.o *.d *.i *.ii *.s symlinks core.*
-	rm -rf IntelRDFPMathLib20U1
 
 cleaner: FORCE
 	rm -f `find . -type l` \
 		free42bin free42bin.exe free42dec free42dec.exe \
 		skin2cc skin2cc.exe skins.cc \
 		keymap2cc keymap2cc.exe keymap.cc \
-	        readtest_lines.cc \
-	        gcc111libbid.a \
+		readtest_lines.cc \
+		gcc111libbid.a \
 		*.o *.d *.i *.ii *.s symlinks core.*
 	rm -rf IntelRDFPMathLib20U1
 
 FORCE:
 
--include $(SRCS:.cc=.d)
+-include $(OBJS:.o=.d)

@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -18,14 +18,15 @@
 #import <UIKit/UIKit.h>
 #import <sys/stat.h>
 #import <sys/sysctl.h>
-#import <pthread.h>
 
 #import <AudioToolbox/AudioServices.h>
 #import <CoreLocation/CoreLocation.h>
+#import <CoreMotion/CoreMotion.h>
 
 #import "CalcView.h"
 #import "PrintView.h"
 #import "RootViewController.h"
+#import "Free42AppDelegate.h"
 #import "free42.h"
 #import "core_main.h"
 #import "core_display.h"
@@ -41,28 +42,19 @@
 /////                         Ye olde C stuphphe                          /////
 ///////////////////////////////////////////////////////////////////////////////
 
-static int level = 0;
-
+#if 0
 class Tracer {
 private:
     const char *name;
 public:
     Tracer(const char *name) {
         this->name = name;
-        for (int i = 0; i < level; i++)
-            fprintf(stderr, " ");
-        fprintf(stderr, "ENTERING %s\n", name);
-        level++;
+        NSLog(@"%@ : ENTERING %s", [NSThread currentThread], name);
     }
     ~Tracer() {
-        level--;
-        for (int i = 0; i < level; i++)
-            fprintf(stderr, " ");
-        fprintf(stderr, "EXITING %s\n", name);
+        NSLog(@"%@ : EXITING %s", [NSThread currentThread], name);
     }
 };
-
-#if 0
 #define TRACE(x) Tracer T(x)
 #else
 #define TRACE(x)
@@ -77,15 +69,12 @@ static void init_shell_state(int version);
 static int write_shell_state();
 
 state_type state;
-static FILE* statefile;
+FILE* statefile;
 
 static int quit_flag = 0;
 static int enqueued;
 static int keep_running = 0;
 static int we_want_cpu = 0;
-static bool is_running = false;
-static pthread_mutex_t is_running_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t is_running_cond = PTHREAD_COND_INITIALIZER;
 
 static int ckey = 0;
 static int skey;
@@ -105,7 +94,6 @@ static int ann_run = 0;
 //static int ann_battery = 0;
 static int ann_g = 0;
 static int ann_rad = 0;
-static pthread_mutex_t ann_print_timeout_mutex = PTHREAD_MUTEX_INITIALIZER;
 static bool ann_print_timeout_active = false;
 
 static FILE *print_txt = NULL;
@@ -130,12 +118,10 @@ static bool is_file(const char *name);
 /////   Accelerometer, Location Services, and Compass support    /////
 //////////////////////////////////////////////////////////////////////
 
-static double accel_x = 0, accel_y = 0, accel_z = 0;
 static double loc_lat = 0, loc_lon = 0, loc_lat_lon_acc = -1, loc_elev = 0, loc_elev_acc = -1;
 static double hdg_mag = 0, hdg_true = 0, hdg_acc = -1, hdg_x = 0, hdg_y = 0, hdg_z = 0;
 
-@interface HardwareDelegate : NSObject <UIAccelerometerDelegate, CLLocationManagerDelegate> {}
-- (void)accelerometer:(UIAccelerometer *)accelerometer didAccelerate:(UIAcceleration *)acceleration;
+@interface HardwareDelegate : NSObject <CLLocationManagerDelegate> {}
 - (void)locationManager:(CLLocationManager *)manager didUpdateToLocation:(CLLocation *)newLocation fromLocation:(CLLocation *)oldLocation;
 - (void)locationManager:(CLLocationManager *)manager didFailWithError:(NSError *)error;
 - (void)locationManager:(CLLocationManager *)manager didUpdateHeading:(CLHeading *)newHeading;
@@ -143,13 +129,6 @@ static double hdg_mag = 0, hdg_true = 0, hdg_acc = -1, hdg_x = 0, hdg_y = 0, hdg
 @end
 
 @implementation HardwareDelegate
-
-- (void)accelerometer:(UIAccelerometer *)accelerometer didAccelerate:(UIAcceleration *)acceleration {
-    accel_x = acceleration.x;
-    accel_y = acceleration.y;
-    accel_z = acceleration.z;
-    NSLog(@"Acceleration received: %g %g %g", accel_x, accel_y, accel_z);
-}
 
 - (void)locationManager:(CLLocationManager *)manager didUpdateToLocation:(CLLocation *)newLocation fromLocation:(CLLocation *)oldLocation {
     loc_lat = newLocation.coordinate.latitude;
@@ -195,32 +174,11 @@ static CalcView *calcView = nil;
     return self;
 }
 
-- (void) setNeedsDisplayInRectSafely2:(id) myrect {
-    TRACE("setNeedsDisplayInRectSafely2");
-    CGRect *r = (CGRect *) [((NSValue *) myrect) pointerValue];
-    [self setNeedsDisplayInRect:*r];
-    delete r;
-}
-
-- (void) setNeedsDisplayInRectSafely:(CGRect) rect {
-    TRACE("setNeedsDisplayInRectSafely");
-    if ([NSThread isMainThread])
-        [self setNeedsDisplayInRect:rect];
-    else {
-        CGRect *r = new CGRect;
-        r->origin.x = rect.origin.x;
-        r->origin.y = rect.origin.y;
-        r->size.width = rect.size.width;
-        r->size.height = rect.size.height;
-        [self performSelectorOnMainThread:@selector(setNeedsDisplayInRectSafely2:) withObject:[NSValue valueWithPointer:r] waitUntilDone:NO];
-    }
-}
-
 - (void) showMainMenu {
     UIActionSheet *menu =
     [[UIActionSheet alloc] initWithTitle:@"Main Menu"
                                 delegate:self cancelButtonTitle:@"Cancel" destructiveButtonTitle:nil
-                       otherButtonTitles:@"Show Print-Out", @"Program Import & Export", @"Preferences", @"Select Skin", @"Copy", @"Paste", @"About Free42", nil];
+                       otherButtonTitles:@"Show Print-Out", @"Program Import & Export", @"States", @"Preferences", @"Select Skin", @"Copy", @"Paste", @"About Free42", nil];
     
     [menu showInView:self];
     [menu release];
@@ -230,7 +188,7 @@ static CalcView *calcView = nil;
     UIActionSheet *menu =
     [[UIActionSheet alloc] initWithTitle:@"Import & Export Menu"
                                 delegate:self cancelButtonTitle:@"Cancel" destructiveButtonTitle:nil
-                       otherButtonTitles:@"HTTP Server", @"Import Programs", @"Export Programs", @"Back", nil];
+                       otherButtonTitles:@"HTTP Server", @"Import Programs", @"Export Programs", @"Share Programs", @"Back", nil];
     
     [menu showInView:self];
     [menu release];
@@ -248,26 +206,30 @@ static CalcView *calcView = nil;
                 [self showImportExportMenu];
                 break;
             case 2:
+                // States
+                [RootViewController showStates:nil];
+                break;
+            case 3:
                 // Preferences
                 [RootViewController showPreferences];
                 break;
-            case 3:
+            case 4:
                 // Select Skin
                 [RootViewController showSelectSkin];
                 break;
-            case 4:
+            case 5:
                 // Copy
                 [self doCopy];
                 break;
-            case 5:
+            case 6:
                 // Paste
                 [self doPaste];
                 break;
-            case 6:
+            case 7:
                 // About Free42
                 [RootViewController showAbout];
                 break;
-            case 7:
+            case 8:
                 // Cancel
                 break;
         }
@@ -283,13 +245,17 @@ static CalcView *calcView = nil;
                 break;
             case 2:
                 // Export Programs
-                [RootViewController doExport];
+                [RootViewController doExport:NO];
                 break;
             case 3:
+                // Share Programs
+                [RootViewController doExport:YES];
+                break;
+            case 4:
                 // Back
                 [self showMainMenu];
                 break;
-            case 4:
+            case 5:
                 // Cancel
                 break;
         }
@@ -307,30 +273,6 @@ static CalcView *calcView = nil;
     [super dealloc];
 }
 
-- (void) touchesBegan3 {
-    TRACE("touchesBegan3");
-    if (state.keyClicks)
-        AudioServicesPlaySystemSound(1105);
-    if (state.hapticFeedback) {
-        UIImpactFeedbackGenerator *fbgen = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
-        [fbgen impactOccurred];
-    }
-    macro = skin_find_macro(ckey, &macro_is_name);
-    shell_keydown();
-    mouse_key = 1;
-}
-
-- (void) touchesBegan2 {
-    TRACE("touchesBegan2");
-    we_want_cpu = 1;
-    pthread_mutex_lock(&is_running_mutex);
-    while (is_running)
-        pthread_cond_wait(&is_running_cond, &is_running_mutex);
-    pthread_mutex_unlock(&is_running_mutex);
-    we_want_cpu = 0;
-    [self performSelectorOnMainThread:@selector(touchesBegan3) withObject:NULL waitUntilDone:NO];
-}
-
 - (void) touchesBegan: (NSSet *) touches withEvent: (UIEvent *) event {
     TRACE("touchesBegan");
     [super touchesBegan:touches withEvent:event];
@@ -338,55 +280,43 @@ static CalcView *calcView = nil;
     CGPoint p = [touch locationInView:self];
     int x = (int) p.x;
     int y = (int) p.y;
-    if (skin_in_menu_area(x, y)) {
-        [self showMainMenu];
-    } else if (ckey == 0) {
+    if (ckey == 0) {
         skin_find_key(x, y, ann_shift != 0, &skey, &ckey);
-        if (ckey != 0) {
-            if (is_running)
-                [self performSelectorInBackground:@selector(touchesBegan2) withObject:NULL];
-            else
-                [self touchesBegan3];
+        if (ckey == 0) {
+            if (skin_in_menu_area(x, y))
+                [self showMainMenu];
+        } else {
+            if (state.keyClicks > 0)
+                [RootViewController playSound:state.keyClicks + 10];
+            if (state.hapticFeedback > 0) {
+                UIImpactFeedbackStyle s;
+                switch (state.hapticFeedback) {
+                    case 1: s = UIImpactFeedbackStyleLight; break;
+                    case 2: s = UIImpactFeedbackStyleMedium; break;
+                    case 3: s = UIImpactFeedbackStyleHeavy; break;
+                }
+                UIImpactFeedbackGenerator *fbgen = [[UIImpactFeedbackGenerator alloc] initWithStyle:s];
+                [fbgen impactOccurred];
+            }
+            macro = skin_find_macro(ckey, &macro_is_name);
+            shell_keydown();
+            mouse_key = 1;
         }
     }
-}
-
-- (void) touchesEnded3 {
-    TRACE("touchesEnded3");
-    shell_keyup();
-}
-
-- (void) touchesEnded2 {
-    TRACE("touchesEnded2");
-    we_want_cpu = 1;
-    pthread_mutex_lock(&is_running_mutex);
-    while (is_running)
-        pthread_cond_wait(&is_running_cond, &is_running_mutex);
-    pthread_mutex_unlock(&is_running_mutex);
-    we_want_cpu = 0;
-    [self performSelectorOnMainThread:@selector(touchesEnded3) withObject:NULL waitUntilDone:NO];
 }
 
 - (void) touchesEnded: (NSSet *) touches withEvent: (UIEvent *) event {
     TRACE("touchesEnded");
     [super touchesEnded:touches withEvent:event];
-    if (ckey != 0 && mouse_key) {
-        if (is_running)
-            [self performSelectorInBackground:@selector(touchesEnded2) withObject:NULL];
-        else
-            [self touchesEnded3];
-    }
+    if (ckey != 0 && mouse_key)
+        shell_keyup();
 }
 
 - (void) touchesCancelled: (NSSet *) touches withEvent: (UIEvent *) event {
     TRACE("touchesCancelled");
     [super touchesCancelled:touches withEvent:event];
-    if (ckey != 0 && mouse_key) {
-        if (is_running)
-            [self performSelectorInBackground:@selector(touchesEnded2) withObject:NULL];
-        else
-            [self touchesEnded3];
-    }
+    if (ckey != 0 && mouse_key)
+        shell_keyup();
 }
 
 + (void) repaint {
@@ -446,13 +376,28 @@ static CalcView *calcView = nil;
 - (void) doPaste {
     UIPasteboard *pb = [UIPasteboard generalPasteboard];
     NSString *txt = [pb string];
-    const char *buf = [txt UTF8String];
-    core_paste(buf);
+    if (txt != nil) {
+        const char *buf = [txt UTF8String];
+        core_paste(buf);
+    }
 }
+
+static struct timeval runner_end_time;
 
 - (void) startRunner {
     TRACE("startRunner");
-    [self performSelectorInBackground:@selector(runner) withObject:NULL];
+    gettimeofday(&runner_end_time, NULL);
+    runner_end_time.tv_usec += 10000; // run for up to 10 ms
+    if (runner_end_time.tv_usec >= 1000000) {
+        runner_end_time.tv_usec -= 1000000;
+        runner_end_time.tv_sec++;
+    }
+    int dummy1, dummy2;
+    keep_running = core_keydown(0, &dummy1, &dummy2);
+    if (quit_flag)
+        [self quitB];
+    else if (keep_running && !we_want_cpu)
+        [self performSelector:@selector(startRunner) withObject:NULL afterDelay:0];
 }
 
 - (void) awakeFromNib {
@@ -461,6 +406,8 @@ static CalcView *calcView = nil;
     calcView = self;
     statefile = fopen("config/state", "r");
     int init_mode, version;
+    char core_state_file_name[FILENAMELEN];
+    int core_state_file_offset;
     if (statefile != NULL) {
         if (read_shell_state(&version)) {
             init_mode = 1;
@@ -472,15 +419,32 @@ static CalcView *calcView = nil;
         init_shell_state(-1);
         init_mode = 0;
     }
+    if (init_mode == 1) {
+        if (version > 25) {
+            snprintf(core_state_file_name, FILENAMELEN, "config/%s.f42", state.coreName);
+            core_state_file_offset = 0;
+        } else {
+            strcpy(core_state_file_name, "config/state");
+            core_state_file_offset = (int) ftell(statefile);
+        }
+        fclose(statefile);
+    }  else {
+        // The shell state was missing or corrupt, but there
+        // may still be a valid core state...
+        snprintf(core_state_file_name, FILENAMELEN, "config/%s.f42", state.coreName);
+        struct stat st;
+        if (stat(core_state_file_name, &st) == 0) {
+            // Core state "Untitled.f42" exists; let's try to read it
+            core_state_file_offset = 0;
+            init_mode = 1;
+            version = 26;
+        }
+    }
 
     long w, h;
     skin_load(&w, &h);
     
-    core_init(init_mode, version);
-    if (statefile != NULL) {
-        fclose(statefile);
-        statefile = NULL;
-    }
+    core_init(init_mode, version, core_state_file_name, core_state_file_offset);
     keep_running = core_powercycle();
     if (keep_running)
         [self startRunner];
@@ -488,21 +452,19 @@ static CalcView *calcView = nil;
         [UIApplication sharedApplication].idleTimerDisabled = YES;
 }
 
-- (void) runner {
-    TRACE("runner");
-    NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
-    int dummy1, dummy2;
-    is_running = true;
-    keep_running = core_keydown(0, &dummy1, &dummy2);
-    pthread_mutex_lock(&is_running_mutex);
-    is_running = false;
-    pthread_cond_signal(&is_running_cond);
-    pthread_mutex_unlock(&is_running_mutex);
-    if (quit_flag)
-        [self performSelectorOnMainThread:@selector(quitB) withObject:NULL waitUntilDone:NO];
-    else if (keep_running && !we_want_cpu)
-        [self performSelectorOnMainThread:@selector(startRunner) withObject:NULL waitUntilDone:NO];
-    [pool release];
++ (void) loadState:(const char *)name {
+    if (strcmp(name, state.coreName) != 0) {
+        char corefilename[FILENAMELEN];
+        snprintf(corefilename, FILENAMELEN, "config/%s.f42", state.coreName);
+        core_save_state(corefilename);
+    }
+    core_cleanup();
+    strcpy(state.coreName, name);
+    char corefilename[FILENAMELEN];
+    snprintf(corefilename, FILENAMELEN, "config/%s.f42", state.coreName);
+    core_init(1, 26, corefilename, 0);
+    if (core_powercycle())
+        [calcView startRunner];
 }
 
 - (void) setTimeout:(int) which {
@@ -575,15 +537,6 @@ static CalcView *calcView = nil;
         [self setTimeout:1];
 }
 
-static pthread_mutex_t shell_helper_mutex = PTHREAD_MUTEX_INITIALIZER;
-static int timeout3_delay;
-
-- (void) shell_request_timeout3_helper {
-    TRACE("shell_request_timeout3_helper");
-    [calcView setTimeout3:timeout3_delay];
-    pthread_mutex_unlock(&shell_helper_mutex);
-}
-
 + (void) stopTextPrinting {
     if (print_txt != NULL) {
         fclose(print_txt);
@@ -600,21 +553,22 @@ static int timeout3_delay;
     }
 }
 
-static HardwareDelegate *hwDel = NULL;
-static CLLocationManager *locMgr = NULL;
+static HardwareDelegate *hwDel = nil;
+static CMMotionManager *motMgr = nil;
+static CLLocationManager *locMgr = nil;
 
 - (void) start_accelerometer {
-    UIAccelerometer *am = [UIAccelerometer sharedAccelerometer];
-    am.updateInterval = 1;
-    if (hwDel == NULL)
-        hwDel = [HardwareDelegate alloc];
-    am.delegate = hwDel;
+    if (motMgr == nil) {
+        motMgr = [[CMMotionManager alloc] init];
+        motMgr.accelerometerUpdateInterval = 1;
+        [motMgr startAccelerometerUpdates];
+    }
 }
 
 - (void) start_location {
-    if (locMgr == NULL) {
+    if (locMgr == nil) {
         locMgr = [[CLLocationManager alloc] init];
-        if (hwDel == NULL)
+        if (hwDel == nil)
             hwDel = [HardwareDelegate alloc];
         locMgr.delegate = hwDel;
     }
@@ -639,17 +593,12 @@ static CLLocationManager *locMgr = NULL;
 }
 
 - (void) turn_off_print_ann {
-    pthread_mutex_lock(&ann_print_timeout_mutex);
     ann_print = 0;
     skin_update_annunciator(3, 0, calcView);
     ann_print_timeout_active = FALSE;
-    pthread_mutex_unlock(&ann_print_timeout_mutex);
 }
 
-- (void) print_ann_helper:(NSNumber *)set {
-    int prt = [set intValue];
-    [set release];
-    pthread_mutex_lock(&ann_print_timeout_mutex);
+- (void) print_ann_helper:(int)prt {
     if (ann_print_timeout_active) {
         [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(turn_off_print_ann) object:NULL];
         ann_print_timeout_active = FALSE;
@@ -663,7 +612,6 @@ static CLLocationManager *locMgr = NULL;
             ann_print_timeout_active = TRUE;
         }
     }
-    pthread_mutex_unlock(&ann_print_timeout_mutex);
 }
 
 @end
@@ -672,6 +620,8 @@ static CLLocationManager *locMgr = NULL;
 /////                   Here beginneth thy olde C code                    /////
 ///////////////////////////////////////////////////////////////////////////////
 
+extern int off_enable_flag;
+
 static int read_shell_state(int *ver) {
     TRACE("read_shell_state");
     int magic;
@@ -679,12 +629,12 @@ static int read_shell_state(int *ver) {
     int state_size;
     int state_version;
     
-    if (shell_read_saved_state(&magic, sizeof(int)) != sizeof(int))
+    if (fread(&magic, 1, sizeof(int), statefile) != sizeof(int))
         return 0;
     if (magic != FREE42_MAGIC)
         return 0;
     
-    if (shell_read_saved_state(&version, sizeof(int)) != sizeof(int))
+    if (fread(&version, 1, sizeof(int), statefile) != sizeof(int))
         return 0;
     if (version == 0) {
         /* State file version 0 does not contain shell state,
@@ -693,19 +643,22 @@ static int read_shell_state(int *ver) {
         init_shell_state(-1);
         *ver = version;
         return 1;
-    } else if (version > FREE42_VERSION)
-        /* Unknown state file version */
-        return 0;
+    }
     
-    if (shell_read_saved_state(&state_size, sizeof(int)) != sizeof(int))
+    if (fread(&state_size, 1, sizeof(int), statefile) != sizeof(int))
         return 0;
-    if (shell_read_saved_state(&state_version, sizeof(int)) != sizeof(int))
+    if (fread(&state_version, 1, sizeof(int), statefile) != sizeof(int))
         return 0;
     if (state_version < 0 || state_version > SHELL_VERSION)
         /* Unknown shell state version */
         return 0;
-    if (shell_read_saved_state(&state, state_size) != state_size)
+    if (fread(&state, 1, state_size, statefile) != state_size)
         return 0;
+    if (state_version >= 8) {
+        core_settings.matrix_singularmatrix = state.matrix_singularmatrix;
+        core_settings.matrix_outofrange = state.matrix_outofrange;
+        core_settings.auto_repeat = state.auto_repeat;
+    }
     
     init_shell_state(state_version);
     *ver = version;
@@ -741,12 +694,24 @@ static void init_shell_state(int version) {
             state.maintainSkinAspect[1] = 1;
             /* fall through */
         case 5:
-            /* current version (SHELL_VERSION = 5),
+            state.offEnabled = false;
+            /* fall through */
+        case 6:
+            strcpy(state.coreName, "Untitled");
+            /* fall through */
+        case 7:
+            core_settings.matrix_singularmatrix = false;
+            core_settings.matrix_outofrange = false;
+            core_settings.auto_repeat = true;
+            /* fall through */
+        case 8:
+            /* current version (SHELL_VERSION = 8),
              * so nothing to do here since everything
              * was initialized from the state file.
              */
             ;
     }
+    off_enable_flag = state.offEnabled ? 1 : 0;
 }
 
 static void quit2(bool really_quit) {
@@ -768,17 +733,15 @@ static void quit2(bool really_quit) {
     shell_spool_exit();
 
     mkdir("config", 0755);
-    statefile = fopen("config/state", "w");
-    if (statefile != NULL)
-        write_shell_state();
-    if (really_quit)
-        core_quit();
-    else
-        core_enter_background();
-    if (statefile != NULL)
-        fclose(statefile);
-    if (really_quit)
+    write_shell_state();
+
+    char corefilename[FILENAMELEN];
+    snprintf(corefilename, FILENAMELEN, "config/%s.f42", state.coreName);
+    core_save_state(corefilename);
+    if (really_quit) {
+        //core_cleanup();
         exit(0);
+    }
 }
 
 static void shell_keydown() {
@@ -876,27 +839,44 @@ static void shell_keyup() {
 static int write_shell_state() {
     TRACE("write_shell_state");
     int magic = FREE42_MAGIC;
-    int version = FREE42_VERSION;
+    int version = 27;
     int state_size = sizeof(state);
     int state_version = SHELL_VERSION;
+
+    state.offEnabled = off_enable_flag != 0;
     
-    if (!shell_write_saved_state(&magic, sizeof(int)))
+    FILE *statefile = fopen("config/state", "w");
+    if (statefile == NULL)
         return 0;
-    if (!shell_write_saved_state(&version, sizeof(int)))
+    if (fwrite(&magic, 1, sizeof(int), statefile) != sizeof(int))
         return 0;
-    if (!shell_write_saved_state(&state_size, sizeof(int)))
+    if (fwrite(&version, 1, sizeof(int), statefile) != sizeof(int))
         return 0;
-    if (!shell_write_saved_state(&state_version, sizeof(int)))
+    if (fwrite(&state_size, 1, sizeof(int), statefile) != sizeof(int))
         return 0;
-    if (!shell_write_saved_state(&state, sizeof(state)))
+    if (fwrite(&state_version, 1, sizeof(int), statefile) != sizeof(int))
+        return 0;
+    state.matrix_singularmatrix = core_settings.matrix_singularmatrix;
+    state.matrix_outofrange = core_settings.matrix_outofrange;
+    state.auto_repeat = core_settings.auto_repeat;
+    if (fwrite(&state, 1, sizeof(state), statefile) != sizeof(state))
         return 0;
     
+    fclose(statefile);
     return 1;
 }
 
 void shell_blitter(const char *bits, int bytesperline, int x, int y, int width, int height) {
     TRACE("shell_blitter");
     skin_display_blitter(bits, bytesperline, x, y, width, height, calcView);
+}
+
+const char *shell_platform() {
+    static char p[16];
+    strncpy(p, [Free42AppDelegate getVersion], 16);
+    strncat(p, " iOS", 16);
+    p[15] = 0;
+    return p;
 }
 
 void shell_beeper(int frequency, int duration) {
@@ -924,8 +904,7 @@ void shell_annunciators(int updn, int shf, int prt, int run, int g, int rad) {
         skin_update_annunciator(2, ann_shift, calcView);
     }
     if (prt != -1) {
-        NSNumber *n = [[NSNumber numberWithInt:prt] retain];
-        [calcView performSelectorOnMainThread:@selector(print_ann_helper:) withObject:n waitUntilDone:NO];
+        [calcView print_ann_helper:prt];
     }
     if (run != -1 && ann_run != run) {
         ann_run = run;
@@ -956,7 +935,12 @@ void shell_log(const char *message) {
 
 int shell_wants_cpu() {
     TRACE("shell_wants_cpu");
-    return we_want_cpu;
+    if (we_want_cpu)
+        return true;
+    struct timeval now;
+    gettimeofday(&now, NULL);
+    return now.tv_sec > runner_end_time.tv_sec
+        || now.tv_sec == runner_end_time.tv_sec && now.tv_usec >= runner_end_time.tv_usec;
 }
 
 void shell_delay(int duration) {
@@ -969,40 +953,7 @@ void shell_delay(int duration) {
 
 void shell_request_timeout3(int delay) {
     TRACE("shell_request_timeout3");
-    pthread_mutex_lock(&shell_helper_mutex);
-    timeout3_delay = delay;
-    [calcView performSelectorOnMainThread:@selector(shell_request_timeout3_helper) withObject:NULL waitUntilDone:NO];
-}
-
-int shell_read_saved_state(void *buf, int bufsize) {
-    TRACE("shell_read_saved_state");
-    if (statefile == NULL)
-        return -1;
-    else {
-        size_t n = fread(buf, 1, bufsize, statefile);
-        if (n != bufsize && ferror(statefile)) {
-            fclose(statefile);
-            statefile = NULL;
-            return -1;
-        } else
-            return (int) n;
-    }
-}
-
-bool shell_write_saved_state(const void *buf, int nbytes) {
-    TRACE("shell_write_saved_state");
-    if (statefile == NULL)
-        return false;
-    else {
-        size_t n = fwrite(buf, 1, nbytes, statefile);
-        if (n != nbytes) {
-            fclose(statefile);
-            remove("config/state");
-            statefile = NULL;
-            return false;
-        } else
-            return true;
-    }
+    [calcView setTimeout3:delay];
 }
 
 unsigned int shell_get_mem() {
@@ -1069,36 +1020,32 @@ void shell_print(const char *text, int length,
     int oldlength, newlength;
     
     for (yy = 0; yy < height; yy++) {
-        int4 Y = (printout_bottom + 2 * yy) % PRINT_LINES;
+        int4 Y = (printout_bottom + yy) % PRINT_LINES;
         for (xx = 0; xx < 143; xx++) {
-            int bit, px, py;
+            int bit;
             if (xx < width) {
                 char c = bits[(y + yy) * bytesperline + ((x + xx) >> 3)];
                 bit = (c & (1 << ((x + xx) & 7))) != 0;
             } else
                 bit = 0;
-            for (px = xx * 2; px < (xx + 1) * 2; px++)
-                for (py = Y; py < Y + 2; py++)
-                    if (bit)
-                        print_bitmap[py * PRINT_BYTESPERLINE + (px >> 3)]
-                        |= 1 << (px & 7);
-                    else
-                        print_bitmap[py * PRINT_BYTESPERLINE + (px >> 3)]
-                        &= ~(1 << (px & 7));
+            if (bit)
+                print_bitmap[Y * PRINT_BYTESPERLINE + (xx >> 3)] |= 1 << (xx & 7);
+            else
+                print_bitmap[Y * PRINT_BYTESPERLINE + (xx >> 3)] &= ~(1 << (xx & 7));
         }
     }
     
     oldlength = printout_bottom - printout_top;
     if (oldlength < 0)
         oldlength += PRINT_LINES;
-    printout_bottom = (printout_bottom + 2 * height) % PRINT_LINES;
-    newlength = oldlength + 2 * height;
+    printout_bottom = (printout_bottom + height) % PRINT_LINES;
+    newlength = oldlength + height;
     
-    update_params *params = new update_params;
-    params->oldlength = oldlength;
-    params->newlength = newlength;
-    params->height = height;
-    [[PrintView instance] performSelectorOnMainThread:@selector(updatePrintout:) withObject:[NSValue valueWithPointer:params] waitUntilDone:YES];
+    update_params params;
+    params.oldlength = oldlength;
+    params.newlength = newlength;
+    params.height = height;
+    [[PrintView instance] updatePrintout:&params];
     
     if (state.printerToTxtFile) {
         int err;
@@ -1113,11 +1060,12 @@ void shell_print(const char *text, int length,
                 show_message("Message", buf);
                 goto done_print_txt;
             }
-            if (ftell(print_txt) == 0)
-                fwrite("\357\273\277", 1, 3, print_txt);
         }
         
-        shell_spool_txt(text, length, txt_writer, txt_newliner);
+        if (text != NULL)
+            shell_spool_txt(text, length, txt_writer, txt_newliner);
+        else
+            shell_spool_bitmap_to_txt(bits, bytesperline, x, y, width, height, txt_writer, txt_newliner);
     done_print_txt:;
     }
     
@@ -1192,17 +1140,30 @@ void shell_print(const char *text, int length,
         }
         done_print_gif:;
     }
-}
 
-/*
-int shell_write(const char *buf, int buflen) {
-    return 0;
+    print_text[print_text_bottom++] = (char) (text == NULL ? 255 : length);
+    if (print_text_bottom == PRINT_TEXT_SIZE)
+        print_text_bottom = 0;
+    if (text != NULL) {
+        if (print_text_bottom + length < PRINT_TEXT_SIZE) {
+            memcpy(print_text + print_text_bottom, text, length);
+            print_text_bottom += length;
+        } else {
+            int part = PRINT_TEXT_SIZE - print_text_bottom;
+            memcpy(print_text + print_text_bottom, text, part);
+            memcpy(print_text, text + part, length - part);
+            print_text_bottom = length - part;
+        }
+    }
+    print_text_pixel_height += text == NULL ? 16 : 9;
+    while (print_text_pixel_height > PRINT_LINES - 1) {
+        int tll = print_text[print_text_top] == 255 ? 16 : 9;
+        print_text_pixel_height -= tll;
+        print_text_top += tll == 16 ? 1 : (print_text[print_text_top] + 1);
+        if (print_text_top >= PRINT_TEXT_SIZE)
+            print_text_top -= PRINT_TEXT_SIZE;
+    }
 }
-
-int shell_read(char *buf, int buflen) {
-    return -1;
-}
-*/
 
 //////////////////////////////////////////////////////////////////////
 /////   Accelerometer, Location Services, and Compass support    /////
@@ -1212,11 +1173,16 @@ int shell_get_acceleration(double *x, double *y, double *z) {
     static bool accelerometer_active = false;
     if (!accelerometer_active) {
         accelerometer_active = true;
-        [calcView performSelectorOnMainThread:@selector(start_accelerometer) withObject:NULL waitUntilDone:NO];
+        [calcView start_accelerometer];
     }
-    *x = accel_x;
-    *y = accel_y;
-    *z = accel_z;
+    CMAccelerometerData *cmd = [motMgr accelerometerData];
+    if (cmd == nil) {
+        *x = *y = *z = 0;
+    } else {
+        *x = cmd.acceleration.x;
+        *y = cmd.acceleration.y;
+        *z = cmd.acceleration.z;
+    }
     return 1;
 }
 
@@ -1224,7 +1190,7 @@ int shell_get_location(double *lat, double *lon, double *lat_lon_acc, double *el
     static bool location_active = false;
     if (!location_active) {
         location_active = true;
-        [calcView performSelectorOnMainThread:@selector(start_location) withObject:NULL waitUntilDone:NO];
+        [calcView start_location];
     }
     *lat = loc_lat;
     *lon = loc_lon;
@@ -1238,7 +1204,7 @@ int shell_get_heading(double *mag_heading, double *true_heading, double *acc, do
     static bool heading_active = false;
     if (!heading_active) {
         heading_active = true;
-        [calcView performSelectorOnMainThread:@selector(start_heading) withObject:NULL waitUntilDone:NO];
+        [calcView start_heading];
     }
     *mag_heading = hdg_mag;
     *true_heading = hdg_true;

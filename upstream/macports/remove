@@ -1,10 +1,11 @@
-VERSION.rc
+.github
+.gitignore
 android
 build-android
 build-gtk
-build-iphone
-build-src-doc
+build-history
 build-windows
+update-version-number.py
 gtk
 iphone
 upstream

@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -19,7 +19,6 @@
 #import <IOKit/ps/IOPowerSources.h>
 #import <sys/stat.h>
 #import <sys/time.h>
-#import <pthread.h>
 #import "free42.h"
 #import "shell.h"
 #import "shell_skin.h"
@@ -28,10 +27,12 @@
 #import "core_display.h"
 #import "Free42AppDelegate.h"
 #import "ProgramListDataSource.h"
+#import "SkinListDataSource.h"
 #import "CalcView.h"
 #import "FileOpenPanel.h"
 #import "FileSavePanel.h"
 #import "PrintView.h"
+#import "StatesWindow.h"
 
 
 static Free42AppDelegate *instance = NULL;
@@ -39,6 +40,7 @@ static SystemSoundID soundIDs[11];
 
 static bool launchingWithPrintoutVisible;
 static bool scrollPrintoutToBottomInitially = true;
+static bool loadSkinsWindowMapped = false;
 
 state_type state;
 char free42dirname[FILENAMELEN];
@@ -47,16 +49,10 @@ static int quit_flag = 0;
 static int enqueued;
 static int keep_running = 0;
 static int we_want_cpu = 0;
-static bool is_running = false;
-static pthread_mutex_t is_running_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t is_running_cond = PTHREAD_COND_INITIALIZER;
 
 static char statefilename[FILENAMELEN];
 static char printfilename[FILENAMELEN];
 static FILE *statefile = NULL;
-static char export_file_name[FILENAMELEN];
-static FILE *export_file = NULL;
-static FILE *import_file = NULL;
 
 static int ckey = 0;
 static int skey;
@@ -80,12 +76,17 @@ static int ann_run = 0;
 static int ann_battery = 0;
 static int ann_g = 0;
 static int ann_rad = 0;
-static pthread_mutex_t ann_print_timeout_mutex = PTHREAD_MUTEX_INITIALIZER;
 static bool ann_print_timeout_active = false;
 
 unsigned char *print_bitmap;
 int printout_top;
 int printout_bottom;
+// Room for PRINT_LINES / 18 lines, plus two, plus one byte
+#define PRINT_TEXT_SIZE 12551
+unsigned char *print_text;
+int print_text_top;
+int print_text_bottom;
+int print_text_pixel_height;
 
 static FILE *print_txt = NULL;
 static FILE *print_gif = NULL;
@@ -129,9 +130,30 @@ static bool is_file(const char *name);
 @synthesize aboutWindow;
 @synthesize aboutVersion;
 @synthesize aboutCopyright;
+@synthesize loadSkinsWindow;
+@synthesize loadSkinsURL;
+@synthesize loadSkinButton;
+@synthesize loadSkinsWebView;
+@synthesize deleteSkinsWindow;
+@synthesize skinListView;
+@synthesize skinListDataSource;
+@synthesize statesWindow;
+
+static struct timeval runner_end_time;
 
 - (void) startRunner {
-    [self performSelectorInBackground:@selector(runner) withObject:NULL];
+    gettimeofday(&runner_end_time, NULL);
+    runner_end_time.tv_usec += 10000; // run for up to 10 ms
+    if (runner_end_time.tv_usec >= 1000000) {
+        runner_end_time.tv_usec -= 1000000;
+        runner_end_time.tv_sec++;
+    }
+    int dummy1, dummy2;
+    keep_running = core_keydown(0, &dummy1, &dummy2);
+    if (quit_flag)
+        [self quit];
+    else if (keep_running && !we_want_cpu)
+        [self performSelector:@selector(startRunner) withObject:NULL afterDelay:0];
 }
 
 - (void)applicationWillFinishLaunching:(NSNotification *)aNotification {
@@ -143,7 +165,7 @@ static bool is_file(const char *name);
     
     const char *sound_names[] = { "tone0", "tone1", "tone2", "tone3", "tone4", "tone5", "tone6", "tone7", "tone8", "tone9", "squeak" };
     for (int i = 0; i < 11; i++) {
-        NSString *name = [NSString stringWithCString:sound_names[i] encoding:NSUTF8StringEncoding];
+        NSString *name = [NSString stringWithUTF8String:sound_names[i]];
         NSString *path = [[NSBundle mainBundle] pathForResource:name ofType:@"wav"];
         OSStatus status = AudioServicesCreateSystemSoundID((CFURLRef)[NSURL fileURLWithPath:path], &soundIDs[i]);
         if (status)
@@ -198,6 +220,7 @@ static bool is_file(const char *name);
     /******************************/
     
     print_bitmap = (unsigned char *) malloc(PRINT_SIZE);
+    print_text = (unsigned char *) malloc(PRINT_TEXT_SIZE);
     // TODO - handle memory allocation failure
     
     FILE *printfile = fopen(printfilename, "r");
@@ -206,16 +229,37 @@ static bool is_file(const char *name);
         if (n == sizeof(int)) {
             int bytes = printout_bottom * PRINT_BYTESPERLINE;
             n = fread(print_bitmap, 1, bytes, printfile);
-            if (n != bytes)
+            if (n == bytes) {
+                n = fread(&print_text_bottom, 1, sizeof(int), printfile);
+                int n2 = fread(&print_text_pixel_height, 1, sizeof(int), printfile);
+                if (n == sizeof(int) && n2 == sizeof(int)) {
+                    n = fread(print_text, 1, print_text_bottom, printfile);
+                    if (n != print_text_bottom) {
+                        print_text_bottom = 0;
+                        print_text_pixel_height = 0;
+                    }
+                } else {
+                    print_text_bottom = 0;
+                    print_text_pixel_height = 0;
+                }
+            } else {
                 printout_bottom = 0;
-        } else
+                print_text_bottom = 0;
+                print_text_pixel_height = 0;
+            }
+        } else {
             printout_bottom = 0;
+            print_text_bottom = 0;
+            print_text_pixel_height = 0;
+        }
         fclose(printfile);
-    } else
+    } else {
         printout_bottom = 0;
+        print_text_bottom = 0;
+        print_text_pixel_height = 0;
+    }
     printout_top = 0;
-    for (int n = printout_bottom * PRINT_BYTESPERLINE; n < PRINT_SIZE; n++)
-        print_bitmap[n] = 0;
+    print_text_top = 0;
 }
 
 static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
@@ -230,6 +274,8 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
     
     int4 version;
     int init_mode;
+    char core_state_file_name[FILENAMELEN];
+    int core_state_file_offset;
     if (statefilename[0] != 0)
         statefile = fopen(statefilename, "r");
     else
@@ -245,7 +291,28 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
         init_shell_state(-1);
         init_mode = 0;
     }
-    
+    if (init_mode == 1) {
+        if (version > 25) {
+            snprintf(core_state_file_name, FILENAMELEN, "%s/%s.f42", free42dirname, state.coreName);
+            core_state_file_offset = 0;
+        } else {
+            strcpy(core_state_file_name, statefilename);
+            core_state_file_offset = ftell(statefile);
+        }
+        fclose(statefile);
+    }  else {
+        // The shell state was missing or corrupt, but there
+        // may still be a valid core state...
+        snprintf(core_state_file_name, FILENAMELEN, "%s/%s.f42", free42dirname, state.coreName);
+        struct stat st;
+        if (stat(core_state_file_name, &st) == 0) {
+            // Core state "Untitled.f42" exists; let's try to read it
+            core_state_file_offset = 0;
+            init_mode = 1;
+            version = 26;
+        }
+    }
+
 #ifdef BCD_MATH
     [mainWindow setTitle:@"Free42 Decimal"];
 #else
@@ -265,7 +332,7 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
         [mainWindow setFrameOrigin:pt];
     }
     
-    sz.width = 301;
+    sz.width = 373;
     sz.height = state.printWindowKnown ? state.printWindowHeight : 600;
     [printWindow setContentSize:sz];
     [printView initialUpdate];
@@ -285,11 +352,7 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
         [mainWindow makeKeyAndOrderFront:self];
     }
     
-    core_init(init_mode, version);
-    if (statefile != NULL) {
-        fclose(statefile);
-        statefile = NULL;
-    }
+    core_init(init_mode, version, core_state_file_name, core_state_file_offset);
     if (core_powercycle())
         [self startRunner];
     
@@ -303,6 +366,7 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
     
     printfile = fopen(printfilename, "w");
     if (printfile != NULL) {
+        // Write bitmap
         length = printout_bottom - printout_top;
         if (length < 0)
             length += PRINT_LINES;
@@ -323,6 +387,28 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
             n = fwrite(print_bitmap, 1,
                        PRINT_BYTESPERLINE * printout_bottom, printfile);
             if (n != PRINT_BYTESPERLINE * printout_bottom)
+                goto failed;
+        }
+        // Write text
+        length = print_text_bottom - print_text_top;
+        if (length < 0)
+            length += PRINT_TEXT_SIZE;
+        n = fwrite(&length, 1, sizeof(int), printfile);
+        if (n != sizeof(int))
+            goto failed;
+        n = fwrite(&print_text_pixel_height, 1, sizeof(int), printfile);
+        if (n != sizeof(int))
+            goto failed;
+        if (print_text_bottom >= print_text_top) {
+            n = fwrite(print_text + print_text_top, 1, length, printfile);
+            if (n != length)
+                goto failed;
+        } else {
+            n = fwrite(print_text + print_text_top, 1, PRINT_TEXT_SIZE - print_text_top, printfile);
+            if (n != PRINT_TEXT_SIZE - print_text_top)
+                goto failed;
+            n = fwrite(print_text, 1, print_text_bottom, printfile);
+            if (n != print_text_bottom)
                 goto failed;
         }
         
@@ -355,16 +441,19 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
     state.printWindowHeight = (int) [[printWindow contentView] frame].size.height;
     state.printWindowKnown = 1;
     statefile = fopen(statefilename, "w");
-    if (statefile != NULL)
+    if (statefile != NULL) {
         write_shell_state();
-    core_quit();
-    if (statefile != NULL)
         fclose(statefile);
+    }
+    char corefilename[FILENAMELEN];
+    snprintf(corefilename, FILENAMELEN, "%s/%s.f42", free42dirname, state.coreName);
+    core_save_state(corefilename);
+    core_cleanup();
 }
 
 - (void)windowWillClose:(NSNotification *)notification {
     NSWindow *window = [notification object];
-    if (window == aboutWindow || window == preferencesWindow || window == selectProgramsWindow) {
+    if (window == aboutWindow || window == preferencesWindow || window == selectProgramsWindow || window == deleteSkinsWindow || window == statesWindow) {
         [NSApp stopModal];
         if (window == preferencesWindow)
             [instance getPreferences];
@@ -372,6 +461,8 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
         [NSApp terminate:nil];
     else if (window == printWindow)
         state.printWindowMapped = 0;
+    else if (window == loadSkinsWindow)
+        loadSkinsWindowMapped = false;
 }
 
 - (void)windowDidBecomeKey:(NSNotification *)notification {
@@ -391,7 +482,7 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
 - (IBAction) showAbout:(id)sender {
     const char *version = [Free42AppDelegate getVersion];
     [aboutVersion setStringValue:[NSString stringWithFormat:@"Free42 %s", version]];
-    [aboutCopyright setStringValue:@"© 2004-2019 Thomas Okken"];
+    [aboutCopyright setStringValue:@"© 2004-2020 Thomas Okken"];
     [NSApp runModalForWindow:aboutWindow];
 }
 
@@ -400,9 +491,9 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
     [prefsMatrixOutOfRange setState:core_settings.matrix_outofrange];
     [prefsAutoRepeat setState:core_settings.auto_repeat];
     [prefsPrintText setState:state.printerToTxtFile];
-    [prefsPrintTextFile setStringValue:[NSString stringWithCString:state.printerTxtFileName encoding:NSUTF8StringEncoding]];
+    [prefsPrintTextFile setStringValue:[NSString stringWithUTF8String:state.printerTxtFileName]];
     [prefsPrintGIF setState:state.printerToGifFile];
-    [prefsPrintGIFFile setStringValue:[NSString stringWithCString:state.printerGifFileName encoding:NSUTF8StringEncoding]];
+    [prefsPrintGIFFile setStringValue:[NSString stringWithUTF8String:state.printerGifFileName]];
     [prefsPrintGIFMaxHeight setStringValue:[NSString stringWithFormat:@"%d", state.printerGifMaxLength]];
     [NSApp runModalForWindow:preferencesWindow];
 }
@@ -445,15 +536,20 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
 }
 
 - (IBAction) browsePrintTextFile:(id)sender {
-    FileSavePanel *saveDlg = [FileSavePanel panelWithTitle:@"Select Text File Name" types:@"Text;txt;All Files;*"];
+    FileSavePanel *saveDlg = [FileSavePanel panelWithTitle:@"Select Text File Name" types:@"Text;txt;All Files;*" path:[prefsPrintTextFile stringValue]];
     if ([saveDlg runModal] == NSOKButton)
         [prefsPrintTextFile setStringValue:[saveDlg path]];
 }
 
 - (IBAction) browsePrintGIFFile:(id)sender {
-    FileSavePanel *saveDlg = [FileSavePanel panelWithTitle:@"Select GIF File Name" types:@"GIF;gif;All Files;*"];
+    FileSavePanel *saveDlg = [FileSavePanel panelWithTitle:@"Select GIF File Name" types:@"GIF;gif;All Files;*" path:[prefsPrintGIFFile stringValue]];
     if ([saveDlg runModal] == NSOKButton)
         [prefsPrintGIFFile setStringValue:[saveDlg path]];
+}
+
+- (IBAction) states:(id)sender {
+    [statesWindow reset];
+    [NSApp runModalForWindow:statesWindow];
 }
 
 - (IBAction) showPrintOut:(id)sender {
@@ -463,8 +559,9 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
 
 - (IBAction) clearPrintOut:(id)sender {
     printout_top = printout_bottom = 0;
+    print_text_top = print_text_bottom = print_text_pixel_height = 0;
     NSSize s;
-    s.width = 286;
+    s.width = 358;
     s.height = 0;
     [printView setFrameSize:s];
 }
@@ -477,21 +574,8 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
             NSString* fileName = [paths objectAtIndex:i];
             char cFileName[1024];
             [fileName getCString:cFileName maxLength:1024 encoding:NSUTF8StringEncoding];
-            import_file = fopen(cFileName, "r");
-            if (import_file == NULL) {
-                char buf[1000];
-                int err = errno;
-                snprintf(buf, 1000, "Could not open \"%s\" for reading:\n%s (%d)",
-                         cFileName, strerror(err), err);
-                show_message("Message", buf);
-            } else {
-                core_import_programs();
-                redisplay();
-                if (import_file != NULL) {
-                    fclose(import_file);
-                    import_file = NULL;
-                }
-            }
+            core_import_programs(0, cFileName);
+            redisplay();
         }
     }
 }
@@ -514,39 +598,36 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
     [selectProgramsWindow orderOut:self];
     bool *selection = [programListDataSource getSelection];
     int count = [programListDataSource numberOfRowsInTableView:nil];
-    bool nothing = true;
+    int firstSelected = -1;
     for (int i = 0; i < count; i++)
         if (selection[i]) {
-            nothing = false;
+            firstSelected = i;
             break;
         }
-    if (nothing)
+    if (firstSelected == -1)
         return;
-    FileSavePanel *saveDlg = [FileSavePanel panelWithTitle:@"Export Programs" types:@"Program Files;raw;All Files;*"];
+    NSString *name = [programListDataSource getItemAtIndex:firstSelected];
+    if ([name characterAtIndex:0] != '"')
+        name = @"Untitled";
+    else {
+        NSRange range = [name rangeOfString:@"\"" options:0 range:NSMakeRange(1, [name length] - 1)];
+        if (range.location == NSNotFound)
+            name = @"Untitled";
+        else
+            name = [name substringWithRange:NSMakeRange(1, range.location - 1)];
+    }
+    FileSavePanel *saveDlg = [FileSavePanel panelWithTitle:@"Export Programs" types:@"Program Files;raw;All Files;*" path:name];
     if ([saveDlg runModal] == NSOKButton) {
         NSString *fileName = [saveDlg path];
         char cFileName[1024];
         [fileName getCString:cFileName maxLength:1024 encoding:NSUTF8StringEncoding];
-        export_file = fopen(cFileName, "w");
-        if (export_file == NULL) {
-            char buf[1000];
-            int err = errno;
-            snprintf(buf, 1000, "Could not open \"%s\" for writing:\n%s (%d)",
-                     cFileName, strerror(err), err);
-            show_message("Message", buf);
-        } else {
-            int *indexes = (int *) malloc(count * sizeof(int));
-            int selectionSize = 0;
-            for (int i = 0; i < count; i++)
-                if (selection[i])
-                    indexes[selectionSize++] = i;
-            core_export_programs(selectionSize, indexes);
-            free(indexes);
-            if (export_file != NULL) {
-                fclose(export_file);
-                export_file = NULL;
-            }
-        }
+        int *indexes = (int *) malloc(count * sizeof(int));
+        int selectionSize = 0;
+        for (int i = 0; i < count; i++)
+            if (selection[i])
+                indexes[selectionSize++] = i;
+        core_export_programs(selectionSize, indexes, cFileName);
+        free(indexes);
     }
 }
 
@@ -554,10 +635,15 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
     NSPasteboard *pb = [NSPasteboard generalPasteboard];
     NSArray *types = [NSArray arrayWithObjects: NSStringPboardType, nil];
     [pb declareTypes:types owner:self];
-    char *buf = core_copy();
-    NSString *txt = [NSString stringWithUTF8String:buf];
+    NSString *txt;
+    if ([loadSkinsWindow isKeyWindow]) {
+        txt = [loadSkinsURL stringValue];
+    } else {
+        char *buf = core_copy();
+        txt = [NSString stringWithUTF8String:buf];
+        free(buf);
+    }
     [pb setString:txt forType:NSStringPboardType];
-    free(buf);
 }
 
 - (IBAction) doPaste:(id)sender {
@@ -566,22 +652,300 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
     NSString *bestType = [pb availableTypeFromArray:types];
     if (bestType != nil) {
         NSString *txt = [pb stringForType:NSStringPboardType];
-        const char *buf = [txt UTF8String];
-        core_paste(buf);
+        if ([loadSkinsWindow isKeyWindow]) {
+            [loadSkinsURL setStringValue:txt];
+        } else {
+            const char *buf = [txt UTF8String];
+            core_paste(buf);
+        }
     }
+}
+
+static char *tb;
+static int tblen, tbcap;
+
+static void tbwriter(const char *text, int length) {
+    if (tblen + length > tbcap) {
+        tbcap += length + 8192;
+        tb = (char *) realloc(tb, tbcap);
+    }
+    if (tb != NULL) {
+        memcpy(tb + tblen, text, length);
+        tblen += length;
+    }
+}
+
+static void tbnewliner() {
+    tbwriter("\n", 1);
+}
+
+static void tbnonewliner() {
+    // No-op
+}
+
+- (IBAction) doCopyPrintOutAsText:(id)sender {
+    NSPasteboard *pb = [NSPasteboard generalPasteboard];
+    NSArray *types = [NSArray arrayWithObjects: NSStringPboardType, nil];
+    [pb declareTypes:types owner:self];
+
+    tb = NULL;
+    tblen = tbcap = 0;
+
+    int len = print_text_bottom - print_text_top;
+    if (len < 0)
+        len += PRINT_TEXT_SIZE;
+    // Calculate effective top, since printout_top can point
+    // at a truncated line, and we want to skip those when
+    // copying
+    int top = printout_bottom - 2 * print_text_pixel_height;
+    if (top < 0)
+        top += PRINT_LINES;
+    int p = print_text_top;
+    int pixel_v = 0;
+    while (len > 0) {
+        int z = print_text[p++];
+        if (z == 255) {
+            char buf[34];
+            for (int v = 0; v < 16; v += 2) {
+                for (int vv = 0; vv < 2; vv++) {
+                    int V = top + (pixel_v + v + vv) * 2;
+                    if (V >= PRINT_LINES)
+                        V -= PRINT_LINES;
+                    for (int h = 0; h < 17; h++) {
+                        unsigned char a = print_bitmap[V * PRINT_BYTESPERLINE + 2 * h + 1];
+                        unsigned char b = print_bitmap[V * PRINT_BYTESPERLINE + 2 * h];
+                        buf[vv * 17 + h] = (a & 128) | ((a & 32) << 1) | ((a & 8) << 2) | ((a & 2) << 3) | ((b & 128) >> 4) | ((b & 32) >> 3) | ((b & 8) >> 2) | ((b & 2) >> 1);
+                    }
+                }
+                shell_spool_bitmap_to_txt(buf, 17, 0, 0, 131, 2, tbwriter, tbnewliner);
+            }
+            pixel_v += 16;
+        } else {
+            if (p + z < PRINT_TEXT_SIZE) {
+                shell_spool_txt((const char *) (print_text + p), z, tbwriter, tbnewliner);
+                p += z;
+            } else {
+                int d = PRINT_TEXT_SIZE - p;
+                shell_spool_txt((const char *) (print_text + p), d, tbwriter, tbnonewliner);
+                shell_spool_txt((const char *) print_text, z - d, tbwriter, tbnewliner);
+                p = z - d;
+            }
+            len -= z;
+            pixel_v += 9;
+        }
+        len--;
+    }
+    tbwriter("\0", 1);
+
+    NSString *txt;
+    if (tb == NULL) {
+        txt = @"";
+    } else {
+        txt = [NSString stringWithUTF8String:tb];
+        free(tb);
+    }
+
+    [pb setString:txt forType:NSStringPboardType];
+}
+
+- (IBAction) doCopyPrintOutAsImage:(id)sender {
+    NSPasteboard *pb = [NSPasteboard generalPasteboard];
+    NSArray *types = [NSArray arrayWithObjects: NSTIFFPboardType, nil];
+    [pb declareTypes:types owner:self];
+    
+    int height = printout_bottom - printout_top;
+    if (height < 0)
+        height += PRINT_LINES;
+    
+    NSBitmapImageRep *img = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL pixelsWide:358 pixelsHigh:(height == 0 ? 1 : height) bitsPerSample:1 samplesPerPixel:1 hasAlpha:NO isPlanar:NO colorSpaceName:NSCalibratedWhiteColorSpace bytesPerRow:45 bitsPerPixel:1];
+    unsigned char *data = [img bitmapData];
+    if (height == 0) {
+        memset(data, 255, 36);
+    } else {
+        for (int v = 0; v < height; v++) {
+            int vv = printout_top + v;
+            if (vv >= PRINT_LINES)
+                vv -= PRINT_LINES;
+            unsigned char *src = print_bitmap + vv * PRINT_BYTESPERLINE;
+            *data++ = 255;
+            *data++ = 255;
+            *data++ = 255;
+            *data++ = 255;
+            unsigned char pc = 0;
+            for (int h = 0; h <= 36; h++) {
+                unsigned char c = h == 36 ? 0 : src[h];
+                *data++ = (((pc & 16) << 3) | ((pc & 32) << 1) | ((pc & 64) >> 1) | ((pc & 128) >> 3) | ((c & 1) << 3) | ((c & 2) << 1) | ((c & 4) >> 1) | ((c & 8) >> 3)) ^ 255;
+                pc = c;
+            }
+            *data++ = 255;
+            *data++ = 255;
+            *data++ = 255;
+            *data++ = 255;
+        }
+    }
+    
+    NSData *tiff = [img TIFFRepresentation];
+    [pb setData:tiff forType:NSTIFFPboardType];
+}
+
+- (IBAction) paperAdvance:(id)sender {
+    static const char *bits = "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0";
+    shell_print("", 0, bits, 18, 0, 0, 143, 9);
+}
+
+- (IBAction) loadSkins:(id)sender {
+    if (!loadSkinsWindowMapped) {
+        NSString *url = @"https://thomasokken.com/free42/skins/";
+        [loadSkinsURL setStringValue:url];
+        [loadSkinsWebView setMainFrameURL:url];
+        loadSkinsWindowMapped = true;
+    }
+    [loadSkinsWindow makeKeyAndOrderFront:self];
+    [loadSkinsURL becomeFirstResponder];
+}
+
+- (IBAction) loadSkinsGo:(id)sender {
+    NSString *url = [loadSkinsURL stringValue];
+    [loadSkinsWebView setMainFrameURL:url];
+}
+
+- (IBAction) loadSkinsBack:(id)sender {
+    [loadSkinsWebView goBack];
+}
+
+- (IBAction) loadSkinsForward:(id)sender {
+    [loadSkinsWebView goForward];
+}
+
+- (void)webView:(WebView *)sender didStartProvisionalLoadForFrame:(WebFrame *)frame {
+    [loadSkinButton setEnabled:NO];
+    [loadSkinButton setTitle:@"..."];
+}
+
+- (void)webView:(WebView *)sender didFinishLoadForFrame:(WebFrame *)frame {
+    NSString *url = [loadSkinsWebView mainFrameURL];
+    [loadSkinsURL setStringValue:url];
+    [loadSkinButton setTitle:@"Load"];
+    [loadSkinButton setEnabled:[Free42AppDelegate skinUrlPair:url] != nil];
+}
+
+- (BOOL) tryLoad:(NSString *)url asFile:(NSString *)name {
+    NSURLRequest *req = [NSURLRequest requestWithURL:[NSURL URLWithString:url] cachePolicy:NSURLRequestReloadIgnoringCacheData timeoutInterval:60];
+    NSURLResponse *resp;
+    NSError *err;
+    NSData *data = [NSURLConnection sendSynchronousRequest:req returningResponse:&resp error:&err];
+    if (data == nil)
+        return NO;
+    NSString *fname = [NSString stringWithFormat:@"%s/%@", free42dirname, name];
+    return [data writeToFile:fname atomically:NO];
+}
+
+- (IBAction) loadSkinsLoad:(id)sender {
+    NSString *url = [loadSkinsURL stringValue];
+    NSArray *urls = [Free42AppDelegate skinUrlPair:url];
+    if (urls == nil) {
+        show_message("Error", "Invalid Skin URL");
+        return;
+    }
+    if ([self tryLoad:[urls objectAtIndex:0] asFile:@"_temp_gif_"]
+        && [self tryLoad:[urls objectAtIndex:1] asFile:@"_temp_layout_"]) {
+        char buf1[FILENAMELEN], buf2[FILENAMELEN];
+        snprintf(buf1, FILENAMELEN, "%s/_temp_gif_", free42dirname);
+        snprintf(buf2, FILENAMELEN, "%s/%s.gif", free42dirname, [[urls objectAtIndex:2] UTF8String]);
+        rename(buf1, buf2);
+        snprintf(buf1, FILENAMELEN, "%s/_temp_layout_", free42dirname);
+        snprintf(buf2, FILENAMELEN, "%s/%s.layout", free42dirname, [[urls objectAtIndex:2] UTF8String]);
+        rename(buf1, buf2);
+        show_message("Message", "Skin Loaded");
+    } else {
+        char buf[FILENAMELEN];
+        snprintf(buf, FILENAMELEN, "%s/_temp_gif_", free42dirname);
+        remove(buf);
+        snprintf(buf, FILENAMELEN, "%s/_temp_layout_", free42dirname);
+        remove(buf);
+        show_message("Error", "Loading Skin Failed");
+    }
+}
+
++ (NSArray *)skinUrlPair:(NSString *)url {
+    NSURLComponents *u = [NSURLComponents componentsWithString:url];
+    NSString *path = [u path];
+    if (path == nil)
+        return nil;
+    NSString *gifUrl = nil, *layoutUrl = nil;
+    if ([path hasSuffix:@".gif"]) {
+        gifUrl = url;
+        NSRange r = NSMakeRange(0, [path length] - 3);
+        NSString *layoutPath = [[path substringWithRange:r] stringByAppendingString:@"layout"];
+        [u setPath:layoutPath];
+        layoutUrl = [u string];
+    } else if ([path hasSuffix:@".layout"]) {
+        layoutUrl = url;
+        NSRange r = NSMakeRange(0, [path length] - 6);
+        NSString *gifPath = [[path substringWithRange:r] stringByAppendingString:@"gif"];
+        [u setPath:gifPath];
+        gifUrl = [u string];
+    } else {
+        return nil;
+    }
+    NSString *baseName = [gifUrl lastPathComponent];
+    return [NSArray arrayWithObjects:gifUrl, layoutUrl, [baseName substringToIndex:[baseName length] - 4], nil];
+}
+
+- (IBAction) deleteSkins:(id)sender {
+    [skinListDataSource loadSkinNames];
+    [skinListView reloadData];
+    [NSApp runModalForWindow:deleteSkinsWindow];
+}
+
+- (IBAction) deleteSkinsCancel:(id)sender {
+    [NSApp stopModal];
+    [deleteSkinsWindow orderOut:self];
+}
+
+- (IBAction) deleteSkinsOK:(id)sender {
+    [NSApp stopModal];
+    [deleteSkinsWindow orderOut:self];
+    bool *selection = [skinListDataSource getSelection];
+    NSString **names = [skinListDataSource getNames];
+    int count = [skinListDataSource numberOfRowsInTableView:nil];
+    for (int i = 0; i < count; i++)
+        if (selection[i]) {
+            const char *fname = [[NSString stringWithFormat:@"%s/%@.gif", free42dirname, names[i]] UTF8String];
+            remove(fname);
+            fname = [[NSString stringWithFormat:@"%s/%@.layout", free42dirname, names[i]] UTF8String];
+            remove(fname);
+        }
 }
 
 static char version[32] = "";
 
 + (const char *) getVersion {
     if (version[0] == 0) {
-        NSString *path = [[NSBundle mainBundle] pathForResource:@"VERSION" ofType:nil];
-        const char *cpath = [path cStringUsingEncoding:NSUTF8StringEncoding];
-        FILE *vfile = fopen(cpath, "r");
-        fscanf(vfile, "%s", version);
-        fclose(vfile);
+        NSString *appVersion = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"];
+        strcpy(version, [appVersion UTF8String]);
+        // Version string consists of up to four dot-separated numbers.
+        // If there are four, change the last ".nn" to a letter.
+        int pos, num;
+        if (sscanf(version, "%*d.%*d.%*d.%n%d", &pos, &num) == 1) {
+            version[pos - 1] = 'a' + num - 1;
+            version[pos] = 0;
+        }
     }
     return version;
+}
+
++ (void) showMessage:(NSString *)message withTitle:(NSString *)title {
+    NSAlert *alert = [[NSAlert alloc] init];
+    [alert addButtonWithTitle:@"OK"];
+    [alert setMessageText:title];
+    [alert setInformativeText:message];
+    [alert setAlertStyle:NSCriticalAlertStyle];
+    [alert runModal];
+}
+
++ (void) showCMessage:(const char *)message withTitle:(const char *)title {
+    [Free42AppDelegate showMessage:[NSString stringWithUTF8String:message] withTitle:[NSString stringWithUTF8String:title]];
 }
 
 - (IBAction) menuNeedsUpdate:(NSMenu *)menu {
@@ -604,53 +968,22 @@ static char version[32] = "";
     p.y = frame.origin.y + frame.size.height;
     [mainWindow setContentSize:sz];
     [mainWindow setFrameTopLeftPoint:p];
-    [calcView setNeedsDisplayInRectSafely:CGRectMake(0, 0, w, h)];
+    [calcView setNeedsDisplayInRect:CGRectMake(0, 0, w, h)];
 }
 
-- (void) mouseDown3 {
-    macro = skin_find_macro(ckey, &macro_is_name);
-    shell_keydown();
-    mouse_key = 1;
-}
-
-- (void) mouseDown2 {
-    we_want_cpu = 1;
-    pthread_mutex_lock(&is_running_mutex);
-    while (is_running)
-        pthread_cond_wait(&is_running_cond, &is_running_mutex);
-    pthread_mutex_unlock(&is_running_mutex);
-    we_want_cpu = 0;
-    [self performSelectorOnMainThread:@selector(mouseDown3) withObject:NULL waitUntilDone:NO];
-}
-
-- (void) mouseUp3 {
-    shell_keyup();
-}
-
-- (void) mouseUp2 {
-    we_want_cpu = 1;
-    pthread_mutex_lock(&is_running_mutex);
-    while (is_running)
-        pthread_cond_wait(&is_running_cond, &is_running_mutex);
-    pthread_mutex_unlock(&is_running_mutex);
-    we_want_cpu = 0;
-    [self performSelectorOnMainThread:@selector(mouseUp3) withObject:NULL waitUntilDone:NO];
-}
-
-- (void) runner {
-    NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
-    int dummy1, dummy2;
-    is_running = true;
-    keep_running = core_keydown(0, &dummy1, &dummy2);
-    pthread_mutex_lock(&is_running_mutex);
-    is_running = false;
-    pthread_cond_signal(&is_running_cond);
-    pthread_mutex_unlock(&is_running_mutex);
-    if (quit_flag)
-        [self performSelectorOnMainThread:@selector(quit) withObject:NULL waitUntilDone:NO];
-    else if (keep_running && !we_want_cpu)
-        [self performSelectorOnMainThread:@selector(startRunner) withObject:NULL waitUntilDone:NO];
-    [pool release];
++ (void) loadState:(const char *)name {
+    if (strcmp(name, state.coreName) != 0) {
+        char corefilename[FILENAMELEN];
+        snprintf(corefilename, FILENAMELEN, "%s/%s.f42", free42dirname, state.coreName);
+        core_save_state(corefilename);
+    }
+    core_cleanup();
+    strcpy(state.coreName, name);
+    char corefilename[FILENAMELEN];
+    snprintf(corefilename, FILENAMELEN, "%s/%s.f42", free42dirname, state.coreName);
+    core_init(1, 26, corefilename, 0);
+    if (core_powercycle())
+        [instance startRunner];
 }
 
 - (void) quit {
@@ -718,26 +1051,13 @@ static char version[32] = "";
         [self setTimeout:1];
 }
 
-static pthread_mutex_t shell_helper_mutex = PTHREAD_MUTEX_INITIALIZER;
-static int timeout3_delay;
-
-- (void) shell_request_timeout3_helper {
-    [self setTimeout3:timeout3_delay];
-    pthread_mutex_unlock(&shell_helper_mutex);
-}
-
 - (void) turn_off_print_ann {
-    pthread_mutex_lock(&ann_print_timeout_mutex);
     ann_print = 0;
     skin_update_annunciator(3, 0);
     ann_print_timeout_active = FALSE;
-    pthread_mutex_unlock(&ann_print_timeout_mutex);
 }
 
-- (void) print_ann_helper:(NSNumber *)set {
-    int prt = [set intValue];
-    [set release];
-    pthread_mutex_lock(&ann_print_timeout_mutex);
+- (void) print_ann_helper:(int)prt {
     if (ann_print_timeout_active) {
         [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(turn_off_print_ann) object:NULL];
         ann_print_timeout_active = FALSE;
@@ -751,7 +1071,6 @@ static int timeout3_delay;
             ann_print_timeout_active = TRUE;
         }
     }
-    pthread_mutex_unlock(&ann_print_timeout_mutex);
 }
 
 @end
@@ -850,21 +1169,16 @@ void calc_mousedown(int x, int y) {
     if (ckey == 0) {
         skin_find_key(x, y, ann_shift != 0, &skey, &ckey);
         if (ckey != 0) {
-            if (is_running)
-                [instance performSelectorInBackground:@selector(mouseDown2) withObject:NULL];
-            else
-                [instance mouseDown3];
+            macro = skin_find_macro(ckey, &macro_is_name);
+            shell_keydown();
+            mouse_key = 1;
         }
     }
 }
 
 void calc_mouseup() {
-    if (ckey != 0 && mouse_key) {
-        if (is_running)
-            [instance performSelectorInBackground:@selector(mouseUp2) withObject:NULL];
-        else
-            [instance mouseUp3];
-    }
+    if (ckey != 0 && mouse_key)
+        shell_keyup();
 }
 
 void calc_keydown(NSString *characters, NSUInteger flags, unsigned short keycode) {
@@ -903,7 +1217,7 @@ void calc_keydown(NSString *characters, NSUInteger flags, unsigned short keycode
                     key_macro = entry->macro;
                     break;
                 } else {
-                    if (key_macro == NULL)
+                    if (cshift && key_macro == NULL)
                         key_macro = entry->macro;
                 }
             }
@@ -1022,8 +1336,19 @@ void calc_keymodifierschanged(NSUInteger flags) {
 }
 
 static void show_message(const char *title, const char *message) {
-    // TODO!
-    fprintf(stderr, "%s\n", message);
+    [Free42AppDelegate showCMessage:message withTitle:title];
+}
+
+void shell_message(const char *message) {
+    [Free42AppDelegate showCMessage:message withTitle:"Core"];
+}
+
+const char *shell_platform() {
+    static char p[16];
+    strncpy(p, [Free42AppDelegate getVersion], 16);
+    strncat(p, " MacOS", 16);
+    p[15] = 0;
+    return p;
 }
 
 int8 shell_random_seed() {
@@ -1105,8 +1430,7 @@ void shell_annunciators(int updn, int shf, int prt, int run, int g, int rad) {
         skin_update_annunciator(2, ann_shift);
     }
     if (prt != -1) {
-        NSNumber *n = [[NSNumber numberWithInt:prt] retain];
-        [instance performSelectorOnMainThread:@selector(print_ann_helper:) withObject:n waitUntilDone:NO];
+        [instance print_ann_helper:prt];
     }
     if (run != -1 && ann_run != run) {
         ann_run = run;
@@ -1130,6 +1454,7 @@ void shell_powerdown() {
 void shell_print(const char *text, int length,
                  const char *bits, int bytesperline,
                  int x, int y, int width, int height) {
+
     int xx, yy;
     int oldlength, newlength;
     
@@ -1159,11 +1484,11 @@ void shell_print(const char *text, int length,
     printout_bottom = (printout_bottom + 2 * height) % PRINT_LINES;
     newlength = oldlength + 2 * height;
     
-    update_params *params = new update_params;
-    params->oldlength = oldlength;
-    params->newlength = newlength;
-    params->height = height;
-    [instance.printView performSelectorOnMainThread:@selector(updatePrintout:) withObject:[NSValue valueWithPointer:params] waitUntilDone:YES];
+    update_params params;
+    params.oldlength = oldlength;
+    params.newlength = newlength;
+    params.height = height;
+    [instance.printView updatePrintout:&params];
     
     if (state.printerToTxtFile) {
         int err;
@@ -1178,11 +1503,12 @@ void shell_print(const char *text, int length,
                 show_message("Message", buf);
                 goto done_print_txt;
             }
-            if (ftell(print_txt) == 0)
-                fwrite("\357\273\277", 1, 3, print_txt);
         }
         
-        shell_spool_txt(text, length, txt_writer, txt_newliner);
+        if (text != NULL)
+            shell_spool_txt(text, length, txt_writer, txt_newliner);
+        else
+            shell_spool_bitmap_to_txt(bits, bytesperline, x, y, width, height, txt_writer, txt_newliner);
     done_print_txt:;
     }
     
@@ -1257,71 +1583,33 @@ void shell_print(const char *text, int length,
         }
         done_print_gif:;
     }
+
+    print_text[print_text_bottom++] = (char) (text == NULL ? 255 : length);
+    if (print_text_bottom == PRINT_TEXT_SIZE)
+        print_text_bottom = 0;
+    if (text != NULL) {
+        if (print_text_bottom + length < PRINT_TEXT_SIZE) {
+            memcpy(print_text + print_text_bottom, text, length);
+            print_text_bottom += length;
+        } else {
+            int part = PRINT_TEXT_SIZE - print_text_bottom;
+            memcpy(print_text + print_text_bottom, text, part);
+            memcpy(print_text, text + part, length - part);
+            print_text_bottom = length - part;
+        }
+    }
+    print_text_pixel_height += text == NULL ? 16 : 9;
+    while (print_text_pixel_height > PRINT_LINES / 2 - 1) {
+        int tll = print_text[print_text_top] == 255 ? 16 : 9;
+        print_text_pixel_height -= tll;
+        print_text_top += tll == 16 ? 1 : (print_text[print_text_top] + 1);
+        if (print_text_top >= PRINT_TEXT_SIZE)
+            print_text_top -= PRINT_TEXT_SIZE;
+    }
 }
 
 void shell_request_timeout3(int delay) {
-    pthread_mutex_lock(&shell_helper_mutex);
-    timeout3_delay = delay;
-    [instance performSelectorOnMainThread:@selector(shell_request_timeout3_helper) withObject:NULL waitUntilDone:NO];
-}
-
-int4 shell_read_saved_state(void *buf, int4 bufsize) {
-    if (statefile == NULL)
-        return -1;
-    else {
-        int4 n = fread(buf, 1, bufsize, statefile);
-        if (n != bufsize && ferror(statefile)) {
-            fclose(statefile);
-            statefile = NULL;
-            return -1;
-        } else
-            return n;
-    }
-}
-
-bool shell_write_saved_state(const void *buf, int4 nbytes) {
-    if (statefile == NULL)
-        return false;
-    else {
-        int4 n = fwrite(buf, 1, nbytes, statefile);
-        if (n != nbytes) {
-            fclose(statefile);
-            remove(statefilename);
-            statefile = NULL;
-            return false;
-        } else
-            return true;
-    }
-}
-
-int shell_write(const char *buf, int4 buflen) {
-    int4 written;
-    if (export_file == NULL)
-        return 0;
-    written = fwrite(buf, 1, buflen, export_file);
-    if (written != buflen) {
-        char buf[1000];
-        fclose(export_file);
-        export_file = NULL;
-        snprintf(buf, 1000, "Writing \"%s\" failed.", export_file_name);
-        show_message("Message", buf);
-        return 0;
-    } else
-        return 1;
-}
-
-int shell_read(char *buf, int4 buflen) {
-    int4 nread;
-    if (import_file == NULL)
-        return -1;
-    nread = fread(buf, 1, buflen, import_file);
-    if (nread != buflen && ferror(import_file)) {
-        fclose(import_file);
-        import_file = NULL;
-        show_message("Message", "An error occurred; import was terminated prematurely.");
-        return -1;
-    } else
-        return nread;
+    [instance setTimeout3:delay];
 }
 
 void shell_log(const char *message) {
@@ -1329,7 +1617,12 @@ void shell_log(const char *message) {
 }
 
 int shell_wants_cpu() {
-    return we_want_cpu;
+    if (we_want_cpu)
+        return true;
+    struct timeval now;
+    gettimeofday(&now, NULL);
+    return now.tv_sec > runner_end_time.tv_sec
+        || now.tv_sec == runner_end_time.tv_sec && now.tv_usec >= runner_end_time.tv_usec;
 }
 
 static void read_key_map(const char *keymapfilename) {
@@ -1386,7 +1679,14 @@ static void init_shell_state(int4 version) {
             state.skinName[0] = 0;
             /* fall through */
         case 0:
-            /* current version (SHELL_VERSION = 4),
+            strcpy(state.coreName, "Untitled");
+            /* fall through */
+        case 1:
+            core_settings.matrix_singularmatrix = false;
+            core_settings.matrix_outofrange = false;
+            core_settings.auto_repeat = true;
+        case 2:
+            /* current version (SHELL_VERSION = 2),
              * so nothing to do here since everything
              * was initialized from the state file.
              */
@@ -1400,12 +1700,12 @@ static int read_shell_state(int4 *ver) {
     int4 state_size;
     int4 state_version;
     
-    if (shell_read_saved_state(&magic, sizeof(int4)) != sizeof(int4))
+    if (fread(&magic, 1, sizeof(int4), statefile) != sizeof(int4))
         return 0;
     if (magic != FREE42_MAGIC)
         return 0;
     
-    if (shell_read_saved_state(&version, sizeof(int4)) != sizeof(int4))
+    if (fread(&version, 1, sizeof(int4), statefile) != sizeof(int4))
         return 0;
     if (version == 0) {
         /* State file version 0 does not contain shell state,
@@ -1414,19 +1714,23 @@ static int read_shell_state(int4 *ver) {
         init_shell_state(-1);
         *ver = version;
         return 1;
-    } else if (version > FREE42_VERSION)
-    /* Unknown state file version */
-        return 0;
+    }
     
-    if (shell_read_saved_state(&state_size, sizeof(int4)) != sizeof(int4))
+    if (fread(&state_size, 1, sizeof(int4), statefile) != sizeof(int4))
         return 0;
-    if (shell_read_saved_state(&state_version, sizeof(int4)) != sizeof(int4))
+    if (fread(&state_version, 1, sizeof(int4), statefile) != sizeof(int4))
         return 0;
     if (state_version < 0 || state_version > SHELL_VERSION)
     /* Unknown shell state version */
         return 0;
-    if (shell_read_saved_state(&state, state_size) != state_size)
+    if (fread(&state, 1, state_size, statefile) != state_size)
         return 0;
+
+    if (state_version >= 2) {
+        core_settings.matrix_singularmatrix = state.matrix_singularmatrix;
+        core_settings.matrix_outofrange = state.matrix_outofrange;
+        core_settings.auto_repeat = state.auto_repeat;
+    }
     
     init_shell_state(state_version);
     *ver = version;
@@ -1435,19 +1739,22 @@ static int read_shell_state(int4 *ver) {
 
 static int write_shell_state() {
     int4 magic = FREE42_MAGIC;
-    int4 version = FREE42_VERSION;
+    int4 version = 27;
     int4 state_size = sizeof(state_type);
     int4 state_version = SHELL_VERSION;
     
-    if (!shell_write_saved_state(&magic, sizeof(int4)))
+    if (fwrite(&magic, 1, sizeof(int4), statefile) != sizeof(int4))
         return 0;
-    if (!shell_write_saved_state(&version, sizeof(int4)))
+    if (fwrite(&version, 1, sizeof(int4), statefile) != sizeof(int4))
         return 0;
-    if (!shell_write_saved_state(&state_size, sizeof(int4)))
+    if (fwrite(&state_size, 1, sizeof(int4), statefile) != sizeof(int4))
         return 0;
-    if (!shell_write_saved_state(&state_version, sizeof(int4)))
+    if (fwrite(&state_version, 1, sizeof(int4), statefile) != sizeof(int4))
         return 0;
-    if (!shell_write_saved_state(&state, sizeof(state_type)))
+    state.matrix_singularmatrix = core_settings.matrix_singularmatrix;
+    state.matrix_outofrange = core_settings.matrix_outofrange;
+    state.auto_repeat = core_settings.auto_repeat;
+    if (fwrite(&state, 1, sizeof(state_type), statefile) != sizeof(state_type))
         return 0;
     
     return 1;

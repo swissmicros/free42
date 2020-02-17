@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -48,6 +48,15 @@ int hp2ascii(char *dst, const char *src, int srclen);
  */
 void shell_spool_txt(const char *text, int length,
                      file_writer writer, file_newliner newliner);
+
+/* shell_spool_bitmap_to_txt()
+ *
+ * Shell helper that writes a bitmap to a text stream, using Unicode 2x2
+ * graphics block characters. Used by PRLCD.
+ */
+void shell_spool_bitmap_to_txt(const char *bits, int bytesperline,
+                               int x, int y, int width, int height,
+                               file_writer writer, file_newliner newliner);
 
 /* shell_start_gif()
  *

@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -47,11 +47,13 @@ struct hp_string {
 
 #define p_isinf(x) (isinf(x) ? (x) > 0 ? 1 : -1 : 0)
 #define p_isnan isnan
+#define p_sincos(x, s, c) { *(s) = sin(x); *(c) = cos(x); }
 #define to_digit(x) ((int) fmod((x), 10.0))
 #define to_char(x) ((char) (x))
 #define to_int(x) ((int) (x))
 #define to_int4(x) ((int4) (x))
 #define to_int8(x) ((int8) (x))
+#define to_uint8(x) ((uint8) (x))
 #define to_double(x) ((double) (x))
 
 #define PI 3.1415926535897932384626433
@@ -76,11 +78,13 @@ class Phloat {
         Phloat(int8 numer, int8 denom);
         Phloat(int i);
         Phloat(int8 i);
+        Phloat(uint8 i);
         Phloat(double d);
         Phloat(const Phloat &p);
         Phloat operator=(const BID_UINT128 &b) { val = b; return *this; }
         Phloat operator=(int i);
         Phloat operator=(int8 i);
+        Phloat operator=(uint8 i);
         Phloat operator=(double d);
         Phloat operator=(Phloat p);
         bool operator==(Phloat p) const;
@@ -120,6 +124,7 @@ char to_char(Phloat p);
 int to_int(Phloat p);
 int4 to_int4(Phloat p);
 int8 to_int8(Phloat p);
+uint8 to_uint8(Phloat p);
 double to_double(Phloat p);
 
 Phloat sin(Phloat p);
@@ -128,7 +133,7 @@ Phloat tan(Phloat p);
 Phloat asin(Phloat p);
 Phloat acos(Phloat p);
 Phloat atan(Phloat p);
-void sincos(Phloat phi, Phloat *s, Phloat *c);
+void p_sincos(Phloat phi, Phloat *s, Phloat *c);
 Phloat hypot(Phloat x, Phloat y);
 Phloat atan2(Phloat x, Phloat y);
 Phloat sinh(Phloat p);
@@ -142,7 +147,7 @@ Phloat log1p(Phloat p);
 Phloat log10(Phloat p);
 Phloat exp(Phloat p);
 Phloat expm1(Phloat p);
-Phloat gamma(Phloat p);
+Phloat tgamma(Phloat p);
 Phloat sqrt(Phloat p);
 Phloat fmod(Phloat x, Phloat y);
 Phloat fabs(Phloat p);

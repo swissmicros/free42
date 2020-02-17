@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -34,7 +34,7 @@ void fly_goose();
 void squeak();
 void tone(int n);
 void draw_char(int x, int y, char c);
-void get_char(char *bits, char c);
+const unsigned char *get_char(char c);
 void draw_string(int x, int y, const char *s, int length);
 void clear_row(int row);
 

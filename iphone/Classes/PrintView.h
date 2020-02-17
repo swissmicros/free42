@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -24,35 +24,41 @@ struct update_params {
     int height;
 };
 
-#define PRINT_LINES 9000
-#define PRINT_BYTESPERLINE 36
+#define PRINT_LINES 18000
+#define PRINT_BYTESPERLINE 18
 #define PRINT_SIZE 324000
+// Room for PRINT_LINES / 9 lines, plus two, plus one byte
+#define PRINT_TEXT_SIZE 50051
 
 extern unsigned char *print_bitmap;
 extern int printout_top;
 extern int printout_bottom;
+extern unsigned char *print_text;
+extern int print_text_top;
+extern int print_text_bottom;
+extern int print_text_pixel_height;
 
 @class PrintTileView;
 
-@interface PrintView : UIView <UIScrollViewDelegate> {
-    UIBarButtonItem *clearButton;
-    UIBarButtonItem *doneButton;
+@interface PrintView : UIView <UIActionSheetDelegate, UIScrollViewDelegate> {
     UIScrollView *scrollView;
     PrintTileView *tile1;
     PrintTileView *tile2;
 }
 
-@property (nonatomic, retain) IBOutlet UIBarButtonItem *clearButton;
-@property (nonatomic, retain) IBOutlet UIBarButtonItem *doneButton;
 @property (nonatomic, retain) IBOutlet UIScrollView *scrollView;
 @property (nonatomic, retain) IBOutlet PrintTileView *tile1;
 @property (nonatomic, retain) IBOutlet PrintTileView *tile2;
 
 + (PrintView *) instance;
++ (CGFloat) scale;
 - (void) awakeFromNib;
-- (IBAction) clear;
+- (IBAction) advance;
+- (IBAction) edit;
+- (void) actionSheet:(UIActionSheet *) actionSheet clickedButtonAtIndex:(NSInteger) buttonIndex;
+- (IBAction) share;
 - (IBAction) done;
-- (void) updatePrintout:(id) params;
+- (void) updatePrintout:(update_params *) params;
 - (void) scrollToBottom;
 + (void) dump;
 - (void) scrollViewDidScroll:(UIScrollView *)scrollView;

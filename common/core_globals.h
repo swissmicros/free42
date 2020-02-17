@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -18,11 +18,17 @@
 #ifndef CORE_GLOBALS_H
 #define CORE_GLOBALS_H 1
 
+#include <stdio.h>
 
 #include "free42.h"
 #include "core_phloat.h"
 #include "core_tables.h"
 
+#ifdef ARM
+extern int* gfile;
+#else
+extern FILE *gfile;
+#endif
 
 /**********/
 /* Errors */
@@ -144,46 +150,47 @@ extern const error_spec errors[];
 #define MENU_IND           21
 #define MENU_MODES1        22
 #define MENU_MODES2        23
-#define MENU_DISP          24
-#define MENU_CLEAR1        25
-#define MENU_CLEAR2        26
-#define MENU_CONVERT1      27
-#define MENU_CONVERT2      28
-#define MENU_FLAGS         29
-#define MENU_PROB          30
-#define MENU_CUSTOM1       31
-#define MENU_CUSTOM2       32
-#define MENU_CUSTOM3       33
-#define MENU_PGM_FCN1      34
-#define MENU_PGM_FCN2      35
-#define MENU_PGM_FCN3      36
-#define MENU_PGM_FCN4      37
-#define MENU_PGM_XCOMP0    38
-#define MENU_PGM_XCOMPY    39
-#define MENU_PRINT1        40
-#define MENU_PRINT2        41
-#define MENU_PRINT3        42
-#define MENU_TOP_FCN       43
-#define MENU_CATALOG       44
-#define MENU_BLANK         45
-#define MENU_PROGRAMMABLE  46
-#define MENU_VARMENU       47
-#define MENU_STAT1         48
-#define MENU_STAT2         49
-#define MENU_STAT_CFIT     50
-#define MENU_STAT_MODL     51
-#define MENU_MATRIX1       52
-#define MENU_MATRIX2       53
-#define MENU_MATRIX3       54
-#define MENU_MATRIX_SIMQ   55
-#define MENU_MATRIX_EDIT1  56
-#define MENU_MATRIX_EDIT2  57
-#define MENU_BASE          58
-#define MENU_BASE_A_THRU_F 59
-#define MENU_BASE_LOGIC    60
-#define MENU_SOLVE         61
-#define MENU_INTEG         62
-#define MENU_INTEG_PARAMS  63
+#define MENU_MODES3        24
+#define MENU_DISP          25
+#define MENU_CLEAR1        26
+#define MENU_CLEAR2        27
+#define MENU_CONVERT1      28
+#define MENU_CONVERT2      29
+#define MENU_FLAGS         30
+#define MENU_PROB          31
+#define MENU_CUSTOM1       32
+#define MENU_CUSTOM2       33
+#define MENU_CUSTOM3       34
+#define MENU_PGM_FCN1      35
+#define MENU_PGM_FCN2      36
+#define MENU_PGM_FCN3      37
+#define MENU_PGM_FCN4      38
+#define MENU_PGM_XCOMP0    39
+#define MENU_PGM_XCOMPY    40
+#define MENU_PRINT1        41
+#define MENU_PRINT2        42
+#define MENU_PRINT3        43
+#define MENU_TOP_FCN       44
+#define MENU_CATALOG       45
+#define MENU_BLANK         46
+#define MENU_PROGRAMMABLE  47
+#define MENU_VARMENU       48
+#define MENU_STAT1         49
+#define MENU_STAT2         50
+#define MENU_STAT_CFIT     51
+#define MENU_STAT_MODL     52
+#define MENU_MATRIX1       53
+#define MENU_MATRIX2       54
+#define MENU_MATRIX3       55
+#define MENU_MATRIX_SIMQ   56
+#define MENU_MATRIX_EDIT1  57
+#define MENU_MATRIX_EDIT2  58
+#define MENU_BASE          59
+#define MENU_BASE_A_THRU_F 60
+#define MENU_BASE_LOGIC    61
+#define MENU_SOLVE         62
+#define MENU_INTEG         63
+#define MENU_INTEG_PARAMS  64
 
 
 typedef struct {
@@ -339,7 +346,7 @@ typedef union {
         char log_fit_invalid;
         char exp_fit_invalid;
         char pwr_fit_invalid;
-        char f64;
+        char shift_state; /* For use by MENU handlers */
         char VIRTUAL_matrix_editor;
         char grow;
         char ymd; /* Programming extension YMD mode; overrides dmy flag */
@@ -353,11 +360,12 @@ typedef union {
         char VIRTUAL_programmable_menu;
         char matrix_edge_wrap;
         char matrix_end_wrap;
-        char f78; char f79; char f80; char f81; char f82;
-        char f83; char f84; char f85; char f86; char f87;
-        char f88; char f89; char f90; char f91; char f92;
-        char f93; char f94; char f95; char f96; char f97;
-        char f98; char f99;
+        char base_signed; /* Programming extension */
+        char base_wrap; /* Programming extension */
+        char f80; char f81; char f82; char f83; char f84;
+        char f85; char f86; char f87; char f88; char f89;
+        char f90; char f91; char f92; char f93; char f94;
+        char f95; char f96; char f97; char f98; char f99;
     } f;
 } flags_struct;
 extern flags_struct flags;
@@ -441,6 +449,7 @@ extern int4 mode_sigma_reg;
 extern int mode_goose;
 extern bool mode_time_clktd;
 extern bool mode_time_clk24;
+extern int mode_wsize;
 
 extern phloat entered_number;
 extern int entered_string_length;
@@ -530,7 +539,7 @@ void clear_all_prgms();
 int clear_prgm(const arg_struct *arg);
 int clear_prgm_by_index(int prgm_index);
 void clear_prgm_lines(int4 count);
-void goto_dot_dot();
+void goto_dot_dot(bool force_new);
 int mvar_prgms_exist();
 int label_has_mvar(int lblindex);
 int get_command_length(int prgm, int4 pc);
@@ -556,18 +565,32 @@ bool solve_active();
 bool integ_active();
 bool unwind_stack_until_solve();
 
-bool load_state(int4 version);
-void save_state();
-void hard_reset(int bad_state_file);
+extern bool state_is_portable;
 
-bool read_arg(arg_struct *arg, bool old);
-bool write_arg(const arg_struct *arg);
+bool read_bool(bool *b);
+bool write_bool(bool b);
+bool read_char(char *c);
+bool write_char(char c);
+bool read_int(int *n);
+bool write_int(int n);
+bool read_int2(int2 *n);
+bool write_int2(int2 n);
+bool read_int4(int4 *n);
+bool write_int4(int4 n);
+bool read_int8(int8 *n);
+bool write_int8(int8 n);
 bool read_phloat(phloat *d);
 bool write_phloat(phloat d);
+bool read_arg(arg_struct *arg, bool old);
+bool write_arg(const arg_struct *arg);
 
-#ifdef ANDROID
-void reinitialize_globals();
-#endif
+bool load_state(int4 version, bool *clear, bool *too_new);
+void save_state();
+// Reason:
+// 0 = Memory Clear
+// 1 = State File Corrupt
+// 2 = State File Too New
+void hard_reset(int reason);
 
 #ifdef IPHONE
 bool off_enabled();

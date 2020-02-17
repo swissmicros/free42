@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -20,6 +20,7 @@
 
 #include "core_display.h"
 #include "core_commands2.h"
+#include "core_globals.h"
 #include "core_helpers.h"
 #include "core_main.h"
 #include "core_tables.h"
@@ -46,7 +47,7 @@
 #include <stdio.h>
 
 
-static unsigned char bigchars[130][5] =
+static const unsigned char bigchars[130][5] =
     {
         { 0x08, 0x08, 0x2a, 0x08, 0x08 },
         { 0x22, 0x14, 0x08, 0x14, 0x22 },
@@ -180,7 +181,7 @@ static unsigned char bigchars[130][5] =
         { 0x04, 0x08, 0x70, 0x08, 0x04 }
     };
 
-static char smallchars[329] =
+static const char smallchars[329] =
     {
         0x00, 0x00, 0x00,
         0x5c,
@@ -560,108 +561,136 @@ static int get_cat_index();
 
 
 bool persist_display() {
-    if (!shell_write_saved_state(catalogmenu_section, 5 * sizeof(int)))
-        return false;
-    if (!shell_write_saved_state(catalogmenu_rows, 5 * sizeof(int)))
-        return false;
-    if (!shell_write_saved_state(catalogmenu_row, 5 * sizeof(int)))
-        return false;
-    if (!shell_write_saved_state(catalogmenu_item, 30 * sizeof(int)))
-        return false;
-    if (!shell_write_saved_state(custommenu_length, 18 * sizeof(int)))
-        return false;
-    if (!shell_write_saved_state(custommenu_label, 126))
-        return false;
+    for (int i = 0; i < 5; i++) {
+        if (!write_int(catalogmenu_section[i])) return false;
+        if (!write_int(catalogmenu_rows[i])) return false;
+        if (!write_int(catalogmenu_row[i])) return false;
+        for (int j = 0; j < 6; j++)
+            if (!write_int(catalogmenu_item[i][j])) return false;
+    }
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 6; j++) {
+            if (!write_int(custommenu_length[i][j])) return false;
+            if (fwrite(custommenu_label[i][j], 1, 7, gfile) != 7) return false;
+        }
+    }
     for (int i = 0; i < 9; i++)
         if (!write_arg(progmenu_arg + i))
             return false;
-    if (!shell_write_saved_state(progmenu_is_gto, 9 * sizeof(int)))
+    for (int i = 0; i < 9; i++)
+        if (!write_int(progmenu_is_gto[i])) return false;
+    for (int i = 0; i < 6; i++) {
+        if (!write_int(progmenu_length[i])) return false;
+        if (fwrite(progmenu_label[i], 1, 7, gfile) != 7) return false;
+    }
+    if (fwrite(display, 1, 272, gfile) != 272)
         return false;
-    if (!shell_write_saved_state(progmenu_length, 6 * sizeof(int)))
-        return false;
-    if (!shell_write_saved_state(progmenu_label, 42))
-        return false;
-    if (!shell_write_saved_state(display, 272))
-        return false;
-    if (!shell_write_saved_state(&appmenu_exitcallback, sizeof(int)))
-        return false;
+    if (!write_int(appmenu_exitcallback)) return false;
     return true;
 }
 
 bool unpersist_display(int version) {
-    int custommenu_cmd[3][6];
-    is_dirty = 0;
-    if (shell_read_saved_state(catalogmenu_section, 5 * sizeof(int))
-            != 5 * sizeof(int))
-        return false;
-    if (shell_read_saved_state(catalogmenu_rows, 5 * sizeof(int))
-            != 5 * sizeof(int))
-        return false;
-    if (shell_read_saved_state(catalogmenu_row, 5 * sizeof(int))
-            != 5 * sizeof(int))
-        return false;
-    if (shell_read_saved_state(catalogmenu_item, 30 * sizeof(int))
-            != 30 * sizeof(int))
-        return false;
+    if (state_is_portable) {
+        for (int i = 0; i < 5; i++) {
+            if (!read_int(&catalogmenu_section[i])) return false;
+            if (!read_int(&catalogmenu_rows[i])) return false;
+            if (!read_int(&catalogmenu_row[i])) return false;
+            for (int j = 0; j < 6; j++)
+                if (!read_int(&catalogmenu_item[i][j])) return false;
+        }
+        for (int i = 0; i < 3; i++) {
+            for (int j = 0; j < 6; j++) {
+                if (!read_int(&custommenu_length[i][j])) return false;
+                if (fread(custommenu_label[i][j], 1, 7, gfile) != 7) return false;
+            }
+        }
+        for (int i = 0; i < 9; i++)
+            if (!read_arg(progmenu_arg + i, false))
+                return false;
+        for (int i = 0; i < 9; i++)
+            if (!read_int(&progmenu_is_gto[i])) return false;
+        for (int i = 0; i < 6; i++) {
+            if (!read_int(&progmenu_length[i])) return false;
+            if (fread(progmenu_label[i], 1, 7, gfile) != 7) return false;
+        }
+        if (fread(display, 1, 272, gfile) != 272)
+            return false;
+        if (!read_int(&appmenu_exitcallback)) return false;
+    } else {
+        int custommenu_cmd[3][6];
+        is_dirty = 0;
+        if (fread(catalogmenu_section, 1, 5 * sizeof(int), gfile)
+                != 5 * sizeof(int))
+            return false;
+        if (fread(catalogmenu_rows, 1, 5 * sizeof(int), gfile)
+                != 5 * sizeof(int))
+            return false;
+        if (fread(catalogmenu_row, 1, 5 * sizeof(int), gfile)
+                != 5 * sizeof(int))
+            return false;
+        if (fread(catalogmenu_item, 1, 30 * sizeof(int), gfile)
+                != 30 * sizeof(int))
+            return false;
 
-    if (version < 7) {
-        /* In version 7, I removed the special handling
-         * of FCN catalog assignments (after discovering how
-         * the real HP-42S does it and realizing that, for perfect
-         * compatibility, I had to do it the same way).
-         */
-        if (shell_read_saved_state(custommenu_cmd, 18 * sizeof(int))
+        if (version < 7) {
+            /* In version 7, I removed the special handling
+             * of FCN catalog assignments (after discovering how
+             * the real HP-42S does it and realizing that, for perfect
+             * compatibility, I had to do it the same way).
+             */
+            if (fread(custommenu_cmd, 1, 18 * sizeof(int), gfile)
+                    != 18 * sizeof(int))
+                return false;
+        }
+        if (fread(custommenu_length, 1, 18 * sizeof(int), gfile)
                 != 18 * sizeof(int))
             return false;
-    }
-    if (shell_read_saved_state(custommenu_length, 18 * sizeof(int))
-            != 18 * sizeof(int))
-        return false;
-    if (shell_read_saved_state(custommenu_label, 126)
-            != 126)
-        return false;
-    if (version < 7) {
-        /* Starting with version 7, FCN catalog assignments are no longer
-         * handled specially; instead, commands with shortened key labels
-         * (e.g. ENTER/ENTR, ASSIGN/ASGN) are handled by using "meta"
-         * characters to indicate the disappearing positions. This is how
-         * the HP-42S does it, and since this can even affect programs
-         * (e.g. create the line STO "ENTER" by selecting ENTER from the
-         * function catalog, and the second E is encoded as meta-E in the
-         * program!), we have to do it the same way, for compatibility.
-         * I think my original approach was better, but such is life. :-)
-         */
-        int row, pos;
-        for (row = 0; row < 3; row++)
-            for (pos = 0; pos < 6; pos++) {
-                int cmd = custommenu_cmd[row][pos];
-                if (cmd != CMD_NONE) {
-                    const command_spec *cs = cmdlist(cmd);
-                    string_copy(custommenu_label[row][pos],
-                                &custommenu_length[row][pos],
-                                cs->name, cs->name_length);
-                }
-            }
-    }
-
-    for (int i = 0; i < 9; i++)
-        if (!read_arg(progmenu_arg + i, version < 9))
+        if (fread(custommenu_label, 1, 126, gfile)
+                != 126)
             return false;
-    if (shell_read_saved_state(progmenu_is_gto, 9 * sizeof(int))
-            != 9 * sizeof(int))
-        return false;
-    if (shell_read_saved_state(progmenu_length, 6 * sizeof(int))
-            != 6 * sizeof(int))
-        return false;
-    if (shell_read_saved_state(progmenu_label, 42)
-            != 42)
-        return false;
-    if (shell_read_saved_state(display, 272)
-            != 272)
-        return false;
-    if (shell_read_saved_state(&appmenu_exitcallback, sizeof(int))
-            != sizeof(int))
-        return false;
+        if (version < 7) {
+            /* Starting with version 7, FCN catalog assignments are no longer
+             * handled specially; instead, commands with shortened key labels
+             * (e.g. ENTER/ENTR, ASSIGN/ASGN) are handled by using "meta"
+             * characters to indicate the disappearing positions. This is how
+             * the HP-42S does it, and since this can even affect programs
+             * (e.g. create the line STO "ENTER" by selecting ENTER from the
+             * function catalog, and the second E is encoded as meta-E in the
+             * program!), we have to do it the same way, for compatibility.
+             * I think my original approach was better, but such is life. :-)
+             */
+            int row, pos;
+            for (row = 0; row < 3; row++)
+                for (pos = 0; pos < 6; pos++) {
+                    int cmd = custommenu_cmd[row][pos];
+                    if (cmd != CMD_NONE) {
+                        const command_spec *cs = cmdlist(cmd);
+                        string_copy(custommenu_label[row][pos],
+                                    &custommenu_length[row][pos],
+                                    cs->name, cs->name_length);
+                    }
+                }
+        }
+
+        for (int i = 0; i < 9; i++)
+            if (!read_arg(progmenu_arg + i, version < 9))
+                return false;
+        if (fread(progmenu_is_gto, 1, 9 * sizeof(int), gfile)
+                != 9 * sizeof(int))
+            return false;
+        if (fread(progmenu_length, 1, 6 * sizeof(int), gfile)
+                != 6 * sizeof(int))
+            return false;
+        if (fread(progmenu_label, 1, 42, gfile)
+                != 42)
+            return false;
+        if (fread(display, 1, 272, gfile)
+                != 272)
+            return false;
+        if (fread(&appmenu_exitcallback, 1, sizeof(int), gfile)
+                != sizeof(int))
+            return false;
+    }
     return true;
 }
 
@@ -872,16 +901,11 @@ void draw_char(int x, int y, char c) {
     mark_dirty(Y, X, Y + 8, X + 5);
 }
 
-void get_char(char *bits, char c) {
-    /* TODO - it should be possible to simply return bigchars[c],
-     * but that crashes on the Palm. Looks like a compiler bug.
-     */
-    int i;
+const unsigned char *get_char(char c) {
     unsigned char uc = (unsigned char) c;
     if (uc >= 130)
         uc -= 128;
-    for (i = 0; i < 5; i++)
-        bits[i] = bigchars[uc][i];
+    return bigchars[uc];
 }
 
 
@@ -997,7 +1021,7 @@ int prgmline2buf(char *buf, int len, int4 line, int highlight,
         string2buf(buf, len, &bufptr, "{ ", 2);
         bufptr += int2string(size, buf + bufptr, len - bufptr);
         string2buf(buf, len, &bufptr, "-Byte Prgm }", 12);
-    } else if (core_alpha_menu() && mode_alpha_entry && highlight) {
+    } else if (alpha_active() && mode_alpha_entry && highlight) {
         int append = entered_string_length > 0 && entered_string[0] == 127;
         if (append) {
             string2buf(buf, len, &bufptr, "\177\"", 2);
@@ -1013,7 +1037,7 @@ int prgmline2buf(char *buf, int len, int4 line, int highlight,
         string2buf(buf, len, &bufptr, ".END.", 5);
     } else if (cmd == CMD_NUMBER) {
         char *num = phloat2program(arg->val_d);
-        int numlen = strlen(num);
+        int numlen = (int) strlen(num);
         if (bufptr + numlen <= len) {
             memcpy(buf + bufptr, num, numlen);
             bufptr += numlen;
@@ -1495,8 +1519,23 @@ static extension_struct extensions[] = {
     { CMD_HEADING, CMD_HEADING, &core_settings.enable_ext_heading  },
     { CMD_ADATE,   CMD_SWPT,    &core_settings.enable_ext_time     },
     { CMD_FPTEST,  CMD_FPTEST,  &core_settings.enable_ext_fptest   },
-    { CMD_LSTO,    CMD_YMD,     &core_settings.enable_ext_prog     },
+    { CMD_LSTO,    CMD_BRESET,  &core_settings.enable_ext_prog     },
     { CMD_NULL,    CMD_NULL,    NULL                               }
+};
+
+// This defines the order in which extension functions should appear in
+// the FCN catalog. We need this mapping so that that order isn't determined
+// by the order in which the functions were added to the commands list.
+// A command number of -1 defines a range, from the number before it in
+// the list until the number after it.
+static int ext_fcn_cat[] = {
+    CMD_ADATE, -1, CMD_SWPT,
+    CMD_YMD,
+    CMD_BRESET, CMD_BSIGNED, CMD_BWRAP,
+    CMD_LSTO, -1, CMD_WSIZE_T,
+    CMD_ACCEL, CMD_LOCAT, CMD_HEADING,
+    CMD_FPTEST,
+    CMD_NULL
 };
 
 static void draw_catalog() {
@@ -1590,26 +1629,46 @@ static void draw_catalog() {
             bool menu_full = false;
             int menu_length = 0;
             bool no_extensions = true;
-            for (int extno = 0; extensions[extno].first_cmd != CMD_NULL; extno++) {
-                if (extensions[extno].enable_flag == NULL || *extensions[extno].enable_flag) {
-                    for (int cmd = extensions[extno].first_cmd; cmd <= extensions[extno].last_cmd; cmd++) {
-                        if ((cmdlist(cmd)->flags & FLAG_HIDDEN) == 0) {
-                            no_extensions = false;
-                            if (curr_pos == 5) {
-                                curr_pos = 0;
-                                curr_row++;
-                            } else
-                                curr_pos++;
-                            if (menu_full)
-                                goto done;
-                            catalogmenu_item[catindex][curr_pos] = cmd;
-                            catalogmenu_row[catindex] = curr_row;
-                            menu_length = curr_pos + 1;
-                            if (curr_pos == 5 && curr_row == desired_row)
-                                menu_full = true;
-                        }
+            int ext_fcn_idx = 0;
+            int ext_fcn_until = CMD_NULL;
+            int ext_fcn;
+            while (true) {
+                if (ext_fcn_until == CMD_NULL) {
+                    ext_fcn = ext_fcn_cat[ext_fcn_idx++];
+                    if (ext_fcn == -1) {
+                        ext_fcn_until = ext_fcn_cat[ext_fcn_idx++];
+                        ext_fcn = ext_fcn_cat[ext_fcn_idx - 3] + 1;
+                    } else if (ext_fcn == CMD_NULL)
+                        break;
+                } else {
+                    ext_fcn++;
+                    if (ext_fcn == ext_fcn_until)
+                        ext_fcn_until = CMD_NULL;
+                }
+                if ((cmdlist(ext_fcn)->flags & FLAG_HIDDEN) != 0)
+                    continue;
+                bool enabled = false;
+                for (int extno = 0; extensions[extno].first_cmd != CMD_NULL; extno++) {
+                    if (ext_fcn >= extensions[extno].first_cmd && ext_fcn <= extensions[extno].last_cmd) {
+                        enabled = extensions[extno].enable_flag == NULL || *extensions[extno].enable_flag;
+                        break;
                     }
                 }
+                if (!enabled)
+                    continue;
+                no_extensions = false;
+                if (curr_pos == 5) {
+                    curr_pos = 0;
+                    curr_row++;
+                } else
+                    curr_pos++;
+                if (menu_full)
+                    goto done;
+                catalogmenu_item[catindex][curr_pos] = ext_fcn;
+                catalogmenu_row[catindex] = curr_row;
+                menu_length = curr_pos + 1;
+                if (curr_pos == 5 && curr_row == desired_row)
+                    menu_full = true;
             }
             if (no_extensions) {
                 desired_row = catalogmenu_row[catindex] = desired_row == 42 ? 0 : 41;
@@ -1655,12 +1714,15 @@ static void draw_catalog() {
             switch (type) {
                 case TYPE_REAL:
                 case TYPE_STRING:
-                    if (show_real) vcount++; break;
+                    if (show_real) vcount++;
+		    break;
                 case TYPE_COMPLEX:
-                    if (show_cpx) vcount++; break;
+                    if (show_cpx) vcount++;
+		    break;
                 case TYPE_REALMATRIX:
                 case TYPE_COMPLEXMATRIX:
-                    if (show_mat) vcount++; break;
+                    if (show_mat) vcount++;
+		    break;
             }
         }
         if (vcount == 0) {
@@ -1787,7 +1849,7 @@ static int procrustean_phloat2string(phloat d, char *buf, int buflen) {
 void show() {
     if (flags.f.prgm_mode)
         display_prgm_line(-1, 0);
-    else if (core_alpha_menu()) {
+    else if (alpha_active()) {
         clear_display();
         if (reg_alpha_length <= 22)
             draw_string(0, 0, reg_alpha, reg_alpha_length);
@@ -2035,6 +2097,12 @@ void redisplay() {
                         case CMD_LCLBL:
                             is_flag = flags.f.local_label;
                             break;
+                        case CMD_BSIGNED:
+                            is_flag = flags.f.base_signed;
+                            break;
+                        case CMD_BWRAP:
+                            is_flag = flags.f.base_wrap;
+                            break;
                         case CMD_PON:
                             is_flag = flags.f.printer_exists;
                             break;
@@ -2112,7 +2180,7 @@ void redisplay() {
             display_command(cmd_row);
     }
 
-    if (!core_alpha_menu() && !flags.f.prgm_mode) {
+    if (!alpha_active() && !flags.f.prgm_mode) {
         if (avail_rows == 1) {
             if (!flags.f.message)
                 display_x(0);
@@ -2152,7 +2220,7 @@ void redisplay() {
                     display_prgm_line(1, 0);
             }
         }
-    } else if (core_alpha_menu() && avail_rows != 0 && !flags.f.message) {
+    } else if (alpha_active() && avail_rows != 0 && !flags.f.message) {
         int avail = mode_alpha_entry ? 21 : 22;
         if (reg_alpha_length <= avail) {
             draw_string(0, 0, reg_alpha, reg_alpha_length);
@@ -2171,7 +2239,7 @@ void redisplay() {
 }
 
 void print_display() {
-    shell_print("<lcd>", 5, display, 17, 0, 0, 131, 16);
+    shell_print(NULL, 0, display, 17, 0, 0, 131, 16);
 }
 
 typedef struct {

@@ -25,6 +25,20 @@
 #define IDB_BATTERY                     138
 #define IDD_PREFERENCES                 139
 #define IDD_SELECTPROGRAM               140
+#define IDR_TONE0_WAVE                  141
+#define IDR_TONE1_WAVE                  142
+#define IDR_TONE2_WAVE                  143
+#define IDR_TONE3_WAVE                  144
+#define IDR_TONE4_WAVE                  145
+#define IDR_TONE5_WAVE                  146
+#define IDR_TONE6_WAVE                  147
+#define IDR_TONE7_WAVE                  148
+#define IDR_TONE8_WAVE                  149
+#define IDR_TONE9_WAVE                  150
+#define IDR_SQUEAK_WAVE                 151
+#define IDD_STATES                      152
+#define IDD_STATE_NAME                  153
+#define IDR_STATES_MORE                 154
 #define IDC_MATRIX_SINGULARMATRIX       1000
 #define IDC_MATRIX_OUTOFRANGE           1001
 #define IDC_AUTO_REPEAT                 1002
@@ -40,27 +54,41 @@
 #define IDC_HP42S_SIZES                 1012
 #define IDC_RAW_TEXT                    1013
 #define IDC_ALWAYSONTOP                 1014
-#define IDC_SINGLEINSTANCE              1015
-#define IDC_CALCULATOR_KEY              1016
-#define IDC_WEBSITELINK                 1017
-#define IDC_FORUMLINK                   1018
+#define IDC_CALCULATOR_KEY              1015
+#define IDC_WEBSITELINK                 1016
+#define IDC_FORUMLINK                   1017
+#define IDC_CURRENT                     1018
+#define IDC_STATES                      1019
+#define IDC_MORE                        1020
+#define IDC_STATE_PROMPT                1021
+#define IDC_STATE_NAME                  1022
 #define IDM_SHOWPRINTOUT                32771
-#define IDM_CLEARPRINTOUT               32772
+#define IDM_PAPERADVANCE                32772
 #define IDM_PREFERENCES                 32773
 #define IDM_EXPORTPROGRAM               32774
 #define IDM_IMPORTPROGRAM               32775
-#define IDM_SKIN_DUMMY                  32775
+#define IDM_SKIN_DUMMY                  32776
 #define ID_EDIT_COPY                    32777
 #define ID_EDIT_PASTE                   32778
+#define IDM_COPYPRINTASTEXT             32779
+#define IDM_COPYPRINTASIMAGE            32780
+#define IDM_CLEARPRINTOUT               32781
+#define IDM_STATES                      32782
+#define IDM_MORE_NEW                    32783
+#define IDM_MORE_DUPLICATE              32784
+#define IDM_MORE_RENAME                 32785
+#define IDM_MORE_DELETE                 32786
+#define IDM_MORE_IMPORT                 32787
+#define IDM_MORE_EXPORT                 32788
 #define IDC_STATIC                      -1
 
 // Next default values for new objects
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        141
-#define _APS_NEXT_COMMAND_VALUE         32779
-#define _APS_NEXT_CONTROL_VALUE         1019
+#define _APS_NEXT_RESOURCE_VALUE        155
+#define _APS_NEXT_COMMAND_VALUE         32789
+#define _APS_NEXT_CONTROL_VALUE         1023
 #define _APS_NEXT_SYMED_VALUE           110
 #endif
 #endif

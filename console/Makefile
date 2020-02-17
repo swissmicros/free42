@@ -30,7 +30,7 @@ CXXFLAGS += -MMD \
 	    -Wno-maybe-uninitialized \
 	    -fno-exceptions \
 	    -fno-rtti \
-	    -DVERSION="\"$(shell cat ../VERSION)\"" \
+	    -DVERSION="\"$(shell cat ../gtk/VERSION)\"" \
 	    -DDECIMAL_CALL_BY_REFERENCE=1 \
 	    -DDECIMAL_GLOBAL_ROUNDING=1 \
 	    -DDECIMAL_GLOBAL_ROUNDING_ACCESS_FUNCTIONS=1 \

@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -23,8 +23,8 @@
     UISwitch *matrixOutOfRangeSwitch;
     UISwitch *autoRepeatSwitch;
     UISwitch *alwaysOnSwitch;
-    UISwitch *keyClicksSwitch;
-    UISwitch *hapticFeedbackSwitch;
+    UISlider *keyClicksSlider;
+    UISlider *hapticFeedbackSlider;
     UISegmentedControl *orientationSelector;
     UISwitch *maintainSkinAspectSwitch;
     UISwitch *printToTextSwitch;
@@ -42,8 +42,8 @@
 @property (nonatomic, retain) IBOutlet UISwitch *matrixOutOfRangeSwitch;
 @property (nonatomic, retain) IBOutlet UISwitch *autoRepeatSwitch;
 @property (nonatomic, retain) IBOutlet UISwitch *alwaysOnSwitch;
-@property (nonatomic, retain) IBOutlet UISwitch *keyClicksSwitch;
-@property (nonatomic, retain) IBOutlet UISwitch *hapticFeedbackSwitch;
+@property (nonatomic, retain) IBOutlet UISlider *keyClicksSlider;
+@property (nonatomic, retain) IBOutlet UISlider *hapticFeedbackSlider;
 @property (nonatomic, retain) IBOutlet UISegmentedControl *orientationSelector;
 @property (nonatomic, retain) IBOutlet UISwitch *maintainSkinAspectSwitch;
 @property (nonatomic, retain) IBOutlet UISwitch *printToTextSwitch;
@@ -58,6 +58,8 @@
 - (void) textFieldDidBeginEditing:(UITextField *)textField;
 - (void) textFieldDidEndEditing:(UITextField *)textField;
 - (BOOL) textFieldShouldReturn:(UITextField *)textField;
+- (IBAction) keyClicksSliderUpdated;
+- (IBAction) hapticFeedbackSliderUpdated;
 - (IBAction) done;
 - (IBAction) browseTextFile;
 - (IBAction) browseGifFile;

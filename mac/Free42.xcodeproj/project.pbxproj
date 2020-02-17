@@ -15,10 +15,11 @@
 		E9031CB70FF690CB0023F9EC /* Ehrling42sl.layout in Resources */ = {isa = PBXBuildFile; fileRef = E9031CB30FF690CB0023F9EC /* Ehrling42sl.layout */; };
 		E9031CB80FF690CB0023F9EC /* Standard.gif in Resources */ = {isa = PBXBuildFile; fileRef = E9031CB40FF690CB0023F9EC /* Standard.gif */; };
 		E9031CB90FF690CB0023F9EC /* Standard.layout in Resources */ = {isa = PBXBuildFile; fileRef = E9031CB50FF690CB0023F9EC /* Standard.layout */; };
+		E907929922AD943A00DA7F7E /* SkinListDataSource.mm in Sources */ = {isa = PBXBuildFile; fileRef = E907929722AD943A00DA7F7E /* SkinListDataSource.mm */; };
 		E9092A7818C2A52500609AB0 /* gcc111libbid.a in Frameworks */ = {isa = PBXBuildFile; fileRef = E9092A7718C2A52500609AB0 /* gcc111libbid.a */; };
+		E91702FA22B1C6AE0093E750 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E91702F922B1C6AE0093E750 /* WebKit.framework */; };
 		E93469F21CF0C68600B0762F /* readtest_lines.cc in Sources */ = {isa = PBXBuildFile; fileRef = E93469F11CF0C68600B0762F /* readtest_lines.cc */; };
 		E93469F41CF0CCAB00B0762F /* readtest.c in Sources */ = {isa = PBXBuildFile; fileRef = E93469F31CF0CCAB00B0762F /* readtest.c */; settings = {COMPILER_FLAGS = "-D__intptr_t_defined -DLINUX"; }; };
-		E94E1BEC0FF391DA0074CA65 /* VERSION in Resources */ = {isa = PBXBuildFile; fileRef = E94E1BEB0FF391DA0074CA65 /* VERSION */; };
 		E95282751FF192A7008E96A5 /* icon.iconset in Resources */ = {isa = PBXBuildFile; fileRef = E95282741FF192A7008E96A5 /* icon.iconset */; };
 		E959D42F0FEC0A44007C56A4 /* core_commands1.cc in Sources */ = {isa = PBXBuildFile; fileRef = E959D4000FEC0A44007C56A4 /* core_commands1.cc */; };
 		E959D4300FEC0A44007C56A4 /* core_commands2.cc in Sources */ = {isa = PBXBuildFile; fileRef = E959D4020FEC0A44007C56A4 /* core_commands2.cc */; };
@@ -64,6 +65,10 @@
 		E9BA5705200189F400B490B0 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E9BA5704200189F400B490B0 /* IOKit.framework */; };
 		E9BF15C32222E725009F559F /* FileOpenPanel.mm in Sources */ = {isa = PBXBuildFile; fileRef = E9BF15BF2222E725009F559F /* FileOpenPanel.mm */; };
 		E9BF15C42222E725009F559F /* FileSavePanel.mm in Sources */ = {isa = PBXBuildFile; fileRef = E9BF15C12222E725009F559F /* FileSavePanel.mm */; };
+		E9DDAC7522FF861F00E994AF /* StateNameWindow.mm in Sources */ = {isa = PBXBuildFile; fileRef = E9DDAC7422FF861F00E994AF /* StateNameWindow.mm */; };
+		E9E059D422FEF075009DDC40 /* StatesWindow.mm in Sources */ = {isa = PBXBuildFile; fileRef = E9E059D322FEF075009DDC40 /* StatesWindow.mm */; };
+		E9E059D622FEF1E6009DDC40 /* StatesWindow.h in Sources */ = {isa = PBXBuildFile; fileRef = E9E059D522FEF1E6009DDC40 /* StatesWindow.h */; };
+		E9E059D822FEF866009DDC40 /* StateListDataSource.mm in Sources */ = {isa = PBXBuildFile; fileRef = E9E059D722FEF866009DDC40 /* StateListDataSource.mm */; };
 		E9E335DE0FF67A1D006A40AD /* keymap.txt in Resources */ = {isa = PBXBuildFile; fileRef = E9E335DD0FF67A1D006A40AD /* keymap.txt */; };
 /* End PBXBuildFile section */
 
@@ -80,14 +85,16 @@
 		E9031CB30FF690CB0023F9EC /* Ehrling42sl.layout */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; name = Ehrling42sl.layout; path = ../skins/Ehrling42sl.layout; sourceTree = SOURCE_ROOT; };
 		E9031CB40FF690CB0023F9EC /* Standard.gif */ = {isa = PBXFileReference; lastKnownFileType = image.gif; name = Standard.gif; path = ../skins/Standard.gif; sourceTree = SOURCE_ROOT; };
 		E9031CB50FF690CB0023F9EC /* Standard.layout */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; name = Standard.layout; path = ../skins/Standard.layout; sourceTree = SOURCE_ROOT; };
+		E907929722AD943A00DA7F7E /* SkinListDataSource.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = SkinListDataSource.mm; path = Classes/SkinListDataSource.mm; sourceTree = "<group>"; };
+		E907929822AD943A00DA7F7E /* SkinListDataSource.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = SkinListDataSource.h; path = Classes/SkinListDataSource.h; sourceTree = "<group>"; };
 		E9092A7518C2A46400609AB0 /* bid_conf.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = bid_conf.h; path = ../common/bid_conf.h; sourceTree = "<group>"; };
 		E9092A7618C2A46400609AB0 /* bid_functions.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = bid_functions.h; path = ../common/bid_functions.h; sourceTree = "<group>"; };
 		E9092A7718C2A52500609AB0 /* gcc111libbid.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = gcc111libbid.a; sourceTree = "<group>"; };
+		E91702F922B1C6AE0093E750 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 		E93469F11CF0C68600B0762F /* readtest_lines.cc */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = readtest_lines.cc; sourceTree = "<group>"; };
 		E93469F31CF0CCAB00B0762F /* readtest.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = readtest.c; path = IntelRDFPMathLib20U1/TESTS/readtest.c; sourceTree = "<group>"; };
 		E935A7C4224AE2F900639B84 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = Base; path = Base.lproj/MainMenu.xib; sourceTree = "<group>"; };
 		E935A7C5224AE30800639B84 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
-		E94E1BEB0FF391DA0074CA65 /* VERSION */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; name = VERSION; path = ../VERSION; sourceTree = SOURCE_ROOT; };
 		E95282741FF192A7008E96A5 /* icon.iconset */ = {isa = PBXFileReference; lastKnownFileType = folder.iconset; path = icon.iconset; sourceTree = "<group>"; };
 		E959D3DE0FEC09CF007C56A4 /* Free42AppDelegate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = Free42AppDelegate.h; path = Classes/Free42AppDelegate.h; sourceTree = "<group>"; };
 		E959D4000FEC0A44007C56A4 /* core_commands1.cc */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = core_commands1.cc; path = ../common/core_commands1.cc; sourceTree = SOURCE_ROOT; };
@@ -165,6 +172,12 @@
 		E9BF15C02222E725009F559F /* FileOpenPanel.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = FileOpenPanel.h; path = Classes/FileOpenPanel.h; sourceTree = "<group>"; };
 		E9BF15C12222E725009F559F /* FileSavePanel.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = FileSavePanel.mm; path = Classes/FileSavePanel.mm; sourceTree = "<group>"; };
 		E9BF15C22222E725009F559F /* FileSavePanel.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = FileSavePanel.h; path = Classes/FileSavePanel.h; sourceTree = "<group>"; };
+		E9DDAC7322FF861F00E994AF /* StateNameWindow.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = StateNameWindow.h; path = Classes/StateNameWindow.h; sourceTree = "<group>"; };
+		E9DDAC7422FF861F00E994AF /* StateNameWindow.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = StateNameWindow.mm; path = Classes/StateNameWindow.mm; sourceTree = "<group>"; };
+		E9E059D322FEF075009DDC40 /* StatesWindow.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = StatesWindow.mm; path = Classes/StatesWindow.mm; sourceTree = "<group>"; };
+		E9E059D522FEF1E6009DDC40 /* StatesWindow.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = StatesWindow.h; path = Classes/StatesWindow.h; sourceTree = "<group>"; };
+		E9E059D722FEF866009DDC40 /* StateListDataSource.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = StateListDataSource.mm; path = Classes/StateListDataSource.mm; sourceTree = "<group>"; };
+		E9E059D922FEF91B009DDC40 /* StateListDataSource.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = StateListDataSource.h; path = Classes/StateListDataSource.h; sourceTree = "<group>"; };
 		E9E335DD0FF67A1D006A40AD /* keymap.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = keymap.txt; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -173,6 +186,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E91702FA22B1C6AE0093E750 /* WebKit.framework in Frameworks */,
 				E9BA5705200189F400B490B0 /* IOKit.framework in Frameworks */,
 				8D11072F0486CEB800E47090 /* Cocoa.framework in Frameworks */,
 				E9B0795E0FF54A170021B83D /* AudioToolbox.framework in Frameworks */,
@@ -200,6 +214,14 @@
 				E97925481698896300598A02 /* ProgramListDataSource.mm */,
 				E97714CB0FEC0E9A00F8CA16 /* shell_skin.h */,
 				E979254A1698897600598A02 /* shell_skin.mm */,
+				E907929822AD943A00DA7F7E /* SkinListDataSource.h */,
+				E907929722AD943A00DA7F7E /* SkinListDataSource.mm */,
+				E9E059D922FEF91B009DDC40 /* StateListDataSource.h */,
+				E9E059D722FEF866009DDC40 /* StateListDataSource.mm */,
+				E9DDAC7322FF861F00E994AF /* StateNameWindow.h */,
+				E9DDAC7422FF861F00E994AF /* StateNameWindow.mm */,
+				E9E059D522FEF1E6009DDC40 /* StatesWindow.h */,
+				E9E059D322FEF075009DDC40 /* StatesWindow.mm */,
 				E979254C1698EB7F00598A02 /* URLTextField.h */,
 				E979254F1698ED2B00598A02 /* URLTextField.mm */,
 			);
@@ -277,7 +299,6 @@
 				E9B0792E0FF548770021B83D /* tone7.wav */,
 				E9B0792F0FF548770021B83D /* tone8.wav */,
 				E9B079300FF548770021B83D /* tone9.wav */,
-				E94E1BEB0FF391DA0074CA65 /* VERSION */,
 				E9031CB00FF690AC0023F9EC /* builtin_skins.txt */,
 				E9031CB20FF690CB0023F9EC /* Ehrling42sl.gif */,
 				E9031CB30FF690CB0023F9EC /* Ehrling42sl.layout */,
@@ -290,6 +311,7 @@
 		29B97323FDCFA39411CA2CEA /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				E91702F922B1C6AE0093E750 /* WebKit.framework */,
 				E9BA5704200189F400B490B0 /* IOKit.framework */,
 				1058C7A0FEA54F0111CA2CBB /* Linked Frameworks */,
 				1058C7A2FEA54F0111CA2CBB /* Other Frameworks */,
@@ -414,7 +436,6 @@
 			files = (
 				8D11072B0486CEB800E47090 /* InfoPlist.strings in Resources */,
 				1DDD58160DA1D0A300B32029 /* MainMenu.xib in Resources */,
-				E94E1BEC0FF391DA0074CA65 /* VERSION in Resources */,
 				E9B079260FF548690021B83D /* squeak.wav in Resources */,
 				E9B079310FF548770021B83D /* tone0.wav in Resources */,
 				E95282751FF192A7008E96A5 /* icon.iconset in Resources */,
@@ -464,6 +485,7 @@
 				E959D4300FEC0A44007C56A4 /* core_commands2.cc in Sources */,
 				E959D4310FEC0A44007C56A4 /* core_commands3.cc in Sources */,
 				E959D4320FEC0A44007C56A4 /* core_commands4.cc in Sources */,
+				E9E059D622FEF1E6009DDC40 /* StatesWindow.h in Sources */,
 				E959D4330FEC0A44007C56A4 /* core_commands5.cc in Sources */,
 				E959D4340FEC0A44007C56A4 /* core_commands6.cc in Sources */,
 				E959D4350FEC0A44007C56A4 /* core_display.cc in Sources */,
@@ -474,13 +496,17 @@
 				E959D43A0FEC0A44007C56A4 /* core_linalg2.cc in Sources */,
 				E959D43B0FEC0A44007C56A4 /* core_main.cc in Sources */,
 				E959D43C0FEC0A44007C56A4 /* core_math1.cc in Sources */,
+				E907929922AD943A00DA7F7E /* SkinListDataSource.mm in Sources */,
 				E959D43D0FEC0A44007C56A4 /* core_math2.cc in Sources */,
 				E959D43E0FEC0A44007C56A4 /* core_phloat.cc in Sources */,
 				E959D43F0FEC0A44007C56A4 /* core_sto_rcl.cc in Sources */,
+				E9DDAC7522FF861F00E994AF /* StateNameWindow.mm in Sources */,
 				E959D4400FEC0A44007C56A4 /* core_tables.cc in Sources */,
+				E9E059D422FEF075009DDC40 /* StatesWindow.mm in Sources */,
 				E959D4410FEC0A44007C56A4 /* core_variables.cc in Sources */,
 				E93469F41CF0CCAB00B0762F /* readtest.c in Sources */,
 				E9BF15C42222E725009F559F /* FileSavePanel.mm in Sources */,
+				E9E059D822FEF866009DDC40 /* StateListDataSource.mm in Sources */,
 				E959D4420FEC0A44007C56A4 /* shell_loadimage.cc in Sources */,
 				E959D4430FEC0A44007C56A4 /* shell_spool.cc in Sources */,
 				E99FDE2F11624FFA004DB479 /* core_commands7.cc in Sources */,
@@ -581,7 +607,6 @@
 				GCC_C_LANGUAGE_STANDARD = c99;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PREPROCESSOR_DEFINITIONS = (
-					NO_SINCOS,
 					"DECIMAL_CALL_BY_REFERENCE=1",
 					"DECIMAL_GLOBAL_ROUNDING=1",
 					"DECIMAL_GLOBAL_ROUNDING_ACCESS_FUNCTIONS=1",
@@ -606,7 +631,6 @@
 				ARCHS = "$(ARCHS_STANDARD_32_BIT)";
 				GCC_C_LANGUAGE_STANDARD = c99;
 				GCC_PREPROCESSOR_DEFINITIONS = (
-					NO_SINCOS,
 					"DECIMAL_CALL_BY_REFERENCE=1",
 					"DECIMAL_GLOBAL_ROUNDING=1",
 					"DECIMAL_GLOBAL_ROUNDING_ACCESS_FUNCTIONS=1",
@@ -632,7 +656,6 @@
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					BCD_MATH,
-					NO_SINCOS,
 					"DECIMAL_CALL_BY_REFERENCE=1",
 					"DECIMAL_GLOBAL_ROUNDING=1",
 					"DECIMAL_GLOBAL_ROUNDING_ACCESS_FUNCTIONS=1",
@@ -688,7 +711,6 @@
 				GCC_C_LANGUAGE_STANDARD = c99;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					BCD_MATH,
-					NO_SINCOS,
 					"DECIMAL_CALL_BY_REFERENCE=1",
 					"DECIMAL_GLOBAL_ROUNDING=1",
 					"DECIMAL_GLOBAL_ROUNDING_ACCESS_FUNCTIONS=1",

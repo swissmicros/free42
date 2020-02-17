@@ -1,6 +1,6 @@
 #!/bin/bash
 
-MAKEOPT=" -j12 "
+MAKEOPT=" -j12 $MAKEOPT"
 
 rm -f libfree42_*.a
 
@@ -27,6 +27,10 @@ fi
 make clean
 echo "=== ARM_LIB=1 BCD_MATH=1"
 ARM_LIB=1 BCD_MATH=1 make $MAKEOPT libfree42.a
+if [ $? != 0 ]; then
+  echo "BUILD FAILED"
+  exit 1
+fi
 mv libfree42.a libfree42_bcd.a
 
 make clean

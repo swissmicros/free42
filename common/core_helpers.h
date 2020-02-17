@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -56,7 +56,10 @@ int virtual_flag_handler(int flagop, int flagnum);
 int get_base();
 void set_base(int base);
 int get_base_param(const vartype *v, int8 *n);
-int base_range_check(int8 *n);
+int base_range_check(int8 *n, bool force_wrap);
+int effective_wsize();
+phloat base2phloat(int8 n);
+bool phloat2base(phloat p, int8 *n);
 
 void print_text(const char *text, int length, int left_justified);
 void print_lines(const char *text, int length, int left_justified);
@@ -98,6 +101,34 @@ int ip2revstring(phloat d, char *buf, int buflen);
 #define reallocU(x,y) unguarded_realloc(x,y,__FILE__,__LINE__)
 void* unguarded_malloc(size_t size, const char* file, int line);
 void* unguarded_realloc(void *ptr, size_t size, const char* file, int line);
+
+extern "C" {
+// ------------
+// Map filesystem functions to statefile open/read/write/etc.
+// read/write return int to avoid warnings in free42 code
+#define FILE int
+int statefile_read(void *ptr, size_t size, size_t nmemb, FILE *stream);
+int statefile_write(const void *ptr, size_t size, size_t nmemb, FILE *stream);
+FILE *statefile_open(const char *pathname, const char *mode);
+int statefile_close(FILE *stream);
+int statefile_seek(FILE *stream, long offset, int whence);
+int statefile_getc(FILE *stream);
+int statefile_ungetc(int c, FILE *stream);
+long statefile_tell(FILE *stream);
+int statefile_putc(int c, FILE *stream);
+
+#define fread  statefile_read
+#define fwrite statefile_write
+#define fopen  statefile_open
+#define fclose statefile_close
+#define fseek  statefile_seek 
+#define fgetc  statefile_getc
+#define ungetc statefile_ungetc
+#define ftell  statefile_tell
+#define fputc  statefile_putc
+// ------------
+}
+
 #else
 #define mallocU  malloc
 #define reallocU realloc

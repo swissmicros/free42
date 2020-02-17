@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -25,12 +25,15 @@
 #import "PreferencesView.h"
 #import "AboutView.h"
 #import "SelectFileView.h"
+#import "DeleteSkinView.h"
+#import "LoadSkinView.h"
+#import "StatesView.h"
 #import "RootViewController.h"
 #import "shell.h"
 #import "shell_skin_iphone.h"
 #import "core_main.h"
 
-static SystemSoundID soundIDs[11];
+static SystemSoundID soundIDs[20];
 
 static RootViewController *instance;
 
@@ -46,15 +49,24 @@ static RootViewController *instance;
 @synthesize preferencesView;
 @synthesize aboutView;
 @synthesize selectFileView;
+@synthesize deleteSkinView;
+@synthesize loadSkinView;
+@synthesize statesView;
 
 
 - (void) awakeFromNib {
     [super awakeFromNib];
     instance = self;
 
-    const char *sound_names[] = { "tone0", "tone1", "tone2", "tone3", "tone4", "tone5", "tone6", "tone7", "tone8", "tone9", "squeak" };
-    for (int i = 0; i < 11; i++) {
-        NSString *name = [NSString stringWithCString:sound_names[i] encoding:NSUTF8StringEncoding];
+    const char *sound_names[] = {
+            "tone0", "tone1", "tone2", "tone3", "tone4",
+            "tone5", "tone6", "tone7", "tone8", "tone9",
+            "squeak",
+            "click1", "click2", "click3", "click4", "click5",
+            "click6", "click7", "click8", "click9"
+        };
+    for (int i = 0; i < 20; i++) {
+        NSString *name = [NSString stringWithUTF8String:sound_names[i]];
         NSString *path = [[NSBundle mainBundle] pathForResource:name ofType:@"wav"];
         OSStatus status = AudioServicesCreateSystemSoundID((CFURLRef)[NSURL fileURLWithPath:path], &soundIDs[i]);
         if (status)
@@ -64,10 +76,13 @@ static RootViewController *instance;
     [self.view addSubview:printView];
     [self.view addSubview:httpServerView];
     [self.view addSubview:selectSkinView];
+    [self.view addSubview:deleteSkinView];
+    [self.view addSubview:loadSkinView];
     [self.view addSubview:selectProgramsView];
     [self.view addSubview:preferencesView];
     [self.view addSubview:aboutView];
     [self.view addSubview:selectFileView];
+    [self.view addSubview:statesView];
     [self.view addSubview:calcView];
     [self layoutSubViews];
     
@@ -124,10 +139,13 @@ static RootViewController *instance;
     printView.frame = r;
     httpServerView.frame = r;
     selectSkinView.frame = r;
+    deleteSkinView.frame = r;
+    loadSkinView.frame = r;
     selectProgramsView.frame = r;
     preferencesView.frame = r;
     aboutView.frame = r;
     selectFileView.frame = r;
+    statesView.frame = r;
     calcView.frame = r;
 }
 
@@ -170,6 +188,10 @@ int shell_low_battery() {
                                                otherButtonTitles:nil];
     [errorAlert show];
     [errorAlert release];
+}
+
+void shell_message(const char *message) {
+    [RootViewController showMessage:[NSString stringWithUTF8String:message]];
 }
 
 + (void) playSound: (int) which {
@@ -241,60 +263,44 @@ int shell_low_battery() {
     [SelectFileView raiseWithTitle:@"Import Programs" selectTitle:@"Import" types:@"raw,*" selectDir:NO callbackObject:instance callbackSelector:@selector(doImport2:)];
 }
 
-static FILE *import_file;
-
-static int my_shell_read(char *buf, int buflen) {
-    ssize_t nread;
-    if (import_file == NULL)
-        return -1;
-    nread = fread(buf, 1, buflen, import_file);
-    if (nread != buflen && ferror(import_file)) {
-        fclose(import_file);
-        import_file = NULL;
-        [RootViewController showMessage:@"An error occurred while reading the file; import was terminated prematurely."];
-        return -1;
-    } else
-        return (int) nread;
-}
-
 - (void) doImport2:(NSString *) path {
-    import_file = fopen([path cStringUsingEncoding:NSUTF8StringEncoding], "r");
-    if (import_file == NULL) {
-        [RootViewController showMessage:@"The file could not be opened."];
-    } else {
-        import_programs(my_shell_read);
-        if (import_file != NULL) {
-            fclose(import_file);
-            import_file = NULL;
-        }
-    }
+    core_import_programs(0, [path UTF8String]);
 }
 
-+ (void) doExport {
-    [instance.selectProgramsView raised];
++ (void) doExport:(BOOL)share {
+    [instance.selectProgramsView raised:share];
     [instance.self.view bringSubviewToFront:instance.selectProgramsView];
 }
 
+- (void) showLoadSkin2 {
+    [loadSkinView raised];
+    [self.view bringSubviewToFront:loadSkinView];
+}
+
++ (void) showLoadSkin {
+    [instance showLoadSkin2];
+}
+
+- (void) showStates2:(NSString *)stateName {
+    [statesView raised];
+    if (stateName != nil) {
+        [statesView selectState:stateName];
+        [stateName release];
+    }
+    [self.view bringSubviewToFront:statesView];
+}
+
++ (void) showStates:(NSString *)stateName {
+    [instance showStates2:stateName];
+}
+
+- (void) showDeleteSkin2 {
+    [deleteSkinView raised];
+    [self.view bringSubviewToFront:deleteSkinView];
+}
+
++ (void) showDeleteSkin {
+    [instance showDeleteSkin2];
+}
+
 @end
-
-static int (*writer_callback)(const char *buf, int buflen);
-
-int shell_write(const char *buf, int buflen) {
-    return writer_callback(buf, buflen);
-}
-
-void export_programs(int count, const int *indexes, int (*writer)(const char *buf, int buflen)) {
-    writer_callback = writer;
-    core_export_programs(count, indexes);
-}
-
-static int (*reader_callback)(char *buf, int buflen);
-
-int shell_read(char *buf, int buflen) {
-    return reader_callback(buf, buflen);
-}
-
-void import_programs(int (*reader)(char *buf, int buflen)) {
-    reader_callback = reader;
-    core_import_programs();
-}

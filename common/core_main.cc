@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -19,10 +19,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <errno.h>
 
 #include "core_main.h"
 #include "core_commands2.h"
 #include "core_commands4.h"
+#include "core_display.h"
 #include "core_display.h"
 #include "core_helpers.h"
 #include "core_keydown.h"
@@ -59,7 +61,7 @@ static int4 oldpc;
 
 core_settings_struct core_settings;
 
-void core_init(int read_saved_state, int4 version) {
+void core_init(int read_saved_state, int4 version, const char *state_file_name, int offset) {
 
     /* Possible values for read_saved_state:
      * 0: state file not present (Memory Clear)
@@ -68,8 +70,83 @@ void core_init(int read_saved_state, int4 version) {
      */
 
     phloat_init();
-    if (read_saved_state != 1 || !load_state(version))
-        hard_reset(read_saved_state != 0);
+
+    #if defined(ANDROID) || defined(IPHONE)
+        core_settings.enable_ext_accel = true;
+        core_settings.enable_ext_locat = true;
+        core_settings.enable_ext_heading = true;
+    #else
+        core_settings.enable_ext_accel = false;
+        core_settings.enable_ext_locat = false;
+        core_settings.enable_ext_heading = false;
+    #endif
+    #ifdef FREE42_FPTEST
+        core_settings.enable_ext_fptest = true;
+    #else
+        core_settings.enable_ext_fptest = false;
+    #endif
+    core_settings.enable_ext_time = true;
+    core_settings.enable_ext_prog = true;
+
+#ifndef ARM
+    char *state_file_name_crash = NULL;
+    if (read_saved_state == 1) {
+        // Before loading state, rename the state file by appending .crash
+        // to its name. We'll rename it back, right after loading is done.
+        // This way, if we crash while loading state, we end up with a
+        // renamed state file, so the next time the app is run, it will
+        // launch with Memory Clear rather than just crashing on startup over
+        // and over, and, on iOS and Android, needing to be deleted and
+        // reinstalled.
+        state_file_name_crash = (char *) malloc(strlen(state_file_name) + 24);
+        if (state_file_name_crash != NULL) {
+            uint4 date, time;
+            int weekday;
+            shell_get_time_date(&time, &date, &weekday);
+            sprintf(state_file_name_crash, "%s.%08u%08u.crash", state_file_name, date, time);
+            rename(state_file_name, state_file_name_crash);
+            gfile = fopen(state_file_name_crash, "rb");
+        } else
+#else
+    if (read_saved_state == 1) {
+#endif
+            gfile = fopen(state_file_name, "rb");
+        if (gfile == NULL)
+            read_saved_state = 0;
+        else if (offset > 0)
+            fseek(gfile, offset, SEEK_SET);
+    } else
+        gfile = NULL;
+
+    bool clear, too_new = false;
+    int reason = 0;
+    if (read_saved_state != 1 || !load_state(version, &clear, &too_new)) {
+        reason = too_new ? 2 : (read_saved_state != 0 && !clear) ? 1 : 0;
+        hard_reset(reason);
+    }
+
+    if (gfile != NULL)
+        fclose(gfile);
+#ifndef ARM
+    if (state_file_name != NULL) {
+        if (reason == 0) {
+            if (state_file_name_crash != NULL)
+                rename(state_file_name_crash, state_file_name);
+        } else {
+            char *tmp = (char *) malloc(strlen(state_file_name) + 9);
+            if (tmp != NULL) {
+                strcpy(tmp, state_file_name);
+                strcat(tmp, reason == 1 ? ".corrupt" : ".too_new");
+                if (state_file_name_crash != NULL)
+                    rename(state_file_name_crash, tmp);
+                else
+                    rename(state_file_name, tmp);
+                free(tmp);
+            }
+        }
+    }
+    free(state_file_name_crash);
+#endif
 
     repaint_display();
     shell_annunciators(mode_updown,
@@ -80,38 +157,36 @@ void core_init(int read_saved_state, int4 version) {
                        flags.f.rad || flags.f.grad);
 }
 
-#if defined(IPHONE) || defined(ANDROID) || defined(ARM)
-void core_enter_background() {
+void core_save_state(const char *state_file_name) {
     if (mode_interruptible != NULL)
         stop_interruptible();
     set_running(false);
-    save_state();
+    gfile = fopen(state_file_name, "wb");
+    if (gfile != NULL) {
+        save_state();
+        fclose(gfile);
+    }
 }
-#endif
 
-void core_quit() {
-#ifndef ANDROID
-    // In Android, core_enter_background() is always called
-    // before core_quit().
-    // TODO: Does that apply to the iPhone verson as well?
-    if (mode_interruptible != NULL)
-        stop_interruptible();
-    save_state();
+void core_cleanup() {
     free_vartype(reg_x);
+    reg_x = NULL;
     free_vartype(reg_y);
+    reg_y = NULL;
     free_vartype(reg_z);
+    reg_z = NULL;
     free_vartype(reg_t);
+    reg_t = NULL;
     free_vartype(reg_lastx);
+    reg_lastx = NULL;
     purge_all_vars();
     clear_all_prgms();
-    if (vars != NULL)
+    if (vars != NULL) {
         free(vars);
+        vars = NULL;
+        vars_capacity = 0;
+    }
     clean_vartype_pools();
-#endif
-//
-//#ifdef ANDROID
-//    reinitialize_globals();
-//#endif
 }
 
 void core_repaint_display() {
@@ -122,9 +197,13 @@ int core_menu() {
     return mode_clall || get_front_menu() != NULL;
 }
 
-int core_alpha_menu() {
+bool alpha_active() {
     int *menu = get_front_menu();
     return menu != NULL && *menu >= MENU_ALPHA1 && *menu <= MENU_ALPHA_MISC2;
+}
+
+int core_alpha_menu() {
+    return !mode_getkey && alpha_active();
 }
 
 int core_hex_menu() {
@@ -138,6 +217,10 @@ int core_keydown_command(const char *name, int *enqueued, int *repeat) {
     char hpname[70];
     int len = ascii2hp(hpname, name, 63);
     int cmd = find_builtin(hpname, len, false);
+    if (cmd == CMD_NONE) {
+        set_shift(false);
+        squeak();
+    }
     return core_keydown(cmd == CMD_NONE ? 0 : cmd + 2048, enqueued, repeat);
 }
 
@@ -166,7 +249,7 @@ int core_keydown(int key, int *enqueued, int *repeat) {
     if (mode_interruptible != NULL) {
         /* We're in the middle of an interruptible function
          * (e.g., INVRT, PRP); queue up any keystrokes and invoke
-         * the appropriate callback to keep the funtion moving along
+         * the appropriate callback to keep the function moving along
          */
         int error, keep_running;
         if (key != 0) {
@@ -548,9 +631,9 @@ int core_powercycle() {
          * OFF on the keyboard returns code 70 and stops program execution; and
          * when the auto-poweroff timeout expires, code 70 is returned but
          * program execution continues.
-         * Since Free42 can be shut down in ways the HP-42S can't (exiting the
-         * application, or turning off power on a Palm), I have to fake it a
-         * bit; I put 70 in X as if the user had done OFF twice on a real 42S.
+         * Since Free42 can be shut down in a way the HP-42S can't, by exiting
+         * the application, I have to fake it a bit; I put 70 in X as if the
+         * user had done OFF twice on a real 42S.
          */
         vartype *seventy = new_real(70);
         if (seventy != NULL) {
@@ -728,6 +811,69 @@ char *core_list_programs() {
 }
 
 #endif
+
+
+#ifdef IPHONE
+
+// This would have been a lot cleaner using fmemopen(), but that's only supported
+// in iOS 11 and later, and I'm not ready to give up on iOS 8 through 10 yet.
+
+static char *raw_buf;
+static size_t raw_size;
+static size_t raw_pos;
+
+static int raw_getc() {
+    if (raw_buf == NULL)
+        return fgetc(gfile);
+    else {
+        if (raw_pos < raw_size)
+            return raw_buf[raw_pos++] & 255;
+        else
+            return EOF;
+    }
+}
+
+static int raw_ungetc(int c) {
+    if (raw_buf == NULL)
+        return ungetc(c, gfile);
+    else {
+        raw_buf[--raw_pos] = (char) c;
+        return c;
+    }
+}
+
+static size_t raw_write(const char *buf, size_t size) {
+    if (raw_buf == NULL)
+        return fwrite(buf, 1, size, gfile);
+    else {
+        if (raw_pos + size > raw_size)
+            size = raw_size - raw_pos;
+        memcpy(raw_buf + raw_pos, buf, size);
+        raw_pos += size;
+        return size;
+    }
+}
+
+static void raw_close(const char *mode) {
+    if (raw_buf == NULL) {
+	if (ferror(gfile)) {
+	    char msg[50];
+	    sprintf(msg, "An error occurred during program %s.", mode);
+            shell_message(msg);
+	}
+        fclose(gfile);
+    }
+}
+
+#else
+
+#define raw_getc() fgetc(gfile)
+#define raw_ungetc(c) ungetc(c, gfile)
+#define raw_write(buf, size) fwrite(buf, 1, size, gfile)
+#define raw_close(dummy) fclose(gfile)
+
+#endif
+
 
 static void export_hp42s(int index) {
     int4 pc = 0;
@@ -990,7 +1136,7 @@ static void export_hp42s(int index) {
                 continue;
         }
         if (buflen + cmdlen > 1000) {
-            if (!shell_write(buf, buflen))
+            if (raw_write(buf, buflen) != buflen)
                 goto done;
             buflen = 0;
         }
@@ -998,7 +1144,7 @@ static void export_hp42s(int index) {
             buf[buflen++] = cmdbuf[i];
     } while (cmd != CMD_END && pc < prgms[index].size);
     if (buflen > 0)
-        shell_write(buf, buflen);
+        raw_write(buf, buflen);
     done:
     current_prgm = saved_prgm;
 }
@@ -1121,12 +1267,40 @@ int4 core_program_size(int prgm_index) {
     return size;
 }
 
-void core_export_programs(int count, const int *indexes) {
-    int i;
-    for (i = 0; i < count; i++) {
+void core_export_programs(int count, const int *indexes, const char *raw_file_name) {
+    if (raw_file_name != NULL) {
+#ifdef IPHONE
+        if (strncmp(raw_file_name, "mem:", 4) == 0) {
+            char *buf;
+            ssize_t size;
+            memcpy(&buf, raw_file_name + 5, sizeof(char *));
+            memcpy(&size, raw_file_name + 13, sizeof(ssize_t));
+            raw_buf = buf;
+            raw_size = size;
+            raw_pos = 0;
+        } else {
+            raw_buf = NULL;
+#endif
+            gfile = fopen(raw_file_name, "wb");
+            if (gfile == NULL) {
+                char msg[1024];
+                int err = errno;
+                sprintf(msg, "Could not open \"%s\" for writing: %s (%d)", raw_file_name, strerror(err), err);
+                shell_message(msg);
+                return;
+            }
+#ifdef IPHONE
+        }
+    } else {
+        raw_buf = NULL;
+#endif
+    }
+    for (int i = 0; i < count; i++) {
         int p = indexes[i];
         export_hp42s(p);
     }
+    if (raw_file_name != NULL)
+        raw_close("export");
 }
 
 static int hp42tofree42[] = {
@@ -1583,16 +1757,6 @@ static int hp42ext[] = {
 };
 
 
-static int getbyte(char *buf, int *bufptr, int *buflen, int maxlen) {
-    if (*bufptr == *buflen) {
-        *buflen = shell_read(buf, maxlen);
-        if (*buflen <= 0)
-            return -1;
-        *bufptr = 0;
-    }
-    return (unsigned char) buf[(*bufptr)++];
-}
-
 static phloat parse_number_line(char *buf) {
     phloat res;
     if (buf[0] == 'E' || buf[0] == '-' && buf[1] == 'E') {
@@ -1604,7 +1768,7 @@ static phloat parse_number_line(char *buf) {
             buf2[0] = '-';
             buf2[1] = '1';
         }
-        int len2 = strlen(buf2);
+        int len2 = (int) strlen(buf2);
         if (buf2[len2 - 1] == 'E')
             buf2[len2 - 1] = 0;
         res = parse_number_line(buf2);
@@ -1646,18 +1810,43 @@ static phloat parse_number_line(char *buf) {
     return res;
 }
 
-void core_import_programs() {
-    char buf[1000];
-    int i, nread = 0;
-    int need_to_rebuild_label_table = 0;
+void core_import_programs(int num_progs, const char *raw_file_name) {
+    int i;
 
-    int pos = 0;
     int byte1, byte2, suffix;
     int cmd, flag, str_len = 0;
     int done_flag = 0;
     arg_struct arg;
     int assign = 0;
-    int at_end = 1;
+    bool pending_end;
+
+    if (raw_file_name != NULL) {
+#ifdef IPHONE
+        if (strncmp(raw_file_name, "mem:", 4) == 0) {
+            char *buf;
+            ssize_t size;
+            memcpy(&buf, raw_file_name + 5, sizeof(char *));
+            memcpy(&size, raw_file_name + 13, sizeof(ssize_t));
+            raw_buf = buf;
+            raw_size = size;
+            raw_pos = 0;
+        } else {
+            raw_buf = NULL;
+#endif
+            gfile = fopen(raw_file_name, "rb");
+            if (gfile == NULL) {
+                char msg[1024];
+                int err = errno;
+                sprintf(msg, "Could not open \"%s\" for reading: %s (%d)", raw_file_name, strerror(err), err);
+                shell_message(msg);
+                return;
+            }
+#ifdef IPHONE
+        }
+    } else {
+        raw_buf = NULL;
+#endif
+    }
 
     set_running(false);
 
@@ -1668,11 +1857,22 @@ void core_import_programs() {
     int saved_normal = flags.f.normal_print;
     flags.f.trace_print = 0;
     flags.f.normal_print = 0;
+    
+    if (num_progs > 0) {
+        // Loading state file
+        goto_dot_dot(true);
+        pending_end = false;
+    } else {
+        current_prgm = prgms_count - 1;
+        pc = prgms[current_prgm].size - 2;
+        // No initial END needed if last program is empty
+        pending_end = pc > 0;
+    }
 
     while (!done_flag) {
         skip:
-        byte1 = getbyte(buf, &pos, &nread, 1000);
-        if (byte1 == -1)
+        byte1 = raw_getc();
+        if (byte1 == EOF)
             goto done;
         cmd = hp42tofree42[byte1];
         flag = cmd >> 12;
@@ -1687,8 +1887,8 @@ void core_import_programs() {
                 arg.val.num--;
             goto store;
         } else if (flag == 2) {
-            suffix = getbyte(buf, &pos, &nread, 1000);
-            if (suffix == -1)
+            suffix = raw_getc();
+            if (suffix == EOF)
                 goto done;
             goto do_suffix;
         } else /* flag == 3 */ {
@@ -1709,23 +1909,23 @@ void core_import_programs() {
                     else
                         byte1 += '0' - 0x10;
                     numbuf[numlen++] = byte1;
-                    byte1 = getbyte(buf, &pos, &nread, 1000);
+                    byte1 = raw_getc();
                 } while (byte1 >= 0x10 && byte1 <= 0x1C);
-                if (byte1 == -1)
+                if (byte1 == EOF)
                     done_flag = 1;
                 else if (byte1 != 0x00)
-                    pos--;
+                    raw_ungetc(byte1);
                 numbuf[numlen++] = 0;
                 arg.val_d = parse_number_line(numbuf);
                 cmd = CMD_NUMBER;
                 arg.type = ARGTYPE_DOUBLE;
             } else if (byte1 == 0x1D || byte1 == 0x1E) {
                 cmd = byte1 == 0x1D ? CMD_GTO : CMD_XEQ;
-                str_len = getbyte(buf, &pos, &nread, 1000);
-                if (str_len == -1)
+                str_len = raw_getc();
+                if (str_len == EOF)
                     goto done;
                 else if (str_len < 0x0F1) {
-                    pos--;
+                    raw_ungetc(str_len);
                     goto skip;
                 } else
                     str_len -= 0x0F0;
@@ -1741,8 +1941,8 @@ void core_import_programs() {
                  * on the cmdlist table.
                  */
                 uint4 code;
-                byte2 = getbyte(buf, &pos, &nread, 1000);
-                if (byte2 == -1)
+                byte2 = raw_getc();
+                if (byte2 == EOF)
                     goto done;
                 code = (((unsigned int) byte1) << 8) | byte2;
                 for (i = 0; i < CMD_SENTINEL; i++)
@@ -1760,8 +1960,8 @@ void core_import_programs() {
                 goto store;
             } else if (byte1 == 0x0AE) {
                 /* GTO/XEQ IND */
-                suffix = getbyte(buf, &pos, &nread, 1000);
-                if (suffix == -1)
+                suffix = raw_getc();
+                if (suffix == EOF)
                     goto done;
                 if ((suffix & 0x80) != 0)
                     cmd = CMD_XEQ;
@@ -1775,8 +1975,8 @@ void core_import_programs() {
                 goto skip;
             } else if (byte1 >= 0x0B1 && byte1 <= 0x0BF) {
                 /* 2-byte GTO */
-                byte2 = getbyte(buf, &pos, &nread, 1000);
-                if (byte2 == -1)
+                byte2 = raw_getc();
+                if (byte2 == EOF)
                     goto done;
                 cmd = CMD_GTO;
                 arg.type = ARGTYPE_NUM;
@@ -1784,21 +1984,22 @@ void core_import_programs() {
                 goto store;
             } else if (byte1 >= 0x0C0 && byte1 <= 0x0CD) {
                 /* GLOBAL */
-                byte2 = getbyte(buf, &pos, &nread, 1000);
-                if (byte2 == -1)
+                byte2 = raw_getc();
+                if (byte2 == EOF)
                     goto done;
-                str_len = getbyte(buf, &pos, &nread, 1000);
-                if (str_len == -1)
+                str_len = raw_getc();
+                if (str_len == EOF)
                     goto done;
                 if (str_len < 0x0F1) {
                     /* END */
-                    at_end = 1;
-                    goto skip;
+                    cmd = CMD_END;
+                    arg.type = ARGTYPE_NONE;
+                    goto store;
                 } else {
                     /* LBL "" */
                     str_len -= 0x0F1;
-                    byte2 = getbyte(buf, &pos, &nread, 1000);
-                    if (byte2 == -1)
+                    byte2 = raw_getc();
+                    if (byte2 == EOF)
                         goto done;
                     cmd = CMD_LBL;
                     arg.type = ARGTYPE_STR;
@@ -1806,11 +2007,11 @@ void core_import_programs() {
                 }
             } else if (byte1 >= 0x0D0 && byte1 <= 0x0EF) {
                 /* 3-byte GTO & XEQ */
-                byte2 = getbyte(buf, &pos, &nread, 1000);
-                if (byte2 == -1)
+                byte2 = raw_getc();
+                if (byte2 == EOF)
                     goto done;
-                suffix = getbyte(buf, &pos, &nread, 1000);
-                if (suffix == -1)
+                suffix = raw_getc();
+                if (suffix == EOF)
                     goto done;
                 cmd = byte1 <= 0x0DF ? CMD_GTO : CMD_XEQ;
                 suffix &= 0x7F;
@@ -1832,7 +2033,9 @@ void core_import_programs() {
                     arg.val.text[0] = 127;
                     goto store;
                 }
-                byte2 = getbyte(buf, &pos, &nread, 1000);
+                byte2 = raw_getc();
+                if (byte2 == EOF)
+                    goto done;
                 if (byte1 == 0x0F1) {
                     switch (byte2) {
                         case 0x0D5: cmd = CMD_FIX; arg.val.num = 10; break;
@@ -1851,21 +2054,21 @@ void core_import_programs() {
                     int i;
                     plain_string:
                     str_len = byte1 - 0x0F0;
-                    pos--;
+                    raw_ungetc(byte2);
                     cmd = CMD_STRING;
                     arg.type = ARGTYPE_STR;
                     do_string:
                     for (i = 0; i < str_len; i++) {
-                        suffix = getbyte(buf, &pos, &nread, 1000);
-                        if (suffix == -1)
+                        suffix = raw_getc();
+                        if (suffix == EOF)
                             goto done;
                         arg.val.text[i] = suffix;
                     }
                     arg.length = str_len;
                     if (assign) {
                         assign = 0;
-                        suffix = getbyte(buf, &pos, &nread, 1000);
-                        if (suffix == -1)
+                        suffix = raw_getc();
+                        if (suffix == EOF)
                             goto done;
                         if (suffix > 17) {
                             /* Bad assign... Fix the command to the string
@@ -1896,8 +2099,8 @@ void core_import_programs() {
                         int ind;
                         if (byte1 != 0x0F2)
                             goto plain_string;
-                        suffix = getbyte(buf, &pos, &nread, 1000);
-                        if (suffix == -1)
+                        suffix = raw_getc();
+                        if (suffix == EOF)
                             goto done;
                         do_suffix:
                         ind = (suffix & 0x080) != 0;
@@ -1944,8 +2147,8 @@ void core_import_programs() {
                                 goto plain_string;
                             cmd = byte2 == 0x0C2 || byte2 == 0x0CA
                                     ? CMD_KEY1X : CMD_KEY1G;
-                            suffix = getbyte(buf, &pos, &nread, 1000);
-                            if (suffix == -1)
+                            suffix = raw_getc();
+                            if (suffix == EOF)
                                 goto done;
                             if (suffix < 1 || suffix > 9) {
                                 /* Treat as plain string. Alas, it is
@@ -1960,8 +2163,8 @@ void core_import_programs() {
                                 arg.val.text[0] = byte2;
                                 arg.val.text[1] = suffix;
                                 for (i = 2; i < arg.length; i++) {
-                                    int c = getbyte(buf, &pos, &nread,1000);
-                                    if (c == -1)
+                                    int c = raw_getc();
+                                    if (c == EOF)
                                         goto done;
                                     arg.val.text[i] = c;
                                 }
@@ -1975,15 +2178,15 @@ void core_import_programs() {
                             /* KEYG/KEYX suffix */
                             if (byte1 != 0x0F3)
                                 goto plain_string;
-                            suffix = getbyte(buf, &pos, &nread, 1000);
-                            if (suffix == -1)
+                            suffix = raw_getc();
+                            if (suffix == EOF)
                                 goto done;
                             if (suffix < 1 || suffix > 9)
                                 goto bad_keyg_keyx;
                             cmd = byte2 == 0x0E2 ? CMD_KEY1X : CMD_KEY1G;
                             cmd += suffix - 1;
-                            suffix = getbyte(buf, &pos, &nread, 1000);
-                            if (suffix == -1)
+                            suffix = raw_getc();
+                            if (suffix == EOF)
                                 goto done;
                             goto do_suffix;
                         } else /* byte2 == 0x0F7 */ {
@@ -1991,12 +2194,12 @@ void core_import_programs() {
                             int sz;
                             if (byte1 != 0x0F3)
                                 goto plain_string;
-                            suffix = getbyte(buf, &pos, &nread, 1000);
-                            if (suffix == -1)
+                            suffix = raw_getc();
+                            if (suffix == EOF)
                                 goto done;
                             sz = suffix << 8;
-                            suffix = getbyte(buf, &pos, &nread, 1000);
-                            if (suffix == -1)
+                            suffix = raw_getc();
+                            if (suffix == EOF)
                                 goto done;
                             sz += suffix;
                             cmd = CMD_SIZE;
@@ -2012,22 +2215,28 @@ void core_import_programs() {
             }
         }
         store:
-        if (at_end) {
-            goto_dot_dot();
-            at_end = 0;
+        if (pending_end) {
+            goto_dot_dot(true);
+            pending_end = false;
         }
-        store_command_after(&pc, cmd, &arg);
-        need_to_rebuild_label_table = 1;
+        if (cmd == CMD_END) {
+            if (num_progs > 0 && --num_progs == 0)
+                break;
+            pending_end = true;
+        } else {
+            store_command_after(&pc, cmd, &arg);
+        }
     }
 
     done:
-    if (need_to_rebuild_label_table) {
-        rebuild_label_table();
-        update_catalog();
-    }
+    rebuild_label_table();
+    update_catalog();
 
     flags.f.trace_print = saved_trace;
     flags.f.normal_print = saved_normal;
+
+    if (raw_file_name != NULL)
+        raw_close("import");
 }
 
 static int real2buf(char *buf, phloat x) {
@@ -2087,7 +2296,7 @@ char *core_copy() {
             return NULL;
         } else
             return tb.buf;
-    } else if (core_alpha_menu()) {
+    } else if (alpha_active()) {
         char *buf = (char *) malloc(5 * reg_alpha_length + 1);
         int bufptr = hp2ascii(buf, reg_alpha, reg_alpha_length);
         buf[bufptr] = 0;
@@ -2347,9 +2556,11 @@ static int ascii2hp(char *dst, const char *src, int maxchars) {
             case 0x221a: code =   2; break; // square root sign
             case 0x222b: code =   3; break; // integral sign
             case 0x2592: code =   4; break; // gray rectangle
-            case 0x03a3: code =   5; break; // Uppercase sigma 
+            case 0x03a3:                    // Uppercase sigma
+            case 0x2211: code =   5; break; // n-ary summation sign (i41CX)
             case 0x25b6:                    // right-pointing triangle
-            case 0x25b8: code =   6; break; // small right-pointing triangle
+            case 0x25b8:                    // small right-pointing triangle
+            case 0x25c6: code =   6; break; // black diamond (HP-41 LBL marker)
             case 0x03c0: code =   7; break; // lowercase pi
             case 0x00bf: code =   8; break; // upside-down question mark
             case 0x2264: code =   9; break; // less-than-or-equals sign
@@ -2361,26 +2572,42 @@ static int ascii2hp(char *dst, const char *src, int maxchars) {
             case 0x2190: code =  16; break; // left-pointing arrow
             case 0x00b5:                    // micro sign
             case 0x03bc: code =  17; break; // lowercase mu
-            case 0x00a3: code =  18; break; // pound sterling sign
+            case 0x00a3:                    // pound sterling sign
+            case 0x20a4: code =  18; break; // lira sign (Emu42)
             case 0x00b0: code =  19; break; // degree symbol
-            case 0x00c5: code =  20; break; // uppercase a with ring
-            case 0x00d1: code =  21; break; // uppercase n with tilde
-            case 0x00c4: code =  22; break; // uppercase a with umlaut
+            case 0x00c5:                    // uppercase a with ring
+            case 0x00e5:                    // lowercase a with ring
+            case 0x0226:                    // uppercase a with dot (i41CX)
+            case 0x0227: code =  20; break; // lowercase a with dot (i41CX)
+            case 0x00d1:                    // uppercase n with tilde
+            case 0x00f1: code =  21; break; // lowercase n with tilde
+            case 0x00c4:                    // uppercase a with umlaut
+            case 0x00e4: code =  22; break; // lowercase a with umlaut
             case 0x2220:                    // angle symbol
             case 0x2221: code =  23; break; // measured angle symbol
             case 0x1d07: code =  24; break; // small-caps e
-            case 0x00c6: code =  25; break; // uppercase ae ligature
+            case 0x00c6:                    // uppercase ae ligature
+            case 0x00e6:                    // lowercase ae ligature
+            case 0x1d01: code =  25; break; // small-caps ae ligature (i41CX)
+            case 0x2025:                    // two-dot leader (Emu42)
             case 0x2026: code =  26; break; // ellipsis
-            case 0x00d6: code =  28; break; // uppercase o with umlaut
-            case 0x00dc: code =  29; break; // uppercase u with umlaut
+            case 0x241b: code =  27; break; // ESC symbol
+            case 0x00d6:                    // uppercase o with umlaut
+            case 0x00f6: code =  28; break; // lowercase o with umlaut
+            case 0x00dc:                    // uppercase u with umlaut
+            case 0x00fc: code =  29; break; // lowercase u with umlaut
+            case 0x00b7:                    // middle dot (Emu42)
             case 0x2022: code =  31; break; // bullet
             case 0x201c:                    // left curly double quote
             case 0x201d: code =  34; break; // right curly double quote
             case 0x2018:                    // left curly single quote
             case 0x2019: code =  39; break; // right curly single quote
             case 0x2191: code =  94; break; // upward-pointing arrow
+            case 0x22a2:                    // right tack sign (i41CX)
+            case 0x22a6:                    // assertion sign (Emu42)
             case 0x251c: code = 127; break; // append sign
             case 0x028f: code = 129; break; // small-caps y
+            case 0x240a: code = 138; break; // LF symbol
             // Combining accents: apply them if they fit,
             // otherwise ignore them
             case 0x0303:
@@ -2427,7 +2654,7 @@ static int ascii2hp(char *dst, const char *src, int maxchars) {
                 // ESC is not representable, so we replace it with bullets,
                 // except for combining diacritics, which we skip, and tabs,
                 // which we treat as spaces.
-                if (code >= 0x0300 && code <= 0x03bf) {
+                if (code >= 0x0300 && code <= 0x036f) {
                     state = 0;
                     continue;
                 }
@@ -2551,7 +2778,7 @@ static vartype *parse_base(const char *buf, int len) {
         neg = true;
         i++;
     }
-    while (bits < 36) {
+    while (bits < 64) {
         char c = buf[i];
         if (c == 0)
             break;
@@ -2583,10 +2810,10 @@ static vartype *parse_base(const char *buf, int len) {
         return NULL;
     if (neg)
         n = -n;
-    if ((n & LL(0x800000000)) == 0)
-        n &= LL(0x7ffffffff);
+    if ((n & 0x800000000LL) == 0)
+        n &= 0x7ffffffffLL;
     else
-        n |= LL(0xfffffff000000000);
+        n |= 0xfffffff000000000LL;
     return new_real((phloat) n);
 }
 
@@ -3160,7 +3387,7 @@ static void paste_programs(const char *buf) {
                 arg.type = ARGTYPE_NONE;
                 goto store;
             } else if (string_equals(hpbuf + hppos, cmd_end - hppos, "XROM", 4)) {
-                // Should hanle num,num and "lbl"
+                // Should handle num,num and "lbl"
                 if (!nexttoken(hpbuf, cmd_end, hpend, &tok_start, &tok_end))
                     goto line_done;
                 if (hpbuf[tok_start] == '"') {
@@ -3187,6 +3414,7 @@ static void paste_programs(const char *buf) {
                 // Number or bust!
                 if (nexttoken(hpbuf, hppos, hpend, &tok_start, &tok_end)) {
                     char c = hpbuf[tok_start];
+                    bool have_exp = false;
                     if (c >= '0' && c <= '9' || c == '-' || c == '.' || c == ','
                             || c == 'E' || c == 'e' || c == 24) {
                         // The first character could plausibly be part of a number;
@@ -3201,9 +3429,40 @@ static void paste_programs(const char *buf) {
                                 c = 'E';
                             else if (c == ',')
                                 c = '.';
+                            if (c == 'E')
+                                have_exp = true;
                             numbuf[i] = c;
                         }
                         numbuf[len] = 0;
+                        if (!have_exp) {
+                            // In HP-41 program listings, there may be a space
+                            // before the 'E' character, e.g. "1 E3". So, if we
+                            // haven't seen an exponent yet, check if the next
+                            // token looks like an exponent, and if so, add it.
+                            if (nexttoken(hpbuf, tok_end, hpend, &tok_start, &tok_end)) {
+                                c = hpbuf[tok_start];
+                                if (c == 'E' || c == 'e' || c == 24) {
+                                    int explen = tok_end - tok_start;
+                                    bool is_exp = true;
+                                    for (int i = 1; i < explen; i++) {
+                                        c = hpbuf[tok_start + i];
+                                        if (!(c == '-' && i == 1 || c >= '0' && c <= '9')) {
+                                            is_exp = false;
+                                            break;
+                                        }
+                                    }
+                                    if (is_exp) {
+                                        if (len + explen > 49)
+                                            explen = 49 - len;
+                                        char *p = numbuf + len;
+                                        *p++ = 'E';
+                                        for (int i = 1; i < explen; i++)
+                                            *p++ = hpbuf[tok_start + i];
+                                        *p = 0;
+                                    }
+                                }
+                            }
+                        }
                         cmd = CMD_NUMBER;
                         arg.val_d = parse_number_line(numbuf);
                         arg.type = ARGTYPE_DOUBLE;
@@ -3216,7 +3475,7 @@ static void paste_programs(const char *buf) {
 
         store:
         if (after_end)
-            goto_dot_dot();
+            goto_dot_dot(false);
         after_end = cmd == CMD_END;
         if (!after_end)
             store_command_after(&pc, cmd, &arg);
@@ -3233,7 +3492,7 @@ void core_paste(const char *buf) {
 
     if (flags.f.prgm_mode) {
         paste_programs(buf);
-    } else if (core_alpha_menu()) {
+    } else if (alpha_active()) {
         char hpbuf[48];
         int len = ascii2hp(hpbuf, buf, 44);
         int tlen = len + reg_alpha_length;
@@ -3289,7 +3548,7 @@ void core_paste(const char *buf) {
             return;
         } else if (rows == 1 && cols == 1) {
             // Scalar
-            int len = strlen(buf);
+            int len = (int) strlen(buf);
             char *asciibuf = (char *) malloc(len + 1);
             strcpy(asciibuf, buf);
             if (len > 0 && asciibuf[len - 1] == '\n') {

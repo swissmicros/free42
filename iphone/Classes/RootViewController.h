@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -25,6 +25,9 @@
 @class PreferencesView;
 @class AboutView;
 @class SelectFileView;
+@class DeleteSkinView;
+@class LoadSkinView;
+@class StatesView;
 
 @interface RootViewController : UIViewController {
     UIWindow *window;
@@ -36,6 +39,9 @@
     PreferencesView *preferencesView;
     AboutView *aboutView;
     SelectFileView *selectFileView;
+    DeleteSkinView *deleteSkinView;
+    LoadSkinView *loadSkinView;
+    StatesView *statesView;
 }
 
 @property (nonatomic, retain) IBOutlet UIWindow *window;
@@ -47,11 +53,15 @@
 @property (nonatomic, retain) IBOutlet PreferencesView *preferencesView;
 @property (nonatomic, retain) IBOutlet AboutView *aboutView;
 @property (nonatomic, retain) IBOutlet SelectFileView *selectFileView;
+@property (nonatomic, retain) IBOutlet DeleteSkinView *deleteSkinView;
+@property (nonatomic, retain) IBOutlet LoadSkinView *loadSkinView;
+@property (nonatomic, retain) IBOutlet StatesView *statesView;
 
 - (void) enterBackground;
 - (void) leaveBackground;
 - (void) quit;
 - (void) batteryLevelChanged;
+- (void) layoutSubViews;
 
 + (void) showMessage:(NSString *) message;
 + (void) playSound: (int) which;
@@ -63,7 +73,10 @@
 + (void) showAbout;
 + (void) showSelectFile;
 + (void) doImport;
-+ (void) doExport;
++ (void) doExport:(BOOL)share;
++ (void) showLoadSkin;
++ (void) showDeleteSkin;
++ (void) showStates:(NSString *)stateName;
 
 @end
 

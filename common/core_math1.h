@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -22,7 +22,7 @@
 #include "core_phloat.h"
 
 bool persist_math();
-bool unpersist_math(bool discard);
+bool unpersist_math(int ver, bool discard);
 void reset_math();
 
 void put_shadow(const char *name, int length, phloat value);

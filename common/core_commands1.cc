@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -554,7 +554,7 @@ int docmd_arcl(arg_struct *arg) {
     }
     free_vartype(v);
 
-    if (core_alpha_menu() && !program_running())
+    if (alpha_active() && !program_running())
         set_alpha_entry(true);
     if (flags.f.trace_print && flags.f.printer_exists)
         docmd_pra(NULL);
@@ -686,15 +686,10 @@ int docmd_clv(arg_struct *arg) {
     }
     if (arg->type == ARGTYPE_STR) {
         /* When EDITN is active, don't allow the matrix being
-         * edited to be deleted; when deleting the indexed
-         * matrix, set IJ to (1, 1). */
-        if ((matedit_mode == 1 || matedit_mode == 3)
-                && string_equals(arg->val.text, arg->length, matedit_name, matedit_length)) {
-            if (matedit_mode == 1)
-                matedit_i = matedit_j = 0;
-            else
-                return ERR_RESTRICTED_OPERATION;
-        }
+         * edited to be deleted. */
+        if (matedit_mode == 3
+                && string_equals(arg->val.text, arg->length, matedit_name, matedit_length))
+            return ERR_RESTRICTED_OPERATION;
         purge_var(arg->val.text, arg->length);
         remove_shadow(arg->val.text, arg->length);
         return ERR_NONE;
@@ -802,7 +797,7 @@ int docmd_clall(arg_struct *arg) {
 
     /* Clear all programs and variables */
     clear_all_prgms();
-    goto_dot_dot();
+    goto_dot_dot(false);
     purge_all_vars();
     regs = new_realmatrix(25, 1);
     store_var("REGS", 4, regs);
@@ -927,9 +922,9 @@ static int mappable_to_hr(phloat x, phloat *y) {
                 x -= h;
                 //ix = (int8) (x * 1000000000000.0 + 0.5);
                 x = (x * 1000000000000.0 + 0.5); ix = to_int8(x);
-                ixhr = ix % LL(10000000000);
-                ix /= LL(10000000000);
-                ixhr += (ix % 100) * LL(6000000000);
+                ixhr = ix % 10000000000LL;
+                ix /= 10000000000LL;
+                ixhr += (ix % 100) * 6000000000LL;
                 res = h + ixhr / 360000000000.0;
             }
         #endif

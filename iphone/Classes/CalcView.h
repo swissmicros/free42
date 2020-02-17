@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -17,7 +17,7 @@
 
 #import <UIKit/UIKit.h>
 
-#define SHELL_VERSION 5
+#define SHELL_VERSION 8
 #define FILENAMELEN 1024
 
 struct state_type {
@@ -33,9 +33,15 @@ struct state_type {
     int hapticFeedback;
     int orientationMode; // 0=auto 1=portrait 2=landscape
     int maintainSkinAspect[2];
+    bool offEnabled;
+    char coreName[FILENAMELEN];
+    bool matrix_singularmatrix;
+    bool matrix_outofrange;
+    bool auto_repeat;
 };
 
 extern state_type state;
+extern FILE *statefile;
 
 
 @interface CalcView : UIView <UIActionSheetDelegate> {
@@ -49,9 +55,9 @@ extern state_type state;
 + (CGFloat) height;
 - (void) actionSheet:(UIActionSheet *) actionSheet clickedButtonAtIndex:(NSInteger) buttonIndex;
 - (void) touchesBegan: (NSSet *) touches withEvent: (UIEvent *) event;
-- (void) setNeedsDisplayInRectSafely:(CGRect) rect;
 + (void) repaint;
 + (void) quit;
++ (void) loadState:(const char *)name;
 + (void) enterBackground;
 + (void) leaveBackground;
 - (void) doCopy;

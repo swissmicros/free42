@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -415,8 +415,11 @@
 #define CMD_WSIZE       371
 #define CMD_WSIZE_T     372
 #define CMD_YMD         373
+#define CMD_BSIGNED     374
+#define CMD_BWRAP       375
+#define CMD_BRESET      376
 
-#define CMD_SENTINEL    374
+#define CMD_SENTINEL    377
 
 
 /* command_spec.argtype */

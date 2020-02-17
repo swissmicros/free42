@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -25,12 +25,7 @@
 
 
 // We cache vartype_real, vartype_complex, and vartype_string instances, to
-// cut down on the malloc/free overhead. This overhead is particularly painful
-// in the PalmOS ARM version, because it has to do an ARM-to-68K call for each
-// malloc or free, and that's a performance killer when running programs.
-// TODO: Pools may cause memory fragmentation. To fix, override malloc() and
-// realloc() with versions that empty the pools and retry before returning
-// NULL.
+// cut down on the malloc/free overhead.
 
 typedef struct pool_real {
     vartype_real r;
@@ -452,8 +447,12 @@ int store_var(const char *name, int namelength, vartype *value, bool local) {
         push_indexed_matrix(name, namelength);
     } else {
         if (matedit_mode == 1 &&
-                string_equals(name, namelength, matedit_name, matedit_length))
-            matedit_i = matedit_j = 0;
+                string_equals(name, namelength, matedit_name, matedit_length)) {
+            if (value->type == TYPE_REALMATRIX || value->type == TYPE_COMPLEXMATRIX)
+                matedit_i = matedit_j = 0;
+            else
+                matedit_mode = 0;
+        }
         free_vartype(vars[varindex].value);
     }
     vars[varindex].value = value;
@@ -468,6 +467,8 @@ void purge_var(const char *name, int namelength) {
     if (vars[varindex].level != -1 && vars[varindex].level != get_rtn_level())
         // Won't delete local var not created at this level
         return;
+    if (matedit_mode == 1 && string_equals(matedit_name, matedit_length, name, namelength))
+        matedit_mode = 0;
     free_vartype(vars[varindex].value);
     if (vars[varindex].hiding) {
         for (int i = varindex - 1; i >= 0; i--)

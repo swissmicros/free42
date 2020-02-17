@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -58,7 +58,7 @@
     selected = (bool *) malloc(count * sizeof(bool));
     const char *p = newNames + 4;
     for (int i = 0; i < count; i++) {
-        names[i] = [[NSString stringWithCString:p encoding:NSUTF8StringEncoding] retain];
+        names[i] = [[NSString stringWithUTF8String:p] retain];
         selected[i] = false;
         p += strlen(p) + 1;
     }
@@ -66,6 +66,10 @@
 
 - (bool *) getSelection {
     return selected;
+}
+
+- (NSString *) getItemAtIndex:(int)i {
+    return names[i];
 }
 
 @end

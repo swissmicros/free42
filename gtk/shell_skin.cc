@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Free42 -- an HP-42S calculator simulator
-// Copyright (C) 2004-2019  Thomas Okken
+// Copyright (C) 2004-2020  Thomas Okken
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License, version 2,
@@ -23,10 +23,18 @@
 #include <sys/types.h>
 #include <dirent.h>
 
+#include <string>
+#include <vector>
+#include <set>
+
 #include "shell_skin.h"
 #include "shell_main.h"
 #include "shell_loadimage.h"
 #include "core_main.h"
+
+using std::string;
+using std::vector;
+using std::set;
 
 
 /**************************/
@@ -84,8 +92,7 @@ static const SkinColor *skin_cmap;
 
 static GdkPixbuf *disp_image = NULL;
 
-static char skin_label_buf[1024];
-static int skin_label_pos;
+static vector<string> skin_labels;
 
 static keymap_entry *keymap = NULL;
 static int keymap_length;
@@ -110,29 +117,31 @@ extern const unsigned char *skin_bitmap_data[];
 /* Local functions */
 /*******************/
 
-static void addMenuItem(GtkMenu *menu, const char *name);
+static void addMenuItem(GtkMenu *menu, const char *name, bool enabled);
 static void selectSkinCB(GtkWidget *w, gpointer cd);
-static int skin_open(const char *name, int open_layout);
+static bool skin_open(const char *name, bool open_layout, bool force_builtin);
 static int skin_gets(char *buf, int buflen);
 static void skin_close();
 
 
-static void addMenuItem(GtkMenu *menu, const char *name) {
+static void addMenuItem(GtkMenu *menu, const char *name, bool enabled) {
     bool checked = false;
-    if (state.skinName[0] == 0) {
-        strcpy(state.skinName, name);
-        checked = true;
-    } else if (strcmp(state.skinName, name) == 0)
-        checked = true;
+    if (enabled) {
+        if (state.skinName[0] == 0) {
+            strcpy(state.skinName, name);
+            checked = true;
+        } else if (strcmp(state.skinName, name) == 0)
+            checked = true;
+    }
 
     GtkWidget *w = gtk_check_menu_item_new_with_label(name);
     gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(w), checked);
+    gtk_widget_set_sensitive(w, enabled);
 
     // Apparently, there is no way to retrieve the label from a menu item,
     // so I have to store them and pass them to the callback explicitly.
-    char *lbl = skin_label_buf + skin_label_pos;
-    strcpy(lbl, name);
-    skin_label_pos += strlen(name) + 1;
+    skin_labels.push_back(name);
+    const char *lbl = skin_labels.back().c_str();
     g_signal_connect(G_OBJECT(w), "activate",
                      G_CALLBACK(selectSkinCB), (gpointer) lbl);
 
@@ -152,12 +161,42 @@ static void selectSkinCB(GtkWidget *w, gpointer cd) {
     }
 }
 
-static int skin_open(const char *name, int open_layout) {
-    int i;
-    char namebuf[1024];
+static bool skin_open(const char *name, bool open_layout, bool force_builtin) {
+    if (!force_builtin) {
+        const char *suffix = open_layout ? ".layout" : ".gif";
+        // Try Free42 dir first...
+        string fname = string(free42dirname) + "/" + name + suffix;
+        external_file = fopen(fname.c_str(), "r");
+        if (external_file != NULL)
+            return true;
+        // Next, shared dirs...
+        const char *xdg_data_dirs = getenv("XDG_DATA_DIRS");
+        if (xdg_data_dirs == NULL || xdg_data_dirs[0] == 0)
+            xdg_data_dirs = "/usr/local/share:/usr/share";
+        char *buf = (char *) malloc(strlen(xdg_data_dirs) + 1);
+        strcpy(buf, xdg_data_dirs);
+        char *tok = strtok(buf, ":");
+        while (tok != NULL) {
+            string dirname = tok;
+            string fname = dirname + "/free42/" + name + suffix;
+            external_file = fopen(fname.c_str(), "r");
+            if (external_file != NULL) {
+                free(buf);
+                return true;
+            }
+            fname = dirname + "/free42/skins/" + name + suffix;
+            external_file = fopen(fname.c_str(), "r");
+            if (external_file != NULL) {
+                free(buf);
+                return true;
+            }
+            tok = strtok(NULL, ":");
+        }
+        free(buf);
+    }
 
-    /* Look for built-in skin first */
-    for (i = 0; i < skin_count; i++) {
+    // Look for built-in skin last
+    for (int i = 0; i < skin_count; i++) {
         if (strcmp(name, skin_name[i]) == 0) {
             external_file = NULL;
             builtin_pos = 0;
@@ -168,15 +207,12 @@ static int skin_open(const char *name, int open_layout) {
                 builtin_length = skin_bitmap_size[i];
                 builtin_file = skin_bitmap_data[i];
             }
-            return 1;
+            return true;
         }
     }
 
-    /* name did not match a built-in skin; look for file */
-    snprintf(namebuf, 1024, "%s/%s.%s", free42dirname, name,
-                                        open_layout ? "layout" : "gif");
-    external_file = fopen(namebuf, "r");
-    return external_file != NULL;
+    // Nothing found.
+    return false;
 }
 
 int skin_getchar() {
@@ -217,13 +253,26 @@ static void skin_close() {
         fclose(external_file);
 }
 
-static int case_insens_comparator(const void *a, const void *b) {
-    return strcasecmp(*(const char **) a, *(const char **) b);
+static void scan_skin_dir(const char *dirname, set<string> &names) {
+    DIR *dir = opendir(dirname);
+    if (dir == NULL)
+        return;
+
+    struct dirent *dent;
+    while ((dent = readdir(dir)) != NULL) {
+        int namelen = strlen(dent->d_name);
+        if (namelen < 7)
+            continue;
+        if (strcmp(dent->d_name + namelen - 7, ".layout") != 0)
+            continue;
+        string name = dent->d_name;
+        name.erase(namelen - 7);
+        names.insert(name);
+    }
+    closedir(dir);
 }
 
 void skin_menu_update(GtkWidget *w) {
-    int i, j;
-
     GtkMenu *skin_menu = (GtkMenu *) gtk_menu_item_get_submenu(GTK_MENU_ITEM(w));
     GList *children = gtk_container_get_children(GTK_CONTAINER(skin_menu));
     GList *item = children;
@@ -233,66 +282,71 @@ void skin_menu_update(GtkWidget *w) {
     }
     g_list_free(children);
 
-    skin_label_pos = 0;
+    skin_labels.clear();
 
-    for (i = 0; i < skin_count; i++)
-        addMenuItem(skin_menu, skin_name[i]);
-
-    DIR *dir = opendir(free42dirname);
-    if (dir == NULL)
-        return;
-
-    struct dirent *dent;
-    char *skinname[100];
-    int nskins = 0;
-    while ((dent = readdir(dir)) != NULL && nskins < 100) {
-        int namelen = strlen(dent->d_name);
-        char *skn;
-        if (namelen < 7)
-            continue;
-        if (strcmp(dent->d_name + namelen - 7, ".layout") != 0)
-            continue;
-        skn = (char *) malloc(namelen - 6);
-        // TODO - handle memory allocation failure
-        memcpy(skn, dent->d_name, namelen - 7);
-        skn[namelen - 7] = 0;
-        skinname[nskins++] = skn;
+    set<string> shared_skins;
+    const char *xdg_data_dirs = getenv("XDG_DATA_DIRS");
+    if (xdg_data_dirs == NULL || xdg_data_dirs[0] == 0)
+        xdg_data_dirs = "/usr/local/share:/usr/share";
+    char *buf = (char *) malloc(strlen(xdg_data_dirs) + 1);
+    strcpy(buf, xdg_data_dirs);
+    char *tok = strtok(buf, ":");
+    while (tok != NULL) {
+        string dirname = tok;
+        scan_skin_dir((dirname + "/free42").c_str(), shared_skins);
+        scan_skin_dir((dirname + "/free42/skins").c_str(), shared_skins);
+        tok = strtok(NULL, ":");
     }
-    closedir(dir);
+    free(buf);
 
-    qsort(skinname, nskins, sizeof(char *), case_insens_comparator);
-    bool have_separator = false;
-    for (i = 0; i < nskins; i++) {
-        for (j = 0; j < skin_count; j++)
-            if (strcmp(skinname[i], skin_name[j]) == 0)
-                goto skip;
-        if (!have_separator) {
-            GtkWidget *w = gtk_separator_menu_item_new();
-            gtk_menu_shell_append(GTK_MENU_SHELL(skin_menu), w);
-            gtk_widget_show(w);
-            have_separator = true;
+    set<string> private_skins;
+    scan_skin_dir(free42dirname, private_skins);
+
+    for (int i = 0; i < skin_count; i++) {
+        const char *name = skin_name[i];
+        bool enabled = private_skins.find(name) == private_skins.end()
+                        && shared_skins.find(name) == shared_skins.end();
+        addMenuItem(skin_menu, name, enabled);
+    }
+
+    if (!shared_skins.empty()) {
+        GtkWidget *w = gtk_separator_menu_item_new();
+        gtk_menu_shell_append(GTK_MENU_SHELL(skin_menu), w);
+        gtk_widget_show(w);
+
+        for (set<string>::const_iterator i = shared_skins.begin(); i != shared_skins.end(); i++) {
+            const char *name = i->c_str();
+            bool enabled = private_skins.find(name) == private_skins.end();
+            addMenuItem(skin_menu, name, enabled);
         }
-        addMenuItem(skin_menu, skinname[i]);
-        skip:
-        free(skinname[i]);
+    }
+
+    if (!private_skins.empty()) {
+        GtkWidget *w = gtk_separator_menu_item_new();
+        gtk_menu_shell_append(GTK_MENU_SHELL(skin_menu), w);
+        gtk_widget_show(w);
+
+        for (set<string>::const_iterator i = private_skins.begin(); i != private_skins.end(); i++)
+            addMenuItem(skin_menu, i->c_str(), true);
     }
 }
 
 void skin_load(int *width, int *height) {
     char line[1024];
-    int success;
     int lineno = 0;
+    bool force_builtin = false;
 
     if (state.skinName[0] == 0) {
         fallback_on_1st_builtin_skin:
         strcpy(state.skinName, skin_name[0]);
+        force_builtin = true;
     }
 
     /*************************/
     /* Load skin description */
     /*************************/
 
-    if (!skin_open(state.skinName, 1))
+    if (!skin_open(state.skinName, 1, force_builtin))
         goto fallback_on_1st_builtin_skin;
 
     if (keylist != NULL)
@@ -478,7 +532,7 @@ void skin_load(int *width, int *height) {
     /* Load skin bitmap */
     /********************/
 
-    if (!skin_open(state.skinName, 0))
+    if (!skin_open(state.skinName, 0, force_builtin))
         goto fallback_on_1st_builtin_skin;
 
     /* shell_loadimage() calls skin_getchar() to load the image from the
@@ -486,7 +540,7 @@ void skin_load(int *width, int *height) {
      * skin_put_pixels(), and skin_finish_image() to create the in-memory
      * representation.
      */
-    success = shell_loadimage();
+    bool success = shell_loadimage();
     skin_close();
 
     if (!success)
@@ -502,8 +556,8 @@ void skin_load(int *width, int *height) {
     if (disp_image != NULL)
         g_object_unref(disp_image);
     disp_image = gdk_pixbuf_new(GDK_COLORSPACE_RGB, FALSE, 8,
-                                131 * display_scale.x,
-                                16 * display_scale.y);
+                                131 * display_scale.x + 4,
+                                16 * display_scale.y + 4);
     guint32 p = (display_bg.r << 24)
                     | (display_bg.g << 16) | (display_bg.b << 8);
     gdk_pixbuf_fill(disp_image, p);
@@ -572,28 +626,43 @@ void skin_finish_image() {
     // Nothing to do.
 }
 
-void skin_repaint() {
-    gdk_draw_pixbuf(calc_widget->window, NULL, skin_image,
-                    skin.x, skin.y, 0, 0, skin.width, skin.height,
-                    GDK_RGB_DITHER_MAX, 0, 0);
+void skin_repaint(cairo_t *cr) {
+    gdk_cairo_set_source_pixbuf(cr, skin_image, -skin.x, -skin.y);
+    cairo_paint(cr);
 }
 
-void skin_repaint_annunciator(int which, bool state) {
+void skin_repaint_annunciator(cairo_t *cr, int which, bool state) {
     if (!display_enabled)
         return;
     SkinAnnunciator *ann = annunciators + (which - 1);
     if (state)
-        gdk_draw_pixbuf(calc_widget->window, NULL, skin_image,
-                        ann->src.x, ann->src.y,
-                        ann->disp_rect.x, ann->disp_rect.y,
-                        ann->disp_rect.width, ann->disp_rect.height,
-                        GDK_RGB_DITHER_MAX, 0, 0);
+        gdk_cairo_set_source_pixbuf(cr, skin_image,
+                ann->disp_rect.x - ann->src.x - skin.x,
+                ann->disp_rect.y - ann->src.y - skin.y);
     else
-        gdk_draw_pixbuf(calc_widget->window, NULL, skin_image,
-                        ann->disp_rect.x, ann->disp_rect.y,
-                        ann->disp_rect.x, ann->disp_rect.y,
-                        ann->disp_rect.width, ann->disp_rect.height,
-                        GDK_RGB_DITHER_MAX, 0, 0);
+        gdk_cairo_set_source_pixbuf(cr, skin_image, -skin.x, -skin.y);
+    GdkRectangle clip;
+    clip.x = ann->disp_rect.x;
+    clip.y = ann->disp_rect.y;
+    clip.width = ann->disp_rect.width;
+    clip.height = ann->disp_rect.height;
+    gdk_cairo_rectangle(cr, &clip);
+    cairo_save(cr);
+    cairo_clip(cr);
+    cairo_paint(cr);
+    cairo_restore(cr);
+}
+
+void skin_invalidate_annunciator(GdkWindow *win, int which) {
+    if (!display_enabled)
+        return;
+    SkinAnnunciator *ann = annunciators + (which - 1);
+    GdkRectangle clip;
+    clip.x = ann->disp_rect.x;
+    clip.y = ann->disp_rect.y;
+    clip.width = ann->disp_rect.width;
+    clip.height = ann->disp_rect.height;
+    gdk_window_invalidate_rect(win, &clip, FALSE);
 }
 
 void skin_find_key(int x, int y, bool cshift, int *skey, int *ckey) {
@@ -654,18 +723,19 @@ unsigned char *skin_keymap_lookup(guint keyval, bool printable,
                 && alt == entry->alt
                 && (printable || shift == entry->shift)
                 && keyval == entry->keyval) {
-            macro = entry->macro;
             if (cshift == entry->cshift) {
                 *exact = true;
-                return macro;
+                return entry->macro;
             }
+            if (cshift)
+                macro = entry->macro;
         }
     }
     *exact = false;
     return macro;
 }
 
-void skin_repaint_key(int key, bool state) {
+void skin_repaint_key(cairo_t *cr, int key, bool state) {
     SkinKey *k;
 
     if (key >= -7 && key <= -2) {
@@ -687,7 +757,7 @@ void skin_repaint_key(int key, bool state) {
                                                width, height);
             int s_bpl = gdk_pixbuf_get_rowstride(disp_image);
             int d_bpl = gdk_pixbuf_get_rowstride(tmpbuf);
-            guchar *s1 = gdk_pixbuf_get_pixels(disp_image) + x * 3 + s_bpl * y;
+            guchar *s1 = gdk_pixbuf_get_pixels(disp_image) + (x + 2) * 3 + s_bpl * (y + 2);
             guchar *d1 = gdk_pixbuf_get_pixels(tmpbuf);
             for (int v = 0; v < height; v++) {
                 guchar *src = s1;
@@ -709,18 +779,32 @@ void skin_repaint_key(int key, bool state) {
                 s1 += s_bpl;
                 d1 += d_bpl;
             }
-            gdk_draw_pixbuf(calc_widget->window, NULL, tmpbuf,
-                            0, 0,
-                            display_loc.x + x, display_loc.y + y,
-                            width, height,
-                            GDK_RGB_DITHER_NONE, 0, 0);
+            gdk_cairo_set_source_pixbuf(cr, tmpbuf, display_loc.x + x, display_loc.y + y);
+            GdkRectangle clip;
+            clip.x = display_loc.x + x;
+            clip.y = display_loc.y + y;
+            clip.width = width;
+            clip.height = height;
+            gdk_cairo_rectangle(cr, &clip);
+            cairo_save(cr);
+            cairo_clip(cr);
+            cairo_paint(cr);
+            cairo_restore(cr);
         } else {
             // Repaint the screen
-            gdk_draw_pixbuf(calc_widget->window, NULL, disp_image,
-                            x, y,
-                            display_loc.x + x, display_loc.y + y,
-                            width, height,
-                            GDK_RGB_DITHER_NONE, 0, 0);
+            GdkRectangle clip;
+            clip.x = display_loc.x + x;
+            clip.y = display_loc.y + y;
+            clip.width = width;
+            clip.height = height;
+            gdk_cairo_rectangle(cr, &clip);
+            cairo_save(cr);
+            cairo_clip(cr);
+            cairo_set_source_rgb(cr, display_bg.r / 255.0, display_bg.g / 255.0, display_bg.b / 255.0);
+            cairo_paint(cr);
+            gdk_cairo_set_source_pixbuf(cr, disp_image, display_loc.x - 2, display_loc.y - 2);
+            cairo_paint(cr);
+            cairo_restore(cr);
         }
         return;
     }
@@ -728,26 +812,58 @@ void skin_repaint_key(int key, bool state) {
     if (key < 0 || key >= nkeys)
         return;
     k = keylist + key;
+    GdkRectangle clip;
+    clip.x = k->disp_rect.x;
+    clip.y = k->disp_rect.y;
+    clip.width = k->disp_rect.width;
+    clip.height = k->disp_rect.height;
     if (state)
-        gdk_draw_pixbuf(calc_widget->window, NULL, skin_image,
-                        k->src.x, k->src.y,
-                        k->disp_rect.x, k->disp_rect.y,
-                        k->disp_rect.width, k->disp_rect.height,
-                        GDK_RGB_DITHER_MAX,
-                        k->disp_rect.x, k->disp_rect.y);
+        gdk_cairo_set_source_pixbuf(cr, skin_image,
+                k->disp_rect.x - k->src.x - skin.x,
+                k->disp_rect.y - k->src.y - skin.y);
     else
-        gdk_draw_pixbuf(calc_widget->window, NULL, skin_image,
-                        k->disp_rect.x, k->disp_rect.y,
-                        k->disp_rect.x, k->disp_rect.y,
-                        k->disp_rect.width, k->disp_rect.height,
-                        GDK_RGB_DITHER_MAX,
-                        k->disp_rect.x, k->disp_rect.y);
+        gdk_cairo_set_source_pixbuf(cr, skin_image, -skin.x, -skin.y);
+    gdk_cairo_rectangle(cr, &clip);
+    cairo_save(cr);
+    cairo_clip(cr);
+    cairo_paint(cr);
+    cairo_restore(cr);
 }
 
-void skin_display_blitter(const char *bits, int bytesperline, int x, int y,
-                                     int width, int height) {
+void skin_invalidate_key(GdkWindow *win, int key) {
+    if (!display_enabled)
+        return;
+    if (key >= -7 && key <= -2) {
+        /* Soft key */
+        key = -1 - key;
+        int x = (key - 1) * 22 * display_scale.x;
+        int y = 9 * display_scale.y;
+        int width = 21 * display_scale.x;
+        int height = 7 * display_scale.y;
+        GdkRectangle clip;
+        clip.x = display_loc.x + x;
+        clip.y = display_loc.y + y;
+        clip.width = width;
+        clip.height = height;
+        gdk_window_invalidate_rect(win, &clip, FALSE);
+        return;
+    }
+    if (key < 0 || key >= nkeys)
+        return;
+    SkinKey *k = keylist + key;
+    GdkRectangle clip;
+    clip.x = k->disp_rect.x;
+    clip.y = k->disp_rect.y;
+    clip.width = k->disp_rect.width;
+    clip.height = k->disp_rect.height;
+    gdk_window_invalidate_rect(win, &clip, FALSE);
+}
+
+void skin_display_invalidater(GdkWindow *win, const char *bits, int bytesperline,
+                                        int x, int y, int width, int height) {
     guchar *pix = gdk_pixbuf_get_pixels(disp_image);
     int disp_bpl = gdk_pixbuf_get_rowstride(disp_image);
+    pix += 2 * disp_bpl + 6;
     int sx = display_scale.x;
     int sy = display_scale.y;
 
@@ -768,20 +884,51 @@ void skin_display_blitter(const char *bits, int bytesperline, int x, int y,
                 }
             }
         }
-    if (allow_paint && display_enabled)
-        gdk_draw_pixbuf(calc_widget->window, NULL, disp_image,
-                        x * sx, y * sy,
-                        display_loc.x + x * sx, display_loc.y + y * sy,
-                        width * sx, height * sy,
-                        GDK_RGB_DITHER_NONE, 0, 0);
+    if (win != NULL) {
+        if (allow_paint && display_enabled) {
+            GdkRectangle clip;
+            clip.x = display_loc.x + x * sx;
+            clip.y = display_loc.y + y * sy;
+            clip.width = width * sx;
+            clip.height = height * sy;
+            gdk_window_invalidate_rect(win, &clip, FALSE);
+        }
+    } else {
+        gtk_widget_queue_draw_area(calc_widget,
+                display_loc.x - display_scale.x,
+                display_loc.y - display_scale.y,
+                133 * display_scale.x,
+                18 * display_scale.y);
+    }
 }
 
-void skin_repaint_display() {
-    if (display_enabled)
-        gdk_draw_pixbuf(calc_widget->window, NULL, disp_image,
-                        0, 0, display_loc.x, display_loc.y,
-                        131 * display_scale.x, 16 * display_scale.y,
-                        GDK_RGB_DITHER_NONE, 0, 0);
+void skin_repaint_display(cairo_t *cr) {
+    if (display_enabled) {
+        GdkRectangle clip;
+        clip.x = display_loc.x - 1;
+        clip.y = display_loc.y - 1;
+        clip.width = 131 * display_scale.x + 2;
+        clip.height = 16 * display_scale.y + 2;
+        gdk_cairo_rectangle(cr, &clip);
+        cairo_save(cr);
+        cairo_clip(cr);
+        cairo_set_source_rgb(cr, display_bg.r / 255.0, display_bg.g / 255.0, display_bg.b / 255.0);
+        cairo_paint(cr);
+        gdk_cairo_set_source_pixbuf(cr, disp_image, display_loc.x - 2, display_loc.y - 2);
+        cairo_paint(cr);
+        cairo_restore(cr);
+    }
+}
+
+void skin_invalidate_display(GdkWindow *win) {
+    if (display_enabled) {
+        GdkRectangle clip;
+        clip.x = display_loc.x;
+        clip.y = display_loc.y;
+        clip.width = 131 * display_scale.x;
+        clip.height = 16 * display_scale.y;
+        gdk_window_invalidate_rect(win, &clip, FALSE);
+    }
 }
 
 void skin_display_set_enabled(bool enable) {

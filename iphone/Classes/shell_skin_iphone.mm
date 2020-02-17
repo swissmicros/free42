@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -192,14 +192,14 @@ keymap_entry *parse_keymap_entry(char *line, int lineno) {
 /* Local functions */
 /*******************/
 
-static int skin_open(const char *skinname, int open_layout);
+static bool skin_open(const char *skinname, bool open_layout, bool force_builtin);
 static int skin_gets(char *buf, int buflen);
 static void skin_close();
 
 
 static void get_builtin_skin_size(const char *skinname, long *w, long *h) {
     char line[1024];
-    NSString *skinpath = [[NSBundle mainBundle] pathForResource:[NSString stringWithCString:skinname encoding:NSUTF8StringEncoding]
+    NSString *skinpath = [[NSBundle mainBundle] pathForResource:[NSString stringWithUTF8String:skinname]
                                                                  ofType:@"layout"];
     [skinpath getCString:line maxLength:1024 encoding:NSUTF8StringEncoding];
     FILE *f = fopen(line, "r");
@@ -221,10 +221,18 @@ static void get_builtin_skin_size(const char *skinname, long *w, long *h) {
     *w = *h = 0;
 }
 
-static int skin_open(const char *skinname, int open_layout) {
+static bool skin_open(const char *skinname, bool open_layout, bool force_builtin) {
     char buf[1024];
+    
+    if (!force_builtin) {
+        /* Look for file */
+        sprintf(buf, "skins/%s.%s", skinname, open_layout ? "layout" : "gif");
+        external_file = fopen(buf, "rb");
+        if (external_file != NULL)
+            return true;
+    }
 
-    /* Look for built-in skin first */
+    /* Look for built-in skin */
     NSString *path = [[NSBundle mainBundle] pathForResource:@"builtin_skins" ofType:@"txt"];
     [path getCString:buf maxLength:1024 encoding:NSUTF8StringEncoding];
     FILE *builtins = fopen(buf, "r");
@@ -233,20 +241,18 @@ static int skin_open(const char *skinname, int open_layout) {
         char *name = strtok_r(buf, " \t\r\n", &context);
         if (strcasecmp(skinname, name) == 0) {
             char *filename = strtok_r(NULL, " \t\r\n", &context);
-            NSString *skinpath = [[NSBundle mainBundle] pathForResource:[NSString stringWithCString:filename encoding:NSUTF8StringEncoding]
+            NSString *skinpath = [[NSBundle mainBundle] pathForResource:[NSString stringWithUTF8String:filename]
                                                                  ofType:open_layout ? @"layout" : @"gif"];
             [skinpath getCString:buf maxLength:1024 encoding:NSUTF8StringEncoding];
             external_file = fopen(buf, "r");
             fclose(builtins);
-            return 1;
+            return true;
         }
     }
     fclose(builtins);
     
-    /* name did not match a built-in skin; look for file */
-    sprintf(buf, "skins/%s.%s", skinname, open_layout ? "layout" : "gif");
-    external_file = fopen(buf, "rb");
-    return external_file != NULL;
+    /* Nothing found */
+    return false;
 }
 
 int skin_getchar() {
@@ -291,15 +297,16 @@ static void MyProviderReleaseData2(void *info,  const void *data, size_t size) {
 
 void skin_load(long *width, long *height) {
     char line[1024];
-    int success;
     int size;
     int kmcap = 0;
     int lineno = 0;
+    bool force_builtin = false;
 
     BOOL isPortrait = [CalcView isPortrait];
     char *skinName = isPortrait ? state.skinName : state.landscapeSkinName;
     if (skinName[0] == 0) {
         fallback_on_best_builtin_skin:
+        force_builtin = true;
         NSString *path = [[NSBundle mainBundle] pathForResource:@"builtin_skins" ofType:@"txt"];
         [path getCString:line maxLength:1024 encoding:NSUTF8StringEncoding];
         FILE *builtins = fopen(line, "r");
@@ -332,7 +339,7 @@ void skin_load(long *width, long *height) {
     /* Load skin description */
     /*************************/
 
-    if (!skin_open(skinName, 1))
+    if (!skin_open(skinName, true, force_builtin))
         goto fallback_on_best_builtin_skin;
 
     if (keylist != NULL)
@@ -540,7 +547,7 @@ void skin_load(long *width, long *height) {
     /* Load skin bitmap */
     /********************/
 
-    if (!skin_open(skinName, 0))
+    if (!skin_open(skinName, false, force_builtin))
         goto fallback_on_best_builtin_skin;
 
     /* shell_loadimage() calls skin_getchar() to load the image from the
@@ -548,7 +555,7 @@ void skin_load(long *width, long *height) {
      * skin_put_pixels(), and skin_finish_image() to create the in-memory
      * representation.
      */
-    success = shell_loadimage();
+    bool success = shell_loadimage();
     skin_close();
 
     if (!success)
@@ -766,7 +773,7 @@ void skin_update_annunciator(int which, int state, CalcView *view) {
         return;
     annunciator_state[which] = state;
     SkinRect *r = &annunciators[which].disp_rect;
-    [view setNeedsDisplayInRectSafely:CGRectMake(r->x / skin_scale_h + skin_offset_h, r->y / skin_scale_v + skin_offset_v, r->width / skin_scale_h, r->height / skin_scale_v)];
+    [view setNeedsDisplayInRect:CGRectMake(r->x / skin_scale_h + skin_offset_h, r->y / skin_scale_v + skin_offset_v, r->width / skin_scale_h, r->height / skin_scale_v)];
 }
     
 bool skin_in_menu_area(int x, int y) {
@@ -834,11 +841,12 @@ unsigned char *skin_keymap_lookup(int keycode, bool ctrl, bool alt, bool shift, 
                 && ctrl == entry->ctrl
                 && alt == entry->alt
                 && shift == entry->shift) {
-            macro = entry->macro;
             if (cshift == entry->cshift) {
                 *exact = true;
-                return macro;
+                return entry->macro;
             }
+            if (cshift)
+                macro = entry->macro;
         }
     }
     *exact = false;
@@ -855,10 +863,10 @@ static void invalidate_key(int key, CalcView *view) {
         int y = 9 * display_scale.y + display_loc.y;
         int w = 21 * display_scale.x;
         int h = 7 * display_scale.y;
-        [view setNeedsDisplayInRectSafely:CGRectMake(x / skin_scale_h + skin_offset_h, y / skin_scale_v + skin_offset_v, w / skin_scale_h, h / skin_scale_v)];
+        [view setNeedsDisplayInRect:CGRectMake(x / skin_scale_h + skin_offset_h, y / skin_scale_v + skin_offset_v, w / skin_scale_h, h / skin_scale_v)];
     } else if (key >= 0 && key < nkeys) {
         SkinRect *r = &keylist[key].disp_rect;
-        [view setNeedsDisplayInRectSafely:CGRectMake(r->x / skin_scale_h + skin_offset_h, r->y / skin_scale_v + skin_offset_v, r->width / skin_scale_h, r->height / skin_scale_v)];
+        [view setNeedsDisplayInRect:CGRectMake(r->x / skin_scale_h + skin_offset_h, r->y / skin_scale_v + skin_offset_v, r->width / skin_scale_h, r->height / skin_scale_v)];
     }
 }
 
@@ -882,7 +890,7 @@ void skin_display_blitter(const char *bits, int bytesperline, int x, int y, int 
                 disp_bitmap[v * disp_bytesperline + (h >> 3)] |= 128 >> (h & 7);
         }
     
-    [view setNeedsDisplayInRectSafely:CGRectMake((display_loc.x + x * display_scale.x) / skin_scale_h + skin_offset_h,
+    [view setNeedsDisplayInRect:CGRectMake((display_loc.x + x * display_scale.x) / skin_scale_h + skin_offset_h,
                                                  (display_loc.y + y * display_scale.y) / skin_scale_v + skin_offset_v,
                                                  (width * display_scale.x) / skin_scale_h,
                                                  (height * display_scale.y) / skin_scale_v)];
@@ -892,7 +900,7 @@ void skin_repaint_display(CalcView *view) {
     if (!display_enabled)
         // Prevent screen flashing during macro execution
         return;
-    [view setNeedsDisplayInRectSafely:CGRectMake(display_loc.x / skin_scale_h + skin_offset_h, display_loc.y / skin_scale_v + skin_offset_v, 131 * display_scale.x / skin_scale_h, 16 * display_scale.y / skin_scale_v)];
+    [view setNeedsDisplayInRect:CGRectMake(display_loc.x / skin_scale_h + skin_offset_h, display_loc.y / skin_scale_v + skin_offset_v, 131 * display_scale.x / skin_scale_h, 16 * display_scale.y / skin_scale_v)];
 }
 
 void skin_display_set_enabled(bool enable) {

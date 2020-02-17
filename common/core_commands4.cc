@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -675,7 +675,7 @@ int docmd_swap_r(arg_struct *arg) {
 
     if (m->type == TYPE_REALMATRIX) {
         vartype_realmatrix *rm = (vartype_realmatrix *) m;
-        if (x > rm->rows || y > rm->rows)
+        if (x >= rm->rows || y >= rm->rows)
             return ERR_DIMENSION_ERROR;
         else if (x == y)
             return ERR_NONE;
@@ -694,7 +694,7 @@ int docmd_swap_r(arg_struct *arg) {
         return ERR_NONE;
     } else /* m->type == TYPE_COMPLEXMATRIX */ {
         vartype_complexmatrix *cm = (vartype_complexmatrix *) m;
-        if (x > cm->rows || y > cm->rows)
+        if (x >= cm->rows || y >= cm->rows)
             return ERR_DIMENSION_ERROR;
         else if (x == y)
             return ERR_NONE;
@@ -738,7 +738,7 @@ static int mappable_sinh_c(phloat xre, phloat xim, phloat *yre, phloat *yim) {
     int inf;
     sinhxre = sinh(xre);
     coshxre = cosh(xre);
-    sincos(xim, &sinxim, &cosxim);
+    p_sincos(xim, &sinxim, &cosxim);
     *yre = sinhxre * cosxim;
     if ((inf = p_isinf(*yre)) != 0) {
         if (flags.f.range_error_ignore)
@@ -919,7 +919,7 @@ static int mappable_tanh_c(phloat xre, phloat xim, phloat *yre, phloat *yim) {
     phloat sinhxre2 = sinh(xre2);
     phloat coshxre2 = cosh(xre2);
     phloat sinxim2, cosxim2;
-    sincos(xim2, &sinxim2, &cosxim2);
+    p_sincos(xim2, &sinxim2, &cosxim2);
     phloat d = coshxre2 + cosxim2;
     if (d == 0) {
         if (flags.f.range_error_ignore) {

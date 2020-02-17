@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -25,6 +25,5 @@ int math_tan(phloat x, phloat *y, bool rad);
 int math_asinh(phloat xre, phloat xim, phloat *yre, phloat *yim);
 int math_acosh(phloat xre, phloat xim, phloat *yre, phloat *yim);
 int math_atanh(phloat xre, phloat xim, phloat *yre, phloat *yim);
-int math_gamma(phloat x, phloat *gamma);
 
 #endif

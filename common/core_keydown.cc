@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -46,7 +46,7 @@ static int basekeys() {
     if (!baseapp)
         return 0;
     int *menu = get_front_menu();
-    return menu != NULL && (*menu == MENU_BASE || *menu == MENU_BASE_A_THRU_F || *menu == MENU_BASE_LOGIC);
+    return menu != NULL && *menu >= MENU_BASE && *menu <= MENU_BASE_LOGIC;
 }
 
 static void set_solve_integ(int solve) {
@@ -90,10 +90,57 @@ static void view(const char *varname, int varlength) {
     }
 }
 
+typedef struct {
+    int2 key;
+    int2 cmd;
+} cmd_getkey_mapping_struct;
+
+static cmd_getkey_mapping_struct cmd_getkey_mapping[] = {
+    {  1, CMD_SIGMAADD },
+    {  2, CMD_INV },
+    {  3, CMD_SQRT },
+    {  4, CMD_LOG },
+    {  5, CMD_LN },
+    {  6, CMD_XEQ },
+    {  7, CMD_STO },
+    {  8, CMD_RCL },
+    {  9, CMD_RDN },
+    { 10, CMD_SIN },
+    { 11, CMD_COS },
+    { 12, CMD_TAN },
+    { 13, CMD_ENTER },
+    { 14, CMD_SWAP },
+    { 15, CMD_CHS },
+    { 22, CMD_DIV },
+    { 27, CMD_MUL },
+    { 32, CMD_SUB },
+    { 37, CMD_ADD },
+    { 38, CMD_SIGMASUB },
+    { 39, CMD_Y_POW_X },
+    { 40, CMD_SQUARE },
+    { 41, CMD_10_POW_X },
+    { 42, CMD_E_POW_X },
+    { 43, CMD_GTO },
+    { 44, CMD_COMPLEX },
+    { 45, CMD_PERCENT },
+    { 46, CMD_PI },
+    { 47, CMD_ASIN },
+    { 48, CMD_ACOS },
+    { 49, CMD_ATAN },
+    { 51, CMD_LASTX },
+    { 55, CMD_BST },
+    { 60, CMD_SST },
+    { 66, CMD_ASSIGNa },
+    { 70, CMD_OFF },
+    {  0, CMD_NONE }
+};
+
 void keydown(int shift, int key) {
     int *menu;
 
-    flags.farray[64] = shift;
+    // Preserve state of Shift, to allow MENU handlers to implement
+    // different behaviors for unshifted and shifted menu keys.
+    flags.f.shift_state = shift;
 
     pending_command = CMD_NONE;
 
@@ -125,7 +172,27 @@ void keydown(int shift, int key) {
     }
 
     if (mode_getkey) {
-        vartype *result = new_real(shift ? key + 37 : key);
+        if (key >= 2048) {
+            // Direct command mapping
+            int cmd = key - 2048;
+            cmd_getkey_mapping_struct *gm = cmd_getkey_mapping;
+            while (true) {
+                if (gm->key == 0) {
+                    // Command that's not on the standard keyboard
+                    squeak();
+                    shell_annunciators(-1, -1, -1, 0, -1, -1);
+                    return;
+                } else if (gm->cmd == cmd) {
+                    key = gm->key;
+                    break;
+                }
+                gm++;
+            }
+        } else {
+            if (shift)
+                key += 37;
+        }
+        vartype *result = new_real(key);
         if (result != NULL) {
             recall_result(result);
             flags.f.stack_lift_disable = 0;
@@ -280,7 +347,7 @@ void keydown(int shift, int key) {
         keydown_number_entry(shift, key);
     else if (mode_command_entry)
         keydown_command_entry(shift, key);
-    else if (core_alpha_menu())
+    else if (alpha_active())
         keydown_alpha_mode(shift, key);
     else
         keydown_normal_mode(shift, key);
@@ -486,10 +553,21 @@ void keydown_number_entry(int shift, int key) {
             }
         } else {
             int bits = base == 2 ? 1 : base == 8 ? 3 : 4;
-            bits *= cmdline_length;
-            if (bits > 36) {
+            int wsize = effective_wsize();
+            int maxchars = (wsize + bits - 1) / bits;
+            if (cmdline_length > maxchars) {
                 cmdline_length--;
                 return;
+            }
+            if (cmdline_length == maxchars) {
+                int slop = maxchars * bits - wsize;
+                int max = 1 << (bits - slop);
+                int d = cmdline[0];
+                d -= d <= '9' ? '0' : ('A' - 10);
+                if (d >= max) {
+                    cmdline_length--;
+                    return;
+                }
             }
         }
     }
@@ -499,16 +577,20 @@ void keydown_number_entry(int shift, int key) {
             /* Should never happen */
             x = 0;
     } else {
-        int8 n = 0;
+        uint8 n = 0;
         int i;
         for (i = 0; i < cmdline_length; i++) {
             char c = cmdline[i];
             int digit = c <= '9' ? c - '0' : c - 'A' + 10;
             n = n * base + digit;
         }
-        if (n & LL(0x800000000))
-            n |= LL(0xfffffff000000000);
-        x = (phloat) n;
+        int wsize = effective_wsize();
+        if (!flags.f.base_signed)
+            x = (phloat) n;
+        else if ((n & (1ULL << (wsize - 1))) == 0)
+            x = (phloat) n;
+        else
+            x = (phloat) (int8) (n | (-1LL << (wsize - 1)));
     }
 
     if (flags.f.prgm_mode)
@@ -598,17 +680,6 @@ void keydown_command_entry(int shift, int key) {
         /* LBL is weird. It's sort of like you have alpha and numeric
          * at the same time. When we're at length 0, we have to handle
          * both possibilities and pick the right one.
-         */
-
-        /* On the Palm, we accept 0-9 as alphanumeric in this case;
-         * if the user wants numeric, it's easy enough to just tap
-         * the appropriate keys on the virtual keyboard.
-         * On PCs, on the other hand, we want the number keys to
-         * behave like they always do, so you can enter LBL 00 without
-         * having to use the virtual keyboard. If an alpha LBL with
-         * a name starting with '0'-'9' is desired, the user will have
-         * to use the usual trick: activate a submenu of ALPHA by
-         * pressing any menu key (F1-F6), and then typing the number.
          */
         if ((mode_commandmenu == MENU_ALPHA1 || mode_commandmenu == MENU_ALPHA2)
                 && key >= 1024 + '0' && key <= 1024 + '9')
@@ -1822,9 +1893,9 @@ void keydown_normal_mode(int shift, int key) {
                 pc = 0;
             else if (prgms[current_prgm].text[pc] != CMD_END)
                 pc += get_command_length(current_prgm, pc);
-                prgm_highlight_row = 1;
-                if (cmdline_row == 1)
-                    display_prgm_line(0, -1);
+	    prgm_highlight_row = 1;
+	    if (cmdline_row == 1)
+		display_prgm_line(0, -1);
         } else {
             if (!flags.f.stack_lift_disable) {
                 free_vartype(reg_t);

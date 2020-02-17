@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -110,6 +110,14 @@ int string2phloat(const char *buf, int buflen, phloat *d) {
      * 4: negative underflow
      * 5: other error
      */
+
+    // Special case: "-" by itself. bid128_from_string() doesn't like this,
+    // so handling it separately here.
+    if (buflen == 1 && buf[0] == '-') {
+        *d = 0;
+        return 0;
+    }
+
     // First, convert from HP-42S format to bcdfloat format:
     // strip thousands separators, convert comma to dot if
     // appropriate, and convert char(24) to 'E'.
@@ -202,6 +210,11 @@ Phloat::Phloat(int8 i) {
 }
 
 /* public */
+Phloat::Phloat(uint8 i) {
+    bid128_from_uint64(&val, &i);
+}
+
+/* public */
 Phloat::Phloat(double d) {
     BID_UINT64 tmp;
     binary64_to_bid64(&tmp, &d);
@@ -222,6 +235,12 @@ Phloat Phloat::operator=(int i) {
 /* public */
 Phloat Phloat::operator=(int8 i) {
     bid128_from_int64(&val, &i);
+    return *this;
+}
+
+/* public */
+Phloat Phloat::operator=(uint8 i) {
+    bid128_from_uint64(&val, &i);
     return *this;
 }
 
@@ -453,6 +472,12 @@ int8 to_int8(Phloat p) {
     return res;
 }
 
+uint8 to_uint8(Phloat p) {
+    uint8 res;
+    bid128_to_uint64_xint(&res, &p.val);
+    return res;
+}
+
 double to_double(Phloat p) {
     double res;
     bid128_to_binary64(&res, &p.val);
@@ -498,7 +523,7 @@ Phloat atan(Phloat p) {
     return Phloat(res);
 }
 
-void sincos(Phloat phi, Phloat *s, Phloat *c) {
+void p_sincos(Phloat phi, Phloat *s, Phloat *c) {
     bid128_sin(&s->val, &phi.val);
     bid128_cos(&c->val, &phi.val);
 }
@@ -581,7 +606,7 @@ Phloat expm1(Phloat p) {
     return Phloat(res);
 }
 
-Phloat gamma(Phloat p) {
+Phloat tgamma(Phloat p) {
     BID_UINT128 res;
     bid128_tgamma(&res, &p.val);
     return Phloat(res);
@@ -986,26 +1011,80 @@ int phloat2string(phloat pd, char *buf, int buflen, int base_mode, int digits,
         return chars_so_far;
     }
 
-    /* base_mode: 0=only decimal, 1=all bases, 2=decimal or binary (SHOW) */
+    /* base_mode: 0=only decimal, 1=all bases, 2=SHOW */
     int base = get_base();
-    if (base_mode == 1 && base != 10 || base_mode == 2 && base == 2) {
-        int8 n;
+    if (base_mode == 1 && base != 10 || base_mode == 2 && base <= 8) {
+        uint8 n;
         int inexact, shift;
-        char binbuf[P2S_BIN_DIGITS];
+        bool too_big = false;
+        char binbuf[64];
         int binbufptr = 0;
 
-        if (pd > P2S_MAX_BIN || pd < P2S_MIN_BIN) { // (pd > 34359738367.0 || pd < -34359738368.0)
-            if (base_mode == 2)
-                goto decimal_after_all;
-            else {
-                string2buf(buf, buflen, &chars_so_far, "<Too Big>", 9);
-                return chars_so_far;
+        int wsize = effective_wsize();
+        phloat high, low;
+        if (flags.f.base_signed) {
+            high = pow(phloat(2), wsize - 1);
+            low = -high;
+            high--;
+        } else {
+            high = pow(phloat(2), wsize) - 1;
+            low = 0;
+        }
+        if (pd > high || pd < low) {
+            if (flags.f.base_wrap) {
+                too_big = true;
+                phloat ipd = pd < 0 ? -floor(-pd) : floor(pd);
+                inexact = base_mode == 1 && pd != ipd;
+                phloat d = pow(phloat(2), wsize);
+                phloat r = fmod(ipd, d);
+                if (r < 0)
+                    r += d;
+                n = (int8) to_uint8(r);
+                if (flags.f.base_signed) {
+                    int8 m = 1LL << (wsize - 1);
+                    if ((n & m) != 0)
+                        n |= -1LL << (wsize - 1);
+                    else
+                        n &= (1LL << (wsize - 1)) - 1;
+                } else {
+                    if (wsize < 64)
+                        n &= (1ULL << wsize) - 1;
+                }
+            } else {
+                if (base_mode == 2)
+                    goto decimal_after_all;
+                else {
+                    if (!flags.f.base_signed && pd < 0)
+                        string2buf(buf, buflen, &chars_so_far, "<Negative>", 10);
+                    else
+                        string2buf(buf, buflen, &chars_so_far, "<Too Big>", 9);
+                    return chars_so_far;
+                }
+            }
+        } else {
+            if (flags.f.base_signed) {
+                int8 sn = to_int8(pd);
+                inexact = base_mode == 1 && pd != sn;
+                n = (uint8) sn;
+            } else {
+                n = to_uint8(pd);
+                inexact = base_mode == 1 && pd != n;
             }
         }
+        if (wsize < 64)
+            n &= (1ULL << wsize) - 1;
 
-        n = to_int8(pd);
-        inexact = base_mode == 1 && pd != n;
-        n &= LL(0xfffffffff);
+        uint8 mask;
+        mask = 0xfffff00000000000ULL;
+        if (inexact)
+            mask <<= 1;
+        if (too_big)
+            mask <<= 1;
+        if (base_mode == 2 && base == 2 && (n & mask) != 0) {
+            // More than 44 bits; won't fit. Use hex instead.
+            string2buf(buf, buflen, &chars_so_far, "hex ", 6);
+            base = 16;
+        }
         shift = base == 2 ? 1 : base == 8 ? 3 : 4;
         while (n != 0) {
             int digit = (int) (n & (base - 1));
@@ -1016,6 +1095,8 @@ int phloat2string(phloat pd, char *buf, int buflen, int base_mode, int digits,
         if (binbufptr == 0)
             binbuf[binbufptr++] = '0';
 
+        if (too_big)
+            char2buf(buf, buflen, &chars_so_far, 26);
         while (binbufptr > 0)
             char2buf(buf, buflen, &chars_so_far, binbuf[--binbufptr]);
         if (inexact)

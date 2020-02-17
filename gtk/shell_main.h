@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -25,7 +25,7 @@
 extern GtkWidget *calc_widget;
 extern bool allow_paint;
 
-#define SHELL_VERSION 4
+#define SHELL_VERSION 7
 
 struct state_type {
     int extras;
@@ -39,6 +39,11 @@ struct state_type {
     int printWindowX, printWindowY, printWindowHeight;
     char skinName[FILENAMELEN];
     int singleInstance;
+    char coreName[FILENAMELEN];
+    bool matrix_singularmatrix;
+    bool matrix_outofrange;
+    bool auto_repeat;
+    bool old_repaint;
 };
 
 extern state_type state;

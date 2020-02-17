@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -16,6 +16,7 @@
  *****************************************************************************/
 
 #include <stdlib.h>
+#include <stdio.h>
 
 #include "core_helpers.h"
 #include "core_commands2.h"
@@ -356,7 +357,7 @@ int virtual_flag_handler(int flagop, int flagnum) {
             }
         }
         case 48: /* alpha_mode */ {
-            bool alpha = core_alpha_menu();
+            bool alpha = alpha_active();
             switch (flagop) {
                 case FLAGOP_FS_T:
                     return alpha ? ERR_YES : ERR_NO;
@@ -454,29 +455,105 @@ int get_base_param(const vartype *v, int8 *n) {
     else if (v->type != TYPE_REAL)
         return ERR_INVALID_TYPE;
     phloat x = ((vartype_real *) v)->x;
-    if (x > 34359738367.0 || x < -34359738368.0)
-        return ERR_INVALID_DATA;
-    int8 t = to_int8(x);
-    if ((t & LL(0x800000000)) != 0)
-        *n = t | LL(0xfffffff000000000);
-    else
-        *n = t;
+    return phloat2base(x, n) ? ERR_NONE : ERR_INVALID_DATA;
+}
+
+int base_range_check(int8 *n, bool force_wrap) {
+    int wsize = effective_wsize();
+    if (force_wrap || flags.f.base_wrap) {
+        if (flags.f.base_signed) {
+            if ((*n & (1LL << (wsize - 1))) != 0)
+                *n |= -1LL << (wsize - 1);
+            else
+                *n &= (1LL << (wsize - 1)) - 1;
+        } else {
+            if (wsize < 64)
+                *n &= (1ULL << wsize) - 1;
+        }
+    } else if (flags.f.base_signed) {
+        int8 high = 1LL << (wsize - 1);
+        int8 low = -high;
+        high--;
+        if (*n < low) {
+            if (flags.f.range_error_ignore)
+                *n = low;
+            else
+                return ERR_OUT_OF_RANGE;
+        } else if (*n > high) {
+            if (flags.f.range_error_ignore)
+                *n = high;
+            else
+                return ERR_OUT_OF_RANGE;
+        }
+    } else {
+        uint8 *un = (uint8 *) n;
+        uint8 high = wsize == 64 ? ~0ULL : (1ULL << wsize) - 1;
+        if (*un > high) {
+            if (flags.f.range_error_ignore)
+                *un = high;
+            else
+                return ERR_OUT_OF_RANGE;
+        }
+    }
     return ERR_NONE;
 }
 
-int base_range_check(int8 *n) {
-    if (*n < LL(-34359738368)) {
-        if (flags.f.range_error_ignore)
-            *n = LL(-34359738368);
+int effective_wsize() {
+#ifdef BCD_MATH
+    return mode_wsize;
+#else
+    return mode_wsize > 52 ? 52 : mode_wsize;
+#endif
+}
+
+phloat base2phloat(int8 n) {
+    if (flags.f.base_signed)
+        return phloat(n);
+    else
+        return phloat((uint8) n);
+}
+
+bool phloat2base(phloat p, int8 *res) {
+    int wsize = effective_wsize();
+    if (flags.f.base_wrap) {
+        phloat ip = p < 0 ? -floor(-p) : floor(p);
+        phloat d = pow(phloat(2), wsize);
+        phloat r = fmod(ip, d);
+        if (r < 0)
+            r += d;
+        int8 n = (int8) to_uint8(r);
+        if (flags.f.base_signed) {
+            int8 m = 1LL << (wsize - 1);
+            if ((n & m) != 0)
+                n |= -1LL << (wsize - 1);
+            else
+                n &= (1LL << (wsize - 1)) - 1;
+        } else {
+            if (wsize < 64)
+                n &= (1ULL << wsize) - 1;
+        }
+        *res = n;
+    } else if (flags.f.base_signed) {
+        phloat high = pow(phloat(2), wsize - 1);
+        phloat low = -high;
+        high--;
+        if (p > high || p < low)
+            return false;
+        int8 t = to_int8(p);
+        if ((t & (1LL << (wsize - 1))) != 0)
+            t |= -1LL << (wsize - 1);
         else
-            return ERR_OUT_OF_RANGE;
-    } else if (*n > LL(34359738367)) {
-        if (flags.f.range_error_ignore)
-            *n = LL(34359738367);
-        else
-            return ERR_OUT_OF_RANGE;
+            t &= (1LL << (wsize - 1)) - 1;
+        *res = t;
+    } else {
+        if (p < 0)
+            return false;
+        phloat high = pow(phloat(2), wsize) - 1;
+        if (p > high)
+            return false;
+        *res = (int8) to_uint8(p);
     }
-    return ERR_NONE;
+    return true;
 }
 
 void print_text(const char *text, int length, int left_justified) {
@@ -507,9 +584,8 @@ void print_text(const char *text, int length, int left_justified) {
     for (i = 0; i < 162; i++)
         bitmap[i] = 0;
     for (i = 0; i < bufptr; i++) {
-        char charbits[5];
         int j;
-        get_char(charbits, buf[i]);
+        const unsigned char *charbits = get_char(buf[i]);
         for (j = 0; j < 5; j++) {
             int x1 = i * 6 + j;
             int x2 = x1 + 1;
@@ -706,7 +782,7 @@ void generic_r2p(phloat re, phloat im, phloat *r, phloat *phi) {
 void generic_p2r(phloat r, phloat phi, phloat *re, phloat *im) {
     phloat tre, tim;
     if (flags.f.rad) {
-        sincos(phi, &tim, &tre);
+        p_sincos(phi, &tim, &tre);
     } else if (flags.f.grad) {
         phi = fmod(phi, 400);
         if (phi < 0)
@@ -1033,15 +1109,6 @@ phloat fix_hms(phloat x) {
     #endif
     return neg ? -x : x;
 }
-
-#if defined(NO_SINCOS) && !defined(BCD_MATH)
-
-void sincos(double x, double *sinx, double *cosx) {
-    *sinx = sin(x);
-    *cosx = cos(x);
-}
-
-#endif
 
 void char2buf(char *buf, int buflen, int *bufptr, char c) {
     if (*bufptr < buflen)

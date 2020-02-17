@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -35,6 +35,10 @@
 #include "bid_functions.h"
 #endif
 
+// File used for reading and writing the state file, and for importing and
+// exporting programs. Since only one of these operations can be active at one
+// time, having one FILE pointer for all of them is sufficient.
+FILE *gfile = NULL;
 
 const error_spec errors[] = {
     { /* NONE */                   NULL,                       0 },
@@ -229,20 +233,27 @@ const menu_spec menus[] = {
                         { MENU_NONE, 0, "" },
                         { MENU_NONE, 0, "" },
                         { MENU_NONE, 0, "" } } },
-    { /* MENU_MODES1 */ MENU_NONE, MENU_MODES2, MENU_MODES2,
+    { /* MENU_MODES1 */ MENU_NONE, MENU_MODES2, MENU_MODES3,
                       { { 0x2000 + CMD_DEG,   0, "" },
                         { 0x2000 + CMD_RAD,   0, "" },
                         { 0x2000 + CMD_GRAD,  0, "" },
                         { 0x1000 + CMD_NULL,  0, "" },
                         { 0x2000 + CMD_RECT,  0, "" },
                         { 0x2000 + CMD_POLAR, 0, "" } } },
-    { /* MENU_MODES2 */ MENU_NONE, MENU_MODES1, MENU_MODES1,
+    { /* MENU_MODES2 */ MENU_NONE, MENU_MODES3, MENU_MODES1,
                       { { 0x1000 + CMD_SIZE,    0, "" },
                         { 0x2000 + CMD_QUIET,   0, "" },
                         { 0x2000 + CMD_CPXRES,  0, "" },
                         { 0x2000 + CMD_REALRES, 0, "" },
                         { 0x2000 + CMD_KEYASN,  0, "" },
                         { 0x2000 + CMD_LCLBL,   0, "" } } },
+    { /* MENU_MODES3 */ MENU_NONE, MENU_MODES1, MENU_MODES2,
+                      { { 0x1000 + CMD_WSIZE,   0, "" },
+                        { 0x1000 + CMD_WSIZE_T, 0, "" },
+                        { 0x2000 + CMD_BSIGNED, 0, "" },
+                        { 0x2000 + CMD_BWRAP,   0, "" },
+                        { 0x1000 + CMD_NULL,    0, "" },
+                        { 0x1000 + CMD_BRESET,  0, "" } } },
     { /* MENU_DISP */ MENU_NONE, MENU_NONE, MENU_NONE,
                       { { 0x2000 + CMD_FIX,      0, "" },
                         { 0x2000 + CMD_SCI,      0, "" },
@@ -593,6 +604,7 @@ int4 mode_sigma_reg;
 int mode_goose;
 bool mode_time_clktd;
 bool mode_time_clk24;
+int mode_wsize;
 
 phloat entered_number;
 int entered_string_length;
@@ -666,11 +678,80 @@ int state_file_number_format;
 bool no_keystrokes_yet;
 
 
+/* Version number for the state file.
+ * State file versions correspond to application releases as follows:
+ * 
+ * Version  0: 1.0    first release
+ * Version  1: 1.0.13 "IP Hack" option
+ * Version  2: 1.0.13 "singular matrix" and matrix "out of range" options
+ * Version  3: 1.0.16 "deferred_print" flag for NORM/TRACE printing
+ * Version  4: 1.1    BCD conversion table no longer stored in state file
+ * Version  5: 1.1    "raw text" option
+ * Version  6: 1.1.8  GETKEY across power-cycle
+ * Version  7: 1.1.12 FCN catalog assignments now HP-42S-compatible
+ * Version  8: 1.1.14 F42 file format and "HP-42S byte counts" option removed
+ * Version  9: 1.4    decimal version; removed IP Hack
+ * Version 10: 1.4.16 persistent shared matrices
+ * Version 11: 1.4.44 "Auto-Repeat" option
+ * Version 12: 1.4.52 BIGSTACK (iphone only);
+ *                    new BCDFloat format (Inf and NaN flags)
+ * 
+ *  ========== NOTE: BCD20 Upgrade in Free42 1.4.52 ==========
+ *  In version 1.4.52, I upgraded to a new version of BCD20, without realizing
+ *  that it uses a slightly different storage format (NaN and Inifinity are now
+ *  encoded using two flags in the exponent field, rather than using magical
+ *  exponent values; the exponent field was narrowed by 2 bits to accommodate
+ *  these flags).
+ *  I should have added new code to convert BCDFloat numbers from the old
+ *  format to the new at that time. Once I discovered this oversight, 1.4.52-54
+ *  were already released.
+ *  In 1.4.55, I introduced code to convert old-style BCDFloat to new-style if
+ *  the state file version is less than 12, i.e. created by Free42 1.4.51 or
+ *  earlier. This means that 1.4.55 will interpret BCDFloat from all previous
+ *  versions correctly; however, any state file that has gone through the
+ *  transition from <= 1.4.51 Decimal to 1.4.52-54 Decimal may still be
+ *  corrupted, and the only way to be safe is to do CLALL and reload all
+ *  programs and data in that case.
+ *
+ * Version 13: 1.4.55 Dynamically sized BIGSTACK (iphone only)
+ * Version 14: 1.4.63 Moved BIGSTACK DROP command from index 315 to 329, to fix
+ *                    the clash with Underhill's COPAN extensions. The iPhone
+ *                    version, when reading a state file with version 12 or 13,
+ *                    scans all programs and renumbers DROP where necessary.
+ *                    All other versions can ignore this version number change.
+ * Version 15: 1.4.63 "Enable Extension" options for COPAN, BIGSTACK, ACCEL,
+ *                    LOCAT, HEADING, and HP-41 Time
+ * Version 16: 1.4.63 time and date format flags
+ * Version 17: 1.4.65 iPhone "OFF enable" flag
+ * Version 18: 1.4.79 Replaced BCD20 with Intel's Decimal Floating Point
+ *                    Library v.2.1.
+ * Version 19: 1.5.14 Removed mode_time_dmy; now using flag 31 instead.
+ * Version 20: 2.0.3  Removed "raw text" option, ext_copan, and ext_bigstack.
+ * Version 21: 2.0.7  New random number generator.
+ * Version 22: 2.0.17 Fixed bug where local GTO/XEQ targets didn't get cleared
+ *                    when an END was deleted, and potentially (though never
+ *                    reported) also when an END was inserted. Bumping the
+ *                    state version so that older state files get their
+ *                    potentially-incorrect jump targets cleared, just in case.
+ * Version 23: 2.1    Added "prog" extension: SST^, SST->
+ * Version 24: 2.2    Large RTN stack; local variables
+ * Version 25: 2.4    WSIZE, BSIGNED, BWRAP
+ * Version 26: 2.5    Separate and portable core state file
+ * Version 27: 2.5.2  Recovery mode for corrupt 2.5 state files
+ * Version 28: 2.5.3  Recording platform name and app version in state file
+ * Version 29: 2.5.7  SOLVE: Tracking second best guess in order to be able to
+ *                    report it accurately in Y, and to provide additional data
+ *                    points for distinguishing between zeroes and poles.
+ */
+#define FREE42_VERSION 29
+
+
 /*******************/
 /* Private globals */
 /*******************/
 
 static bool state_bool_is_int;
+bool state_is_portable;
 
 typedef struct {
     int4 prgm;
@@ -714,7 +795,7 @@ static bool rtn_integ_active = false;
  * policy, but we allow users to enable it using a magic value
  * in the X register. This flag determines OFF behavior.
  */
-static bool off_enable_flag = false;
+bool off_enable_flag = false;
 #endif
 
 typedef struct {
@@ -727,13 +808,6 @@ static int array_count;
 static int array_list_capacity;
 static void **array_list;
 
-
-static bool read_int(int *n);
-static bool write_int(int n);
-static bool read_int4(int4 *n);
-static bool write_int4(int4 n);
-static bool read_bool(bool *n);
-static bool write_bool(bool n);
 
 static bool array_list_grow();
 static int array_list_search(void *array);
@@ -774,96 +848,98 @@ static int array_list_search(void *array) {
 }
 
 static bool persist_vartype(vartype *v) {
-    if (v == NULL) {
-        int type = TYPE_NULL;
-        return shell_write_saved_state(&type, sizeof(int));
-    }
+    if (v == NULL)
+        return write_char(TYPE_NULL);
+    if (!write_char(v->type))
+        return false;
     switch (v->type) {
         case TYPE_REAL: {
-            if (!shell_write_saved_state(v, sizeof(int)))
-                return false;
             vartype_real *r = (vartype_real *) v;
-            return shell_write_saved_state(&r->x, sizeof(phloat));
+            return write_phloat(r->x);
         }
         case TYPE_COMPLEX: {
-            if (!shell_write_saved_state(v, sizeof(int)))
-                return false;
             vartype_complex *c = (vartype_complex *) v;
-            return shell_write_saved_state(&c->re, 2 * sizeof(phloat));
+            return write_phloat(c->re) && write_phloat(c->im);
         }
-        case TYPE_STRING:
-            return shell_write_saved_state(v, sizeof(vartype_string));
+        case TYPE_STRING: {
+            vartype_string *s = (vartype_string *) v;
+            return write_char(s->length)
+                && fwrite(s->text, 1, s->length, gfile) == s->length;
+        }
         case TYPE_REALMATRIX: {
-            matrix_persister mp;
             vartype_realmatrix *rm = (vartype_realmatrix *) v;
-            mp.type = rm->type;
-            mp.rows = rm->rows;
-            mp.columns = rm->columns;
-            int4 size = mp.rows * mp.columns;
+            int4 rows = rm->rows;
+            int4 columns = rm->columns;
             bool must_write = true;
             if (rm->array->refcount > 1) {
                 int n = array_list_search(rm->array);
                 if (n == -1) {
                     // A negative row count signals a new shared matrix
-                    mp.rows = -mp.rows;
+                    rows = -rows;
                     if (!array_list_grow())
                         return false;
                     array_list[array_count++] = rm->array;
                 } else {
                     // A zero row count means this matrix shares its data
                     // with a previously written matrix
-                    mp.rows = 0;
-                    mp.columns = n;
+                    rows = 0;
+                    columns = n;
                     must_write = false;
                 }
             }
-            if (!shell_write_saved_state(&mp, sizeof(matrix_persister)))
-                return false;
+            write_int4(rows);
+            write_int4(columns);
             if (must_write) {
-                if (!shell_write_saved_state(rm->array->data,
-                                            size * sizeof(phloat)))
+                int size = rm->rows * rm->columns;
+                if (fwrite(rm->array->is_string, 1, size, gfile) != size)
                     return false;
-                if (!shell_write_saved_state(rm->array->is_string, size))
-                    return false;
+                for (int i = 0; i < size; i++) {
+                    if (rm->array->is_string[i]) {
+                        char *str = (char *) &rm->array->data[i];
+                        if (fwrite(str, 1, 7, gfile) != 7)
+                            return false;
+                    } else {
+                        if (!write_phloat(rm->array->data[i]))
+                            return false;
+                    }
+                }
             }
             return true;
         }
         case TYPE_COMPLEXMATRIX: {
-            matrix_persister mp;
             vartype_complexmatrix *cm = (vartype_complexmatrix *) v;
-            mp.type = cm->type;
-            mp.rows = cm->rows;
-            mp.columns = cm->columns;
-            int4 size = mp.rows * mp.columns;
+            int4 rows = cm->rows;
+            int4 columns = cm->columns;
             bool must_write = true;
             if (cm->array->refcount > 1) {
                 int n = array_list_search(cm->array);
                 if (n == -1) {
                     // A negative row count signals a new shared matrix
-                    mp.rows = -mp.rows;
+                    rows = -rows;
                     if (!array_list_grow())
                         return false;
                     array_list[array_count++] = cm->array;
                 } else {
                     // A zero row count means this matrix shares its data
                     // with a previously written matrix
-                    mp.rows = 0;
-                    mp.columns = n;
+                    rows = 0;
+                    columns = n;
                     must_write = false;
                 }
             }
-            if (!shell_write_saved_state(&mp, sizeof(matrix_persister)))
-                return false;
+            write_int4(rows);
+            write_int4(columns);
             if (must_write) {
-                if (!shell_write_saved_state(cm->array->data,
-                                            2 * size * sizeof(phloat)))
-                    return false;
+                int size = 2 * cm->rows * cm->columns;
+                for (int i = 0; i < size; i++)
+                    if (!write_phloat(cm->array->data[i]))
+                        return false;
             }
             return true;
         }
         default:
             /* Should not happen */
-            return true;
+            return false;
     }
 }
 
@@ -875,9 +951,199 @@ struct fake_bcd {
     char data[16];
 };
 
+// For coping with bad 2.5 state files. 0 means don't do anything special;
+// 1 means check for bad string lengths in real matrices; 2 is bug-
+// compatibility mode; and 3 is a signal to switch from mode 1 to mode 2.
+// When a bad string length is found in mode 1, this function will switch
+// the mode to mode 3 and return false, indicating an error; the caller
+// should then clean up what has already been read, rewind the state file,
+// and try again in mode 2.
+
+int bug_mode;
+
 static bool unpersist_vartype(vartype **v, bool padded) {
+    if (state_is_portable) {
+        char type;
+        if (!read_char(&type))
+            return false;
+        switch (type) {
+            case TYPE_NULL: {
+                *v = NULL;
+                return true;
+            }
+            case TYPE_REAL: {
+                vartype_real *r = (vartype_real *) new_real(0);
+                if (r == NULL)
+                    return false;
+                if (!read_phloat(&r->x)) {
+                    free_vartype((vartype *) r);
+                    return false;
+                }
+                *v = (vartype *) r;
+                return true;
+            }
+            case TYPE_COMPLEX: {
+                vartype_complex *c = (vartype_complex *) new_complex(0, 0);
+                if (c == NULL)
+                    return false;
+                if (!read_phloat(&c->re) || !read_phloat(&c->im)) {
+                    free_vartype((vartype *) c);
+                    return false;
+                }
+                *v = (vartype *) c;
+                return true;
+            }
+            case TYPE_STRING: {
+                vartype_string *s = (vartype_string *) new_string("", 0);
+                if (s == NULL)
+                    return false;
+                char len;
+                if (!read_char(&len) || fread(s->text, 1, len, gfile) != len) {
+                    free_vartype((vartype *) s);
+                    return false;
+                }
+                s->length = len;
+                *v = (vartype *) s;
+                return true;
+            }
+            case TYPE_REALMATRIX: {
+                int4 rows, columns;
+                if (!read_int4(&rows) || !read_int4(&columns))
+                    return false;
+                if (rows == 0) {
+                    // Shared matrix
+                    vartype *m = new_matrix_alias((vartype *) array_list[columns]);
+                    if (m == NULL)
+                        return false;
+                    else {
+                        *v = m;
+                        return true;
+                    }
+                }
+                bool shared = rows < 0;
+                if (shared)
+                    rows = -rows;
+                vartype_realmatrix *rm = (vartype_realmatrix *) new_realmatrix(rows, columns);
+                if (rm == NULL)
+                    return false;
+                int4 size = rows * columns;
+                if (fread(rm->array->is_string, 1, size, gfile) != size) {
+                    free_vartype((vartype *) rm);
+                    return false;
+                }
+                bool success = true;
+                for (int4 i = 0; i < size; i++) {
+                    if (rm->array->is_string[i]) {
+                        char *dst = (char *) &rm->array->data[i];
+                        if (bug_mode == 0) {
+                            // 6 bytes of text followed by length byte
+                            if (fread(dst, 1, 7, gfile) != 7) {
+                                success = false;
+                                break;
+                            }
+                        } else if (bug_mode == 1) {
+                            // Could be as above, or could be length-prefixed.
+                            // Read 7 bytes, and if byte 7 looks plausible,
+                            // carry on; otherwise, set bug_mode to 3, signalling
+                            // we should start over in bug-compatibility mode.
+                            if (fread(dst, 1, 7, gfile) != 7) {
+                                success = false;
+                                break;
+                            }
+                            if (dst[6] < 0 || dst[6] > 6) {
+                                bug_mode = 3;
+                                success = false;
+                                break;
+                            }
+                        } else {
+                            // bug_mode == 2, means this has to be a file with
+                            // length-prefixed strings in matrices. Bear in
+                            // mind that the prefixes are bogus, so for reading,
+                            // clamp them to the 0..6 range, but for advancing
+                            // in the file, take them at face value.
+                            unsigned char len;
+                            if (fread(&len, 1, 1, gfile) != 1) {
+                                success = false;
+                                break;
+                            }
+                            unsigned char reallen = len > 6 ? 6 : len;
+                            dst[0] = len;
+                            if (fread(dst + 1, 1, reallen, gfile) != reallen) {
+                                success = false;
+                                break;
+                            }
+                            len -= reallen;
+                            if (len > 0 && fseek(gfile, len, SEEK_CUR) != 0) {
+                                success = false;
+                                break;
+                            }
+                        }
+                    } else {
+                        if (!read_phloat(&rm->array->data[i])) {
+                            success = false;
+                            break;
+                        }
+                    }
+                }
+                if (!success) {
+                    free_vartype((vartype *) rm);
+                    return false;
+                }
+                if (shared) {
+                    if (!array_list_grow()) {
+                        free_vartype((vartype *) rm);
+                        return false;
+                    }
+                    array_list[array_count++] = rm;
+                }
+                *v = (vartype *) rm;
+                return true;
+            }
+            case TYPE_COMPLEXMATRIX: {
+                int4 rows, columns;
+                if (!read_int4(&rows) || !read_int4(&columns))
+                    return false;
+                if (rows == 0) {
+                    // Shared matrix
+                    vartype *m = new_matrix_alias((vartype *) array_list[columns]);
+                    if (m == NULL)
+                        return false;
+                    else {
+                        *v = m;
+                        return true;
+                    }
+                }
+                bool shared = rows < 0;
+                if (shared)
+                    rows = -rows;
+                vartype_complexmatrix *cm = (vartype_complexmatrix *) new_complexmatrix(rows, columns);
+                if (cm == NULL)
+                    return false;
+                int4 size = 2 * rows * columns;
+                for (int4 i = 0; i < size; i++) {
+                    if (!read_phloat(&cm->array->data[i])) {
+                        free_vartype((vartype *) cm);
+                        return false;
+                    }
+                }
+                if (shared) {
+                    if (!array_list_grow()) {
+                        free_vartype((vartype *) cm);
+                        return false;
+                    }
+                    array_list[array_count++] = cm;
+                }
+                *v = (vartype *) cm;
+                return true;
+            }
+            default:
+                return false;
+        }
+    }
+    
+    // !state_is_portable
     int type;
-    if (shell_read_saved_state(&type, sizeof(int)) != sizeof(int))
+    if (fread(&type, 1, sizeof(int), gfile) != sizeof(int))
         return false;
     switch (type) {
         case TYPE_NULL: {
@@ -892,20 +1158,20 @@ static bool unpersist_vartype(vartype **v, bool padded) {
                 #ifdef BCD_MATH
                     if (padded) {
                         int4 dummy;
-                        if (shell_read_saved_state(&dummy, 4) != 4) {
+                        if (fread(&dummy, 1, 4, gfile) != 4) {
                             free_vartype((vartype *) r);
                             return false;
                         }
                     }
                     double x;
-                    if (shell_read_saved_state(&x, 8) != 8) {
+                    if (fread(&x, 1, 8, gfile) != 8) {
                         free_vartype((vartype *) r);
                         return false;
                     }
                     r->x = x;
                 #else
                     BID_UINT128 x;
-                    if (shell_read_saved_state(&x, 16) != 16) {
+                    if (fread(&x, 1, 16, gfile) != 16) {
                         free_vartype((vartype *) r);
                         return false;
                     }
@@ -915,13 +1181,13 @@ static bool unpersist_vartype(vartype **v, bool padded) {
                 #ifndef BCD_MATH
                     if (padded) {
                         int4 dummy;
-                        if (shell_read_saved_state(&dummy, 4) != 4) {
+                        if (fread(&dummy, 1, 4, gfile) != 4) {
                             free_vartype((vartype *) r);
                             return false;
                         }
                     }
                 #endif
-                if (shell_read_saved_state(&r->x, sizeof(phloat))
+                if (fread(&r->x, 1, sizeof(phloat), gfile)
                         != sizeof(phloat)) {
                     free_vartype((vartype *) r);
                     return false;
@@ -941,13 +1207,13 @@ static bool unpersist_vartype(vartype **v, bool padded) {
                 #ifdef BCD_MATH
                     if (padded) {
                         int4 dummy;
-                        if (shell_read_saved_state(&dummy, 4) != 4) {
+                        if (fread(&dummy, 1, 4, gfile) != 4) {
                             free_vartype((vartype *) c);
                             return false;
                         }
                     }
                     double parts[2];
-                    if (shell_read_saved_state(parts, 16) != 16) {
+                    if (fread(parts, 1, 16, gfile) != 16) {
                         free_vartype((vartype *) c);
                         return false;
                     }
@@ -955,7 +1221,7 @@ static bool unpersist_vartype(vartype **v, bool padded) {
                     c->im = parts[1];
                 #else
                     BID_UINT128 parts[2];
-                    if (shell_read_saved_state(parts, 32) != 32) {
+                    if (fread(parts, 1, 32, gfile) != 32) {
                         free_vartype((vartype *) c);
                         return false;
                     }
@@ -966,13 +1232,13 @@ static bool unpersist_vartype(vartype **v, bool padded) {
                 #ifndef BCD_MATH
                     if (padded) {
                         int4 dummy;
-                        if (shell_read_saved_state(&dummy, 4) != 4) {
+                        if (fread(&dummy, 1, 4, gfile) != 4) {
                             free_vartype((vartype *) c);
                             return false;
                         }
                     }
                 #endif
-                if (shell_read_saved_state(&c->re, 2 * sizeof(phloat))
+                if (fread(&c->re, 1, 2 * sizeof(phloat), gfile)
                         != 2 * sizeof(phloat)) {
                     free_vartype((vartype *) c);
                     return false;
@@ -990,7 +1256,7 @@ static bool unpersist_vartype(vartype **v, bool padded) {
             int n = sizeof(vartype_string) - sizeof(int);
             if (s == NULL)
                 return false;
-            if (shell_read_saved_state(&s->type + 1, n) != n) {
+            if (fread(&s->type + 1, 1, n, gfile) != n) {
                 free_vartype((vartype *) s);
                 return false;
             } else {
@@ -1001,7 +1267,7 @@ static bool unpersist_vartype(vartype **v, bool padded) {
         case TYPE_REALMATRIX: {
             matrix_persister mp;
             int n = sizeof(matrix_persister) - sizeof(int);
-            if (shell_read_saved_state(&mp.type + 1, n) != n)
+            if (fread(&mp.type + 1, 1, n, gfile) != n)
                 return false;
             if (mp.rows == 0) {
                 // Shared matrix
@@ -1032,12 +1298,12 @@ static bool unpersist_vartype(vartype **v, bool padded) {
                     free_vartype((vartype *) rm);
                     return false;
                 }
-                if (shell_read_saved_state(temp, tsz) != tsz) {
+                if (fread(temp, 1, tsz, gfile) != tsz) {
                     free(temp);
                     free_vartype((vartype *) rm);
                     return false;
                 }
-                if (shell_read_saved_state(rm->array->is_string, size) != size) {
+                if (fread(rm->array->is_string, 1, size, gfile) != size) {
                     free(temp);
                     free_vartype((vartype *) rm);
                     return false;
@@ -1068,12 +1334,12 @@ static bool unpersist_vartype(vartype **v, bool padded) {
                 free(temp);
             } else {
                 int4 size = mp.rows * mp.columns * sizeof(phloat);
-                if (shell_read_saved_state(rm->array->data, size) != size) {
+                if (fread(rm->array->data, 1, size, gfile) != size) {
                     free_vartype((vartype *) rm);
                     return false;
                 }
                 size = mp.rows * mp.columns;
-                if (shell_read_saved_state(rm->array->is_string, size) != size) {
+                if (fread(rm->array->is_string, 1, size, gfile) != size) {
                     free_vartype((vartype *) rm);
                     return false;
                 }
@@ -1097,7 +1363,7 @@ static bool unpersist_vartype(vartype **v, bool padded) {
         case TYPE_COMPLEXMATRIX: {
             matrix_persister mp;
             int n = sizeof(matrix_persister) - sizeof(int);
-            if (shell_read_saved_state(&mp.type + 1, n) != n)
+            if (fread(&mp.type + 1, 1, n, gfile) != n)
                 return false;
             if (mp.rows == 0) {
                 // Shared matrix
@@ -1125,7 +1391,7 @@ static bool unpersist_vartype(vartype **v, bool padded) {
                     }
             } else {
                 int4 size = 2 * mp.rows * mp.columns * sizeof(phloat);
-                if (shell_read_saved_state(cm->array->data, size) != size) {
+                if (fread(cm->array->data, 1, size, gfile) != size) {
                     free_vartype((vartype *) cm);
                     return false;
                 }
@@ -1171,7 +1437,7 @@ static bool persist_globals() {
         goto done;
     if (!write_int(reg_alpha_length))
         goto done;
-    if (!shell_write_saved_state(reg_alpha, 44))
+    if (fwrite(reg_alpha, 1, 44, gfile) != 44)
         goto done;
     if (!write_int4(mode_sigma_reg))
         goto done;
@@ -1181,42 +1447,43 @@ static bool persist_globals() {
         goto done;
     if (!write_bool(mode_time_clk24))
         goto done;
-    if (!shell_write_saved_state(&flags, sizeof(flags_struct)))
+    if (!write_int(mode_wsize))
         goto done;
-    if (!write_int(vars_count))
+    if (fwrite(&flags, 1, sizeof(flags_struct), gfile) != sizeof(flags_struct))
         goto done;
-    for (i = 0; i < vars_count; i++)
-        if (!shell_write_saved_state(vars + i, 12))
-            goto done;
-    for (i = 0; i < vars_count; i++)
-        if (!persist_vartype(vars[i].value))
-            goto done;
     if (!write_int(prgms_count))
         goto done;
     for (i = 0; i < prgms_count; i++)
-        if (!shell_write_saved_state(prgms + i, sizeof(prgm_struct_32bit)))
-            goto done;
-    for (i = 0; i < prgms_count; i++)
-        if (!shell_write_saved_state(prgms[i].text, prgms[i].size))
-            goto done;
+        core_export_programs(1, &i, NULL);
     if (!write_int(current_prgm))
         goto done;
-    if (!write_int4(pc))
+    if (!write_int4(pc2line(pc)))
         goto done;
     if (!write_int(prgm_highlight_row))
         goto done;
+    if (!write_int(vars_count))
+        goto done;
+    for (i = 0; i < vars_count; i++) {
+        if (!write_char(vars[i].length)
+            || fwrite(vars[i].name, 1, vars[i].length, gfile) != vars[i].length
+            || !write_int2(vars[i].level)
+            || !write_bool(vars[i].hidden)
+            || !write_bool(vars[i].hiding)
+            || !persist_vartype(vars[i].value))
+            goto done;
+    }
     if (!write_int(varmenu_length))
         goto done;
-    if (!shell_write_saved_state(varmenu, 7))
+    if (fwrite(varmenu, 1, 7, gfile) != 7)
         goto done;
     if (!write_int(varmenu_rows))
         goto done;
     if (!write_int(varmenu_row))
         goto done;
-    if (!shell_write_saved_state(varmenu_labellength, 6 * sizeof(int)))
-        goto done;
-    if (!shell_write_saved_state(varmenu_labeltext, 42))
-        goto done;
+    for (i = 0; i < 6; i++)
+        if (!write_char(varmenu_labellength[i])
+                || fwrite(varmenu_labeltext[i], 1, varmenu_labellength[i], gfile) != varmenu_labellength[i])
+            goto done;
     if (!write_int(varmenu_role))
         goto done;
     if (!write_int(rtn_sp))
@@ -1225,22 +1492,49 @@ static bool persist_globals() {
         goto done;
     if (!write_bool(rtn_level_0_has_matrix_entry))
         goto done;
-    if (!shell_write_saved_state(rtn_stack, rtn_sp * sizeof(rtn_stack_entry)))
-        goto done;
+    int saved_prgm;
+    saved_prgm = current_prgm;
+    for (i = rtn_sp - 1; i >= 0; i--) {
+        bool matrix_entry_follows = i == 1 && rtn_level_0_has_matrix_entry;
+        if (matrix_entry_follows) {
+            i++;
+        } else {
+            int4 p = rtn_stack[i].prgm;
+            matrix_entry_follows = p < 0;
+            p = p & 0x7fffffff;
+            if ((p & 0x40000000) != 0)
+                p |= 0x80000000;
+            current_prgm = p;
+            int4 l = rtn_stack[i].pc;
+            if (current_prgm >= 0)
+                l = pc2line(l);
+            if (!write_int4(rtn_stack[i].prgm)
+                    || !write_int4(l))
+                goto done;
+        }
+        if (matrix_entry_follows) {
+            rtn_stack_matrix_name_entry *e1 = (rtn_stack_matrix_name_entry *) &rtn_stack[--i];
+            rtn_stack_matrix_ij_entry *e2 = (rtn_stack_matrix_ij_entry *) &rtn_stack[--i];
+            if (!write_char(e1->length)
+                    || fwrite(e1->name, 1, e1->length, gfile) != e1->length
+                    || !write_int4(e2->i)
+                    || !write_int4(e2->j))
+                goto done;
+        }
+    }
+    current_prgm = saved_prgm;
     if (!write_bool(rtn_solve_active))
         goto done;
     if (!write_bool(rtn_integ_active))
         goto done;
-#ifdef IPHONE
-    if (!write_bool(off_enable_flag))
-        goto done;
-#endif
     ret = true;
 
     done:
     free(array_list);
     return ret;
 }
+
+static bool suppress_varmenu_update = false;
 
 static bool unpersist_globals(int4 ver) {
     int i;
@@ -1288,7 +1582,7 @@ static bool unpersist_globals(int4 ver) {
         reg_alpha_length = 0;
         goto done;
     }
-    if (shell_read_saved_state(reg_alpha, 44) != 44) {
+    if (fread(reg_alpha, 1, 44, gfile) != 44) {
         reg_alpha_length = 0;
         goto done;
     }
@@ -1315,83 +1609,110 @@ static bool unpersist_globals(int4 ver) {
                 goto done;
             tmp_dmy = dmy ? 1 : 0;
         }
+    } else {
+        mode_time_clktd = false;
+        mode_time_clk24 = false;
     }
-    if (shell_read_saved_state(&flags, sizeof(flags_struct))
+    if (ver >= 25) {
+        if (!read_int(&mode_wsize)) {
+            mode_wsize = 36;
+            goto done;
+        }
+    } else
+        mode_wsize = 36;
+    if (fread(&flags, 1, sizeof(flags_struct), gfile)
             != sizeof(flags_struct))
         goto done;
     if (tmp_dmy != 2)
         flags.f.dmy = tmp_dmy;
-    vars_capacity = 0;
-    if (vars != NULL) {
-        free(vars);
-        vars = NULL;
+    if (ver < 25) {
+        flags.f.base_signed = 1;
+        flags.f.base_wrap = 0;
     }
-    if (!read_int(&vars_count)) {
-        vars_count = 0;
-        goto done;
-    }
-    vars = (var_struct *) malloc(vars_count * sizeof(var_struct));
-    if (vars == NULL) {
-        vars_count = 0;
-        goto done;
-    }
-    for (i = 0; i < vars_count; i++)
-        if (shell_read_saved_state(vars + i, 12) != 12) {
+
+    if (!state_is_portable) {
+        vars_capacity = 0;
+        if (vars != NULL) {
             free(vars);
             vars = NULL;
+        }
+        if (!read_int(&vars_count)) {
             vars_count = 0;
             goto done;
         }
-    vars_capacity = vars_count;
-    for (i = 0; i < vars_count; i++)
-        vars[i].value = NULL;
-    if (ver < 24)
-        for (i = 0; i < vars_count; i++) {
-            vars[i].level = -1;
-            vars[i].hidden = false;
-            vars[i].hiding = false;
-        }
-    for (i = 0; i < vars_count; i++)
-        if (!unpersist_vartype(&vars[i].value, padded)) {
-            purge_all_vars();
+        vars = (var_struct *) malloc(vars_count * sizeof(var_struct));
+        if (vars == NULL) {
+            vars_count = 0;
             goto done;
         }
+        for (i = 0; i < vars_count; i++)
+            if (fread(vars + i, 1, 12, gfile) != 12) {
+                free(vars);
+                vars = NULL;
+                vars_count = 0;
+                goto done;
+            }
+        if (ver < 24)
+            for (i = 0; i < vars_count; i++) {
+                vars[i].level = -1;
+                vars[i].hidden = false;
+                vars[i].hiding = false;
+            }
+        for (i = 0; i < vars_count; i++)
+            if (!unpersist_vartype(&vars[i].value, padded)) {
+                for (int j = 0; j < i; j++)
+                    free_vartype(vars[j].value);
+                free(vars);
+                vars = NULL;
+                vars_count = 0;
+                goto done;
+            }
+        vars_capacity = vars_count;
 
-    // Purging zero-length var that may have been created by buggy INTEG
-    purge_var("", 0);
+        // Purging zero-length var that may have been created by buggy INTEG
+        purge_var("", 0);
+    }
 
+    prgms_count = 0;
     prgms_capacity = 0;
     if (prgms != NULL) {
         free(prgms);
         prgms = NULL;
     }
-    if (!read_int(&prgms_count)) {
-        prgms_count = 0;
+    int nprogs;
+    if (!read_int(&nprogs)) {
         goto done;
     }
-    prgms = (prgm_struct *) malloc(prgms_count * sizeof(prgm_struct));
-    if (prgms == NULL) {
-        prgms_count = 0;
-        goto done;
-    }
-    for (i = 0; i < prgms_count; i++)
-        if (shell_read_saved_state(prgms + i, sizeof(prgm_struct_32bit)) != sizeof(prgm_struct_32bit)) {
-            free(prgms);
-            prgms = NULL;
+    if (state_is_portable) {
+        suppress_varmenu_update = true;
+        core_import_programs(nprogs, NULL);
+        suppress_varmenu_update = false;
+    } else {
+        prgms_count = nprogs;
+        prgms = (prgm_struct *) malloc(prgms_count * sizeof(prgm_struct));
+        if (prgms == NULL) {
             prgms_count = 0;
             goto done;
         }
-    prgms_capacity = prgms_count;
-    for (i = 0; i < prgms_count; i++) {
-        prgms[i].capacity = prgms[i].size;
-        prgms[i].text = (unsigned char *) mallocU(prgms[i].size);
-        // TODO - handle memory allocation failure
-    }
-    for (i = 0; i < prgms_count; i++) {
-        if (shell_read_saved_state(prgms[i].text, prgms[i].size)
-                != prgms[i].size) {
-            clear_all_prgms();
-            goto done;
+        for (i = 0; i < prgms_count; i++)
+            if (fread(prgms + i, 1, sizeof(prgm_struct_32bit), gfile) != sizeof(prgm_struct_32bit)) {
+                free(prgms);
+                prgms = NULL;
+                prgms_count = 0;
+                goto done;
+            }
+        prgms_capacity = prgms_count;
+        for (i = 0; i < prgms_count; i++) {
+            prgms[i].capacity = prgms[i].size;
+            prgms[i].text = (unsigned char *) mallocU(prgms[i].size);
+            // TODO - handle memory allocation failure
+        }
+        for (i = 0; i < prgms_count; i++) {
+            if (fread(prgms[i].text, 1, prgms[i].size, gfile)
+                    != prgms[i].size) {
+                clear_all_prgms();
+                goto done;
+            }
         }
     }
     if (!read_int(&current_prgm)) {
@@ -1402,15 +1723,53 @@ static bool unpersist_globals(int4 ver) {
         pc = -1;
         goto done;
     }
+    if (state_is_portable) {
+        pc = line2pc(pc);
+        incomplete_saved_pc = line2pc(incomplete_saved_pc);
+    }
     if (!read_int(&prgm_highlight_row)) {
         prgm_highlight_row = 0;
         goto done;
     }
+    
+    if (state_is_portable) {
+        vars_capacity = 0;
+        if (vars != NULL) {
+            free(vars);
+            vars = NULL;
+        }
+        if (!read_int(&vars_count)) {
+            vars_count = 0;
+            goto done;
+        }
+        vars = (var_struct *) malloc(vars_count * sizeof(var_struct));
+        if (vars == NULL) {
+            vars_count = 0;
+            goto done;
+        }
+        for (i = 0; i < vars_count; i++) {
+            if (!read_char((char *) &vars[i].length)
+                || fread(vars[i].name, 1, vars[i].length, gfile) != vars[i].length
+                || !read_int2(&vars[i].level)
+                || !read_bool(&vars[i].hidden)
+                || !read_bool(&vars[i].hiding)
+                || !unpersist_vartype(&vars[i].value, false)) {
+                for (int j = 0; j < i; j++)
+                    free_vartype(vars[j].value);
+                free(vars);
+                vars = NULL;
+                vars_count = 0;
+                goto done;
+            }
+        }
+        vars_capacity = vars_count;
+    }
+    
     if (!read_int(&varmenu_length)) {
         varmenu_length = 0;
         goto done;
     }
-    if (shell_read_saved_state(varmenu, 7) != 7) {
+    if (fread(varmenu, 1, 7, gfile) != 7) {
         varmenu_length = 0;
         goto done;
     }
@@ -1422,11 +1781,21 @@ static bool unpersist_globals(int4 ver) {
         varmenu_length = 0;
         goto done;
     }
-    if (shell_read_saved_state(varmenu_labellength, 6 * sizeof(int))
-            != 6 * sizeof(int))
-        goto done;
-    if (shell_read_saved_state(varmenu_labeltext, 42) != 42)
-        goto done;
+    if (state_is_portable) {
+        char c;
+        for (i = 0; i < 6; i++) {
+            if (!read_char(&c)
+                    || fread(varmenu_labeltext[i], 1, c, gfile) != c)
+                goto done;
+            varmenu_labellength[i] = c;
+        }
+    } else {
+        if (fread(varmenu_labellength, 1, 6 * sizeof(int), gfile)
+                != 6 * sizeof(int))
+            goto done;
+        if (fread(varmenu_labeltext, 1, 42, gfile) != 42)
+            goto done;
+    }
     if (!read_int(&varmenu_role))
         goto done;
     if (!read_int(&rtn_sp))
@@ -1440,9 +1809,42 @@ static bool unpersist_globals(int4 ver) {
         while (rtn_sp > rtn_stack_capacity)
             rtn_stack_capacity <<= 1;
         rtn_stack = (rtn_stack_entry *) realloc(rtn_stack, rtn_stack_capacity * sizeof(rtn_stack_entry));
-        int sz = rtn_sp * sizeof(rtn_stack_entry);
-        if (shell_read_saved_state(rtn_stack, sz) != sz)
-            goto done;
+        if (state_is_portable) {
+            int saved_prgm = current_prgm;
+            for (i = rtn_sp - 1; i >= 0; i--) {
+                bool matrix_entry_follows = i == 1 && rtn_level_0_has_matrix_entry;
+                if (matrix_entry_follows) {
+                    i++;
+                } else {
+                    int4 tprgm, p, l;
+                    if (!read_int4(&tprgm) || !read_int4(&l))
+                        goto done;
+                    matrix_entry_follows = tprgm < 0;
+                    p = tprgm & 0x7fffffff;
+                    if ((p & 0x40000000) != 0)
+                        p |= 0x80000000;
+                    current_prgm = p;
+                    if (p >= 0)
+                        l = line2pc(l);
+                    rtn_stack[i].prgm = tprgm;
+                    rtn_stack[i].pc = l;
+                }
+                if (matrix_entry_follows) {
+                    rtn_stack_matrix_name_entry *e1 = (rtn_stack_matrix_name_entry *) &rtn_stack[--i];
+                    rtn_stack_matrix_ij_entry *e2 = (rtn_stack_matrix_ij_entry *) &rtn_stack[--i];
+                    if (!read_char((char *) &e1->length)
+                            || fread(e1->name, 1, e1->length, gfile) != e1->length
+                            || !read_int4(&e2->i)
+                            || !read_int4(&e2->j))
+                        goto done;
+                }
+            }
+            current_prgm = saved_prgm;
+        } else {
+            int sz = rtn_sp * sizeof(rtn_stack_entry);
+            if (fread(rtn_stack, 1, sz, gfile) != sz)
+                goto done;
+        }
         if (!read_bool(&rtn_solve_active))
             goto done;
         if (!read_bool(&rtn_integ_active))
@@ -1452,15 +1854,13 @@ static bool unpersist_globals(int4 ver) {
         rtn_level_0_has_matrix_entry = false;
         rtn_stack_capacity = 16;
         rtn_stack = (rtn_stack_entry *) realloc(rtn_stack, rtn_stack_capacity * sizeof(rtn_stack_entry));
-        int4 hi_bit = -1;
-        hi_bit -= ((unsigned int4) hi_bit) >> 1;
         rtn_solve_active = false;
         rtn_integ_active = false;
         for (i = 0; i < 8; i++) {
             int prgm;
-            if (shell_read_saved_state(&prgm, sizeof(int)) != sizeof(int))
+            if (fread(&prgm, 1, sizeof(int), gfile) != sizeof(int))
                 goto done;
-            rtn_stack[i].prgm = prgm & ~hi_bit;
+            rtn_stack[i].prgm = prgm & 0x7fffffff;
             if (i < rtn_sp)
                 if (prgm == -2)
                     rtn_solve_active = true;
@@ -1468,36 +1868,37 @@ static bool unpersist_globals(int4 ver) {
                     rtn_integ_active = true;
         }
         for (i = 0; i < 8; i++)
-            if (shell_read_saved_state(&rtn_stack[i].pc, sizeof(int4)) != sizeof(int4))
+            if (fread(&rtn_stack[i].pc, 1, sizeof(int4), gfile) != sizeof(int4))
                 goto done;
     }
 #ifdef IPHONE
-    if (ver >= 17)
+    if (ver >= 17 && ver <= 25)
         if (!read_bool(&off_enable_flag))
             goto done;
 #endif
 
-    if (bin_dec_mode_switch()) {
-        bool clear_stack;
-        if (!convert_programs(&clear_stack)) {
-            clear_all_prgms();
-            goto done;
+    if (!state_is_portable) {
+        if (bin_dec_mode_switch()) {
+            bool clear_stack;
+            if (!convert_programs(&clear_stack)) {
+                clear_all_prgms();
+                goto done;
+            }
+            if (clear_stack)
+                clear_all_rtns();
+        } else {
+            if (ver < 22)
+                for (i = 0; i < prgms_count; i++)
+                    invalidate_lclbls(i, true);
         }
-        if (clear_stack)
-            clear_all_rtns();
-    } else {
-        if (ver < 22)
-            for (i = 0; i < prgms_count; i++)
-                invalidate_lclbls(i, true);
+        #ifdef BCD_MATH
+            if (state_file_number_format == NUMBER_FORMAT_BCD20_OLD
+                    || state_file_number_format == NUMBER_FORMAT_BCD20_NEW)
+                update_decimal_in_programs();
+        #endif
+        rebuild_label_table();
     }
-
-#ifdef BCD_MATH
-    if (state_file_number_format == NUMBER_FORMAT_BCD20_OLD
-            || state_file_number_format == NUMBER_FORMAT_BCD20_NEW)
-        update_decimal_in_programs();
-#endif
-
-    rebuild_label_table();
+    
     ret = true;
 
     done:
@@ -1574,7 +1975,7 @@ int clear_prgm_by_index(int prgm_index) {
     if (prgms_count == 0 || prgm_index == prgms_count) {
         int saved_prgm = current_prgm;
         int saved_pc = pc;
-        goto_dot_dot();
+        goto_dot_dot(false);
         current_prgm = saved_prgm;
         pc = saved_pc;
     }
@@ -1625,10 +2026,10 @@ void clear_prgm_lines(int4 count) {
     clear_all_rtns();
 }
 
-void goto_dot_dot() {
+void goto_dot_dot(bool force_new) {
     int command;
     arg_struct arg;
-    if (prgms_count != 0) {
+    if (prgms_count != 0 && !force_new) {
         /* Check if last program is empty */
         pc = 0;
         current_prgm = prgms_count - 1;
@@ -2118,7 +2519,8 @@ void store_command(int4 pc, int command, arg_struct *arg) {
         update_label_table(current_prgm, pc, bufptr);
     invalidate_lclbls(current_prgm, false);
     clear_all_rtns();
-    draw_varmenu();
+    if (!suppress_varmenu_update)
+        draw_varmenu();
 }
 
 void store_command_after(int4 *pc, int command, arg_struct *arg) {
@@ -2260,9 +2662,7 @@ int push_rtn_addr(int prgm, int4 pc) {
         rtn_stack_capacity = new_rtn_stack_capacity;
         rtn_stack = new_rtn_stack;
     }
-    int4 hi_bit = -1;
-    hi_bit -= ((unsigned int4) hi_bit) >> 1;
-    rtn_stack[rtn_sp].prgm = prgm & ~hi_bit;
+    rtn_stack[rtn_sp].prgm = prgm & 0x7fffffff;
     rtn_stack[rtn_sp].pc = pc;
     rtn_sp++;
     rtn_level++;
@@ -2304,9 +2704,7 @@ int push_indexed_matrix(const char *name, int len) {
         e2.j = matedit_j;
         memcpy(&rtn_stack[rtn_sp - 2], &e2, sizeof(e2));
     } else {
-        int4 hi_bit = -1;
-        hi_bit -= ((unsigned int4) hi_bit) >> 1;
-        if ((rtn_stack[rtn_sp - 1].prgm & hi_bit) != 0)
+        if ((rtn_stack[rtn_sp - 1].prgm & 0x80000000) != 0)
             return ERR_NONE;
         if (rtn_sp + 2 > rtn_stack_capacity) {
             int new_rtn_stack_capacity = rtn_stack_capacity + 16;
@@ -2318,7 +2716,7 @@ int push_indexed_matrix(const char *name, int len) {
         }
         rtn_sp += 2;
         rtn_stack[rtn_sp - 1] = rtn_stack[rtn_sp - 3];
-        rtn_stack[rtn_sp - 1].prgm |= hi_bit;
+        rtn_stack[rtn_sp - 1].prgm |= 0x80000000;
         rtn_stack_matrix_name_entry e1;
         int dlen;
         string_copy(e1.name, &dlen, name, len);
@@ -2357,6 +2755,14 @@ static void remove_locals() {
             continue;
         if (vars[i].level < rtn_level)
             break;
+        if ((matedit_mode == 1 || matedit_mode == 3)
+                && string_equals(vars[i].name, vars[i].length, matedit_name, matedit_length)) {
+            if (matedit_mode == 3) {
+                set_appmenu_exitcallback(0);
+                set_menu(MENULEVEL_APP, MENU_NONE);
+            }
+            matedit_mode = 0;
+        }
         if (vars[i].hiding) {
             for (int j = i - 1; j >= 0; j--)
                 if (vars[j].hidden && string_equals(vars[i].name, vars[i].length, vars[j].name, vars[j].length)) {
@@ -2403,12 +2809,10 @@ void pop_rtn_addr(int *prgm, int4 *pc, bool *stop) {
         rtn_sp--;
         rtn_level--;
         int4 tprgm = rtn_stack[rtn_sp].prgm;
-        int4 hi_bit = -1;
-        hi_bit -= ((unsigned int4) hi_bit) >> 1;
-        *prgm = tprgm & ~hi_bit;
+        *prgm = tprgm & 0x7fffffff;
         // Fix sign, or -2 and -3 won't work!
-        if ((tprgm & (hi_bit >> 1)) != 0)
-            *prgm |= hi_bit;
+        if ((tprgm & 0x40000000) != 0)
+            *prgm |= 0x80000000;
         *pc = rtn_stack[rtn_sp].pc;
         if (rtn_stop_level >= rtn_level) {
             *stop = true;
@@ -2419,7 +2823,7 @@ void pop_rtn_addr(int *prgm, int4 *pc, bool *stop) {
             rtn_solve_active = false;
         else if (*prgm == -3)
             rtn_integ_active = false;
-        if ((tprgm & hi_bit) != 0)
+        if ((tprgm & 0x80000000) != 0)
             goto restore_indexed_matrix;
     }
 }
@@ -2442,9 +2846,7 @@ void pop_indexed_matrix(const char *name, int namelen) {
         }
     } else {
         int4 tprgm = rtn_stack[rtn_sp - 1].prgm;
-        int4 hi_bit = -1;
-        hi_bit -= ((unsigned int4) hi_bit) >> 1;
-        if ((tprgm & hi_bit) != 0) {
+        if ((tprgm & 0x80000000) != 0) {
             rtn_stack_matrix_name_entry e1;
             memcpy(&e1, &rtn_stack[rtn_sp - 2], sizeof(e1));
             if (string_equals(e1.name, e1.length, name, namelen)) {
@@ -2454,7 +2856,7 @@ void pop_indexed_matrix(const char *name, int namelen) {
                 matedit_i = e2.i;
                 matedit_j = e2.j;
                 matedit_mode = 1;
-                rtn_stack[rtn_sp - 3].prgm = tprgm & ~hi_bit;
+                rtn_stack[rtn_sp - 3].prgm = tprgm & 0x7fffffff;
                 rtn_stack[rtn_sp - 3].pc = rtn_stack[rtn_sp - 1].pc;
                 rtn_sp -= 2;
             }
@@ -2493,31 +2895,7 @@ bool unwind_stack_until_solve() {
     return stop;
 }
 
-static bool read_int(int *n) {
-    return shell_read_saved_state(n, sizeof(int)) == sizeof(int);
-}
-
-static bool write_int(int n) {
-    return shell_write_saved_state(&n, sizeof(int));
-}
-
-static bool read_int4(int4 *n) {
-    return shell_read_saved_state(n, sizeof(int4)) == sizeof(int4);
-}
-
-static bool write_int4(int4 n) {
-    return shell_write_saved_state(&n, sizeof(int4));
-}
-
-static bool read_int8(int8 *n) {
-    return shell_read_saved_state(n, sizeof(int8)) == sizeof(int8);
-}
-
-static bool write_int8(int8 n) {
-    return shell_write_saved_state(&n, sizeof(int8));
-}
-
-static bool read_bool(bool *b) {
+bool read_bool(bool *b) {
     if (state_bool_is_int) {
         int t;
         if (!read_int(&t))
@@ -2527,31 +2905,182 @@ static bool read_bool(bool *b) {
         *b = t != 0;
         return true;
     } else {
-        return shell_read_saved_state(b, sizeof(bool)) == sizeof(bool);
+        return read_char((char *) b);
     }
 }
 
-static bool write_bool(bool b) {
-    return shell_write_saved_state(&b, sizeof(bool));
+bool write_bool(bool b) {
+    return fputc((char) b, gfile) != EOF;
+}
+
+bool read_char(char *c) {
+    int i = fgetc(gfile);
+    *c = (char) i;
+    return i != EOF;
+}
+
+bool write_char(char c) {
+    return fputc(c, gfile) != EOF;
+}
+
+bool read_int(int *n) {
+    if (state_is_portable) {
+        int4 m;
+        if (!read_int4(&m))
+            return false;
+        *n = (int) m;
+        return true;
+    } else
+        return fread(n, 1, sizeof(int), gfile) == sizeof(int);
+}
+
+bool write_int(int n) {
+    return write_int4(n);
+}
+
+bool read_int2(int2 *n) {
+    #ifdef F42_BIG_ENDIAN
+        if (state_is_portable) {
+            char buf[2];
+            if (fread(buf, 1, 2, gfile) != 2)
+                return false;
+            char *dst = (char *) n;
+            for (int i = 0; i < 2; i++)
+                dst[i] = buf[1 - i];
+            return true;
+        }
+    #endif
+        return fread(n, 1, 2, gfile) == 2;
+}
+
+bool write_int2(int2 n) {
+    #ifdef F42_BIG_ENDIAN
+        char buf[2];
+        char *src = (char *) &n;
+        for (int i = 0; i < 2; i++)
+            buf[i] = src[1 - i];
+        return fwrite(buf, 1, 2, gfile) == 2;
+    #else
+        return fwrite(&n, 1, 2, gfile) == 2;
+    #endif
+}
+
+bool read_int4(int4 *n) {
+    #ifdef F42_BIG_ENDIAN
+        if (state_is_portable) {
+            char buf[4];
+            if (fread(buf, 1, 4, gfile) != 4)
+                return false;
+            char *dst = (char *) n;
+            for (int i = 0; i < 4; i++)
+                dst[i] = buf[3 - i];
+            return true;
+        }
+    #endif
+        return fread(n, 1, 4, gfile) == 4;
+}
+
+bool write_int4(int4 n) {
+    #ifdef F42_BIG_ENDIAN
+        char buf[4];
+        char *src = (char *) &n;
+        for (int i = 0; i < 4; i++)
+            buf[i] = src[3 - i];
+        return fwrite(buf, 1, 4, gfile) == 4;
+    #else
+        return fwrite(&n, 1, 4, gfile) == 4;
+    #endif
+}
+
+bool read_int8(int8 *n) {
+    #ifdef F42_BIG_ENDIAN
+        if (state_is_portable) {
+            char buf[8];
+            if (fread(buf, 1, 8, gfile) != 8)
+                return false;
+            char *dst = (char *) n;
+            for (int i = 0; i < 8; i++)
+                dst[i] = buf[7 - i];
+            return true;
+        }
+    #endif
+    return fread(n, 1, 8, gfile) == 8;
+}
+
+bool write_int8(int8 n) {
+    #ifdef F42_BIG_ENDIAN
+        char buf[8];
+        char *src = (char *) &n;
+        for (int i = 0; i < 8; i++)
+            buf[i] = src[7 - i];
+        return fwrite(buf, 1, 8, gfile) == 8;
+    #else
+        return fwrite(&n, 1, 8, gfile) == 8;
+    #endif
 }
 
 bool read_phloat(phloat *d) {
     if (bin_dec_mode_switch()) {
+        #ifdef F42_BIG_ENDIAN
+            if (state_is_portable) {
+                #ifdef BCD_MATH
+                    char buf[8];
+                    if (fread(buf, 1, 8, gfile) != 8)
+                        return false;
+                    double dbl;
+                    char *dst = (char *) &dbl;
+                    for (int i = 0; i < 8; i++)
+                        dst[i] = buf[7 - i];
+                    *d = dbl;
+                    return true;
+                #else
+                    char buf[16], data[16];
+                    if (fread(buf, 1, 16, gfile) != 16)
+                        return false;
+                    for (int i = 0; i < 16; i++)
+                        data[i] = buf[15 - i];
+                    *d = decimal2double(data);
+                    return true;
+                #endif
+            }
+        #endif
         #ifdef BCD_MATH
             double dbl;
-            if (shell_read_saved_state(&dbl, sizeof(double)) != sizeof(double))
+            if (fread(&dbl, 1, 8, gfile) != 8)
                 return false;
             *d = dbl;
             return true;
         #else
             char data[16];
-            if (shell_read_saved_state(data, 16) != 16)
+            if (fread(data, 1, 16, gfile) != 16)
                 return false;
             *d = decimal2double(data);
             return true;
         #endif
     } else {
-        if (shell_read_saved_state(d, sizeof(phloat)) != sizeof(phloat))
+        #ifdef F42_BIG_ENDIAN
+            if (state_is_portable) {
+                #ifdef BCD_MATH
+                    char buf[16];
+                    if (fread(buf, 1, 16, gfile) != 16)
+                        return false;
+                    char *dst = (char *) d;
+                    for (int i = 0; i < 16; i++)
+                        dst[i] = buf[15 - i];
+                    update_decimal(&d->val);
+                    return true;
+                #else
+                    char buf[8];
+                    if (fread(buf, 1, 8, gfile) != 8)
+                        return false;
+                    char *dst = (char *) d;
+                    for (int i = 0; i < 8; i++)
+                        dst[i] = buf[7 - i];
+                    return true;
+                #endif
+            }
+        #endif
+        if (fread(d, 1, sizeof(phloat), gfile) != sizeof(phloat))
             return false;
         #ifdef BCD_MATH
             update_decimal(&d->val);
@@ -2561,19 +3090,249 @@ bool read_phloat(phloat *d) {
 }
 
 bool write_phloat(phloat d) {
-    return shell_write_saved_state(&d, sizeof(phloat));
+    #ifdef F42_BIG_ENDIAN
+        #ifdef BCD_MATH
+            char buf[16];
+            char *src = (char *) &d;
+            for (int i = 0; i < 16; i++)
+                buf[i] = src[15 - i];
+            return fwrite(buf, 1, 16, gfile) == 16;
+        #else
+            char buf[8];
+            char *src = (char *) &d;
+            for (int i = 0; i < 8; i++)
+                buf[i] = src[7 - i];
+            return fwrite(buf, 1, 8, gfile) == 8;
+        #endif
+    #else
+        return fwrite(&d, 1, sizeof(phloat), gfile) == sizeof(phloat);
+    #endif
 }
 
-bool load_state(int4 ver) {
+struct dec_arg_struct {
+    unsigned char type;
+    unsigned char length;
+    int4 target;
+    union {
+        int4 num;
+        char text[15];
+        char stk;
+        int cmd;
+        char lclbl;
+    } val;
+    fake_bcd val_d;
+};
+
+struct bin_arg_struct {
+    unsigned char type;
+    unsigned char length;
+    int4 target;
+    union {
+        int4 num;
+        char text[15];
+        char stk;
+        int cmd;
+        char lclbl;
+    } val;
+    double val_d;
+};
+
+bool read_arg(arg_struct *arg, bool old) {
+    if (state_is_portable) {
+        if (!read_char((char *) &arg->type))
+            return false;
+        switch (arg->type) {
+            case ARGTYPE_NONE:
+                return true;
+            case ARGTYPE_NUM:
+            case ARGTYPE_NEG_NUM:
+            case ARGTYPE_IND_NUM:
+            case ARGTYPE_LBLINDEX:
+                return read_int4(&arg->val.num);
+            case ARGTYPE_STK:
+            case ARGTYPE_IND_STK:
+                return read_char(&arg->val.stk);
+            case ARGTYPE_STR:
+            case ARGTYPE_IND_STR:
+                return read_char((char *) &arg->length)
+                && fread(arg->val.text, 1, arg->length, gfile) == arg->length;
+            case ARGTYPE_COMMAND:
+                return read_int(&arg->val.cmd);
+            case ARGTYPE_LCLBL:
+                return read_char(&arg->val.lclbl);
+            case ARGTYPE_DOUBLE:
+                return read_phloat(&arg->val_d);
+            default:
+                // Should never happen
+                return false;
+        }
+    }
+    if (old) {
+        // Prior to core state version 9, the arg_struct type saved a bit of
+        // by using a union to hold the argument value.
+        // In version 9, we switched from using 'double' as our main numeric
+        // data type to 'phloat' -- but since 'phloat' is a class, with a
+        // constructor, it cannot be a member of a union.
+        // So, I had to change the 'val' member from a union to a struct.
+        // Of course, this means that the arg_struct layout is now different,
+        // and when deserializing a pre-9 state file, I must make sure to
+        // deserialize an old-stype arg_struct and then convert it to a
+        // new one.
+        struct {
+            unsigned char type;
+            unsigned char length;
+            int4 target;
+            union {
+                int4 num;
+                char text[15];
+                char stk;
+                int cmd; /* For backward compatibility only! */
+                char lclbl;
+                double d;
+            } val;
+        } old_arg;
+        if (fread(&old_arg, 1, sizeof(old_arg), gfile)
+            != sizeof(old_arg))
+            return false;
+        arg->type = old_arg.type;
+        arg->length = old_arg.length;
+        arg->target = old_arg.target;
+        char *d = (char *) &arg->val;
+        char *s = (char *) &old_arg.val;
+        for (unsigned int i = 0; i < sizeof(old_arg.val); i++)
+            *d++ = *s++;
+        arg->val_d = old_arg.val.d;
+        return true;
+    } else if (bin_dec_mode_switch()) {
+#ifdef BCD_MATH
+        bin_arg_struct ba;
+        if (fread(&ba, 1, sizeof(bin_arg_struct), gfile)
+            != sizeof(bin_arg_struct))
+            return false;
+        arg->type = ba.type;
+        arg->length = ba.length;
+        arg->target = ba.target;
+        char *d = (char *) &arg->val;
+        char *s = (char *) &ba.val;
+        for (unsigned int i = 0; i < sizeof(ba.val); i++)
+            *d++ = *s++;
+        arg->val_d = ba.val_d;
+#else
+        dec_arg_struct da;
+        if (fread(&da, 1, sizeof(dec_arg_struct), gfile)
+            != sizeof(dec_arg_struct))
+            return false;
+        arg->type = da.type;
+        arg->length = da.length;
+        arg->target = da.target;
+        char *d = (char *) &arg->val;
+        char *s = (char *) &da.val;
+        for (unsigned int i = 0; i < sizeof(da.val); i++)
+            *d++ = *s++;
+        arg->val_d = decimal2double(da.val_d.data);
+#endif
+        return true;
+    } else {
+#if BCD_MATH
+        // For explanation, see the comment in write_arg()
+        if (fread(arg, 1, sizeof(dec_arg_struct), gfile)
+            != sizeof(dec_arg_struct))
+            return false;
+        int offset = sizeof(arg_struct) - sizeof(dec_arg_struct);
+        if (offset != 0) {
+            char *s = ((char *) arg) + sizeof(dec_arg_struct);
+            char *d = ((char *) arg) + sizeof(arg_struct);
+            for (unsigned int i = 0; i < 16; i++)
+                *--d = *--s;
+        }
+        return true;
+#else
+        return fread(arg, 1, sizeof(arg_struct), gfile)
+        == sizeof(arg_struct);
+#endif
+    }
+}
+
+bool write_arg(const arg_struct *arg) {
+    if (!write_char(arg->type))
+        return false;
+    switch (arg->type) {
+        case ARGTYPE_NONE:
+            return true;
+        case ARGTYPE_NUM:
+        case ARGTYPE_NEG_NUM:
+        case ARGTYPE_IND_NUM:
+        case ARGTYPE_LBLINDEX:
+            return write_int4(arg->val.num);
+        case ARGTYPE_STK:
+        case ARGTYPE_IND_STK:
+            return write_char(arg->val.stk);
+        case ARGTYPE_STR:
+        case ARGTYPE_IND_STR:
+            return write_char(arg->length)
+                && fwrite(arg->val.text, 1, arg->length, gfile) == arg->length;
+        case ARGTYPE_COMMAND:
+            return write_int(arg->val.cmd);
+        case ARGTYPE_LCLBL:
+            return write_char(arg->val.lclbl);
+        case ARGTYPE_DOUBLE:
+            return write_phloat(arg->val_d);
+        default:
+            // Should never happen
+            return false;
+    }
+}
+
+static bool load_state2(int4 ver, bool *clear, bool *too_new) {
     int4 magic;
     int4 version;
+    *clear = false;
+    *too_new = false;
 
     /* The shell has verified the initial magic and version numbers,
      * and loaded the shell state, before we got called.
      */
 
     state_bool_is_int = ver < 9;
+    state_is_portable = ver >= 26;
 
+    if (state_is_portable) {
+        int4 magic;
+        if (!read_int4(&magic))
+            return false;
+        if (magic != FREE42_MAGIC)
+            return false;
+        if (!read_int4(&ver)) {
+            // A state file containing nothing after the magic number
+            // is considered empty, and results in a hard reset. This
+            // is *not* an error condition; such state files are used
+            // when creating a new state in the States window.
+            *clear = true;
+            return false;
+        }
+    }
+
+    if (ver > FREE42_VERSION) {
+        *too_new = true;
+        return false;
+    }
+
+    if (bug_mode == 0 && ver == 26)
+        bug_mode = 1;
+
+    if (ver >= 28) {
+        // Embedded version information. No need to read this; it's just
+        // there for troubleshooting purposes. All we need to do here is
+        // skip it.
+        while (true) {
+            char c;
+            if (!read_char(&c))
+                return false;
+            if (c == 0)
+                break;
+        }
+    }
+    
     if (ver < 9) {
         state_file_number_format = NUMBER_FORMAT_BINARY;
     } else {
@@ -2589,12 +3348,10 @@ bool load_state(int4 ver) {
             state_file_number_format = NUMBER_FORMAT_BID128;
     }
 
-    if (ver < 2) {
-        core_settings.matrix_singularmatrix = false;
-        core_settings.matrix_outofrange = false;
-    } else {
-        if (!read_bool(&core_settings.matrix_singularmatrix)) return false;
-        if (!read_bool(&core_settings.matrix_outofrange)) return false;
+    if (ver >= 2) {
+        bool bdummy;
+        if (!read_bool(&bdummy)) return false;
+        if (!read_bool(&bdummy)) return false;
         if (ver < 9) {
             int dummy;
             if (!read_int(&dummy)) return false;
@@ -2608,41 +3365,25 @@ bool load_state(int4 ver) {
             if (!read_int(&dummy)) return false;
         }
     }
-    if (ver < 11)
-        core_settings.auto_repeat = true;
-    else
-        if (!read_bool(&core_settings.auto_repeat)) return false;
-    if (ver < 15) {
-        #if defined(ANDROID) || defined(IPHONE)
-            core_settings.enable_ext_accel = true;
-            core_settings.enable_ext_locat = true;
-            core_settings.enable_ext_heading = true;
-        #else
-            core_settings.enable_ext_accel = false;
-            core_settings.enable_ext_locat = false;
-            core_settings.enable_ext_heading = false;
-        #endif
-        core_settings.enable_ext_time = true;
-    } else {
+    if (ver >= 11) {
+        bool dummy;
+        if (!read_bool(&dummy)) return false;
+    }
+    if (ver >= 15 && ver <= 25) {
+        bool dummy;
         if (ver < 20) {
-            bool dummy;
             if (!read_bool(&dummy)) return false;
             if (!read_bool(&dummy)) return false;
         }
-        if (!read_bool(&core_settings.enable_ext_accel)) return false;
-        if (!read_bool(&core_settings.enable_ext_locat)) return false;
-        if (!read_bool(&core_settings.enable_ext_heading)) return false;
-        if (!read_bool(&core_settings.enable_ext_time)) return false;
+        if (!read_bool(&dummy)) return false;
+        if (!read_bool(&dummy)) return false;
+        if (!read_bool(&dummy)) return false;
+        if (!read_bool(&dummy)) return false;
     }
-    #if defined (FREE42_FPTEST)
-        core_settings.enable_ext_fptest = true;
-    #else
-        core_settings.enable_ext_fptest = false;
-    #endif
-    if (ver < 23)
-        core_settings.enable_ext_prog = true;
-    else
-        if (!read_bool(&core_settings.enable_ext_prog)) return false;
+    if (ver >= 23 && ver <= 25) {
+        bool dummy;
+        if (!read_bool(&dummy)) return false;
+    }
 
     if (!read_bool(&mode_clall)) return false;
     if (!read_bool(&mode_command_entry)) return false;
@@ -2655,6 +3396,18 @@ bool load_state(int4 ver) {
     if (!read_int(&mode_transientmenu)) return false;
     if (!read_int(&mode_alphamenu)) return false;
     if (!read_int(&mode_commandmenu)) return false;
+    if (ver < 25) {
+        if (mode_appmenu > MENU_MODES2)
+            mode_appmenu++;
+        if (mode_plainmenu > MENU_MODES2)
+            mode_plainmenu++;
+        if (mode_transientmenu > MENU_MODES2)
+            mode_transientmenu++;
+        if (mode_alphamenu > MENU_MODES2)
+            mode_alphamenu++;
+        if (mode_commandmenu > MENU_MODES2)
+            mode_commandmenu++;
+    }
     if (!read_bool(&mode_running)) return false;
     if (!read_bool(&mode_varmenu)) return false;
     if (!read_bool(&mode_updown)) return false;
@@ -2666,7 +3419,7 @@ bool load_state(int4 ver) {
 
     if (!read_phloat(&entered_number)) return false;
     if (!read_int(&entered_string_length)) return false;
-    if (shell_read_saved_state(entered_string, 15) != 15) return false;
+    if (fread(entered_string, 1, 15, gfile) != 15) return false;
 
     if (!read_int(&pending_command)) return false;
     if (!read_arg(&pending_command_arg, ver < 9)) return false;
@@ -2679,23 +3432,23 @@ bool load_state(int4 ver) {
     if (!read_int(&incomplete_maxdigits)) return false;
     if (!read_int(&incomplete_argtype)) return false;
     if (!read_int(&incomplete_num)) return false;
-    if (shell_read_saved_state(incomplete_str, 7) != 7) return false;
+    if (fread(incomplete_str, 1, 7, gfile) != 7) return false;
     if (!read_int4(&incomplete_saved_pc)) return false;
     if (!read_int4(&incomplete_saved_highlight_row)) return false;
 
-    if (shell_read_saved_state(cmdline, 100) != 100) return false;
+    if (fread(cmdline, 1, 100, gfile) != 100) return false;
     if (!read_int(&cmdline_length)) return false;
     if (!read_int(&cmdline_row)) return false;
 
     if (!read_int(&matedit_mode)) return false;
-    if (shell_read_saved_state(matedit_name, 7) != 7) return false;
+    if (fread(matedit_name, 1, 7, gfile) != 7) return false;
     if (!read_int(&matedit_length)) return false;
     if (!unpersist_vartype(&matedit_x, ver < 18)) return false;
     if (!read_int4(&matedit_i)) return false;
     if (!read_int4(&matedit_j)) return false;
     if (!read_int(&matedit_prev_appmenu)) return false;
 
-    if (shell_read_saved_state(input_name, 11) != 11) return false;
+    if (fread(input_name, 1, 11, gfile) != 11) return false;
     if (!read_int(&input_length)) return false;
     if (!read_arg(&input_arg, ver < 9)) return false;
 
@@ -2720,9 +3473,15 @@ bool load_state(int4 ver) {
 
     if (!read_int(&keybuf_head)) return false;
     if (!read_int(&keybuf_tail)) return false;
-    if (shell_read_saved_state(keybuf, 16 * sizeof(int))
-            != 16 * sizeof(int))
-        return false;
+    if (state_is_portable) {
+        for (int i = 0; i < 16; i++)
+            if (!read_int(&keybuf[i]))
+                return false;
+    } else {
+        if (fread(keybuf, 1, 16 * sizeof(int), gfile)
+                != 16 * sizeof(int))
+            return false;
+    }
 
     if (!unpersist_display(ver))
         return false;
@@ -2731,14 +3490,8 @@ bool load_state(int4 ver) {
 
     if (ver < 4) {
         /* Before state file version 4, I used to save the BCD table in the
-         * state file. As of state file version 4, the Unix and Windows
-         * versions don't do that any more because they don't need to
-         * (generating the table on startup is fast enough); the PalmOS version
-         * now persists the BCD table in a database, which is faster because it
-         * doesn't need to be loaded and saved each time the application is
-         * started and stopped.
-         * This code is to skip the saved BCD table in state versions up to
-         * and including version 3.
+         * state file. We don't use the BCD table any more, so all this code
+         * does is skip it.
          */
         int min_pow2, max_pow2;
         uint4 n1, n2, n3, n4, n;
@@ -2754,17 +3507,17 @@ bool load_state(int4 ver) {
         n = n1 + n2 + n3 + n4;             /* total number of bytes to skip */
         while (n > 0) {
             int count = n < 1024 ? n : 1024;
-            if (shell_read_saved_state(dummy, count) != count)
+            if (fread(dummy, 1, count, gfile) != count)
                 return false;
             n -= count;
         }
     }
 
 #ifdef BCD_MATH
-    if (!unpersist_math(state_file_number_format != NUMBER_FORMAT_BID128))
+    if (!unpersist_math(ver, state_file_number_format != NUMBER_FORMAT_BID128))
         return false;
 #else
-    if (!unpersist_math(state_file_number_format != NUMBER_FORMAT_BINARY))
+    if (!unpersist_math(ver, state_file_number_format != NUMBER_FORMAT_BINARY))
         return false;
 #endif
 
@@ -2778,10 +3531,35 @@ bool load_state(int4 ver) {
     return true;
 }
 
+// See the comment for bug_mode at its declaration...
+
+bool load_state(int4 ver, bool *clear, bool *too_new) {
+    bug_mode = 0;
+    long fpos = ftell(gfile);
+    if (load_state2(ver, clear, too_new))
+        return true;
+    if (bug_mode != 3)
+        return false;
+    // bug_mode == 3 is the signal that the file looks screwy
+    // in the way caused by the buggy string-in-matrix writing
+    // in version 2.5
+    core_cleanup();
+    fseek(gfile, fpos, SEEK_SET);
+    bug_mode = 2;
+    return load_state2(ver, clear, too_new);
+}
+
 void save_state() {
-    /* The shell has written the initial magic and version numbers,
-     * and the shell state, before we got called.
-     */
+    if (!write_int4(FREE42_MAGIC) || !write_int4(FREE42_VERSION))
+        return;
+
+    // Write app version and platform, for troubleshooting purposes
+    const char *platform = shell_platform();
+    char c;
+    do {
+        c = *platform++;
+        write_char(c);
+    } while (c != 0);
 
     #ifdef BCD_MATH
         if (!write_bool(true)) return;
@@ -2791,11 +3569,6 @@ void save_state() {
     if (!write_bool(core_settings.matrix_singularmatrix)) return;
     if (!write_bool(core_settings.matrix_outofrange)) return;
     if (!write_bool(core_settings.auto_repeat)) return;
-    if (!write_bool(core_settings.enable_ext_accel)) return;
-    if (!write_bool(core_settings.enable_ext_locat)) return;
-    if (!write_bool(core_settings.enable_ext_heading)) return;
-    if (!write_bool(core_settings.enable_ext_time)) return;
-    if (!write_bool(core_settings.enable_ext_prog)) return;
     if (!write_bool(mode_clall)) return;
     if (!write_bool(mode_command_entry)) return;
     if (!write_bool(mode_number_entry)) return;
@@ -2814,7 +3587,7 @@ void save_state() {
 
     if (!write_phloat(entered_number)) return;
     if (!write_int(entered_string_length)) return;
-    if (!shell_write_saved_state(entered_string, 15)) return;
+    if (fwrite(entered_string, 1, 15, gfile) != 15) return;
 
     if (!write_int(pending_command)) return;
     if (!write_arg(&pending_command_arg)) return;
@@ -2827,23 +3600,23 @@ void save_state() {
     if (!write_int(incomplete_maxdigits)) return;
     if (!write_int(incomplete_argtype)) return;
     if (!write_int(incomplete_num)) return;
-    if (!shell_write_saved_state(incomplete_str, 7)) return;
-    if (!write_int4(incomplete_saved_pc)) return;
+    if (fwrite(incomplete_str, 1, 7, gfile) != 7) return;
+    if (!write_int4(pc2line(incomplete_saved_pc))) return;
     if (!write_int4(incomplete_saved_highlight_row)) return;
 
-    if (!shell_write_saved_state(cmdline, 100)) return;
+    if (fwrite(cmdline, 1, 100, gfile) != 100) return;
     if (!write_int(cmdline_length)) return;
     if (!write_int(cmdline_row)) return;
 
     if (!write_int(matedit_mode)) return;
-    if (!shell_write_saved_state(matedit_name, 7)) return;
+    if (fwrite(matedit_name, 1, 7, gfile) != 7) return;
     if (!write_int(matedit_length)) return;
     if (!persist_vartype(matedit_x)) return;
     if (!write_int4(matedit_i)) return;
     if (!write_int4(matedit_j)) return;
     if (!write_int(matedit_prev_appmenu)) return;
 
-    if (!shell_write_saved_state(input_name, 11)) return;
+    if (fwrite(input_name, 1, 11, gfile) != 11) return;
     if (!write_int(input_length)) return;
     if (!write_arg(&input_arg)) return;
 
@@ -2856,7 +3629,9 @@ void save_state() {
 
     if (!write_int(keybuf_head)) return;
     if (!write_int(keybuf_tail)) return;
-    if (!shell_write_saved_state(keybuf, 16 * sizeof(int))) return;
+    for (int i = 0; i < 16; i++)
+        if (!write_int(keybuf[i]))
+            return;
 
     if (!persist_display())
         return;
@@ -2869,7 +3644,11 @@ void save_state() {
     if (!write_int4(FREE42_VERSION)) return;
 }
 
-void hard_reset(int bad_state_file) {
+// Reason:
+// 0 = Memory Clear
+// 1 = State File Corrupt
+// 2 = State File Too New
+void hard_reset(int reason) {
     vartype *regs;
 
     /* Clear stack */
@@ -2916,7 +3695,7 @@ void hard_reset(int bad_state_file) {
         labels_capacity = 0;
         labels_count = 0;
     }
-    goto_dot_dot();
+    goto_dot_dot(false);
 
     pending_command = CMD_NONE;
 
@@ -2978,7 +3757,7 @@ void hard_reset(int bad_state_file) {
     flags.f.log_fit_invalid = 0;
     flags.f.exp_fit_invalid = 0;
     flags.f.pwr_fit_invalid = 0;
-    flags.f.f64 = 0;
+    flags.f.shift_state = 0;
     /* flags.f.VIRTUAL_matrix_editor = 0; */
     flags.f.grow = 0;
     flags.f.ymd = 0;
@@ -2992,11 +3771,12 @@ void hard_reset(int bad_state_file) {
     /* flags.f.VIRTUAL_programmable_menu = 0; */
     flags.f.matrix_edge_wrap = 0;
     flags.f.matrix_end_wrap = 0;
-    flags.f.f78 = flags.f.f79 = flags.f.f80 = flags.f.f81 = flags.f.f82 = 0;
-    flags.f.f83 = flags.f.f84 = flags.f.f85 = flags.f.f86 = flags.f.f87 = 0;
-    flags.f.f88 = flags.f.f89 = flags.f.f90 = flags.f.f91 = flags.f.f92 = 0;
-    flags.f.f93 = flags.f.f94 = flags.f.f95 = flags.f.f96 = flags.f.f97 = 0;
-    flags.f.f98 = flags.f.f99 = 0;
+    flags.f.base_signed = 1;
+    flags.f.base_wrap = 0;
+    flags.f.f80 = flags.f.f81 = flags.f.f82 = flags.f.f83 = flags.f.f84 = 0;
+    flags.f.f85 = flags.f.f86 = flags.f.f87 = flags.f.f88 = flags.f.f89 = 0;
+    flags.f.f90 = flags.f.f91 = flags.f.f92 = flags.f.f93 = flags.f.f94 = 0;
+    flags.f.f95 = flags.f.f96 = flags.f.f97 = flags.f.f98 = flags.f.f99 = 0;
 
     mode_clall = false;
     mode_command_entry = false;
@@ -3019,166 +3799,26 @@ void hard_reset(int bad_state_file) {
     mode_goose = -1;
     mode_time_clktd = false;
     mode_time_clk24 = false;
-
-    core_settings.auto_repeat = true;
-    #if defined(ANDROID) || defined(IPHONE)
-        core_settings.enable_ext_accel = true;
-        core_settings.enable_ext_locat = true;
-        core_settings.enable_ext_heading = true;
-    #else
-        core_settings.enable_ext_accel = false;
-        core_settings.enable_ext_locat = false;
-        core_settings.enable_ext_heading = false;
-    #endif
-    core_settings.enable_ext_time = true;
-    #if defined (FREE42_FPTEST)
-        core_settings.enable_ext_fptest = true;
-    #else
-        core_settings.enable_ext_fptest = false;
-    #endif
-    core_settings.enable_ext_prog = true;
+    mode_wsize = 36;
 
     reset_math();
 
     clear_display();
     clear_custom_menu();
     clear_prgm_menu();
-    if (bad_state_file)
-        draw_string(0, 0, "State File Corrupt", 18);
-    else
-        draw_string(0, 0, "Memory Clear", 12);
+    switch (reason) {
+        case 0:
+            draw_string(0, 0, "Memory Clear", 12);
+            break;
+        case 1:
+            draw_string(0, 0, "State File Corrupt", 18);
+            break;
+        case 2:
+            draw_string(0, 0, "State File Too New", 18);
+            break;
+    }
     display_x(1);
     flush_display();
-}
-
-struct dec_arg_struct {
-    unsigned char type;
-    unsigned char length;
-    int4 target;
-    union {
-        int4 num;
-        char text[15];
-        char stk;
-        int cmd;
-        char lclbl;
-    } val;
-    fake_bcd val_d;
-};
-
-struct bin_arg_struct {
-    unsigned char type;
-    unsigned char length;
-    int4 target;
-    union {
-        int4 num;
-        char text[15];
-        char stk;
-        int cmd;
-        char lclbl;
-    } val;
-    double val_d;
-};
-
-bool read_arg(arg_struct *arg, bool old) {
-    if (old) {
-        // Prior to core state version 9, the arg_struct type saved a bit of
-        // by using a union to hold the argument value.
-        // In version 9, we switched from using 'double' as our main numeric
-        // data type to 'phloat' -- but since 'phloat' is a class, with a
-        // constructor, it cannot be a member of a union.
-        // So, I had to change the 'val' member from a union to a struct.
-        // Of course, this means that the arg_struct layout is now different,
-        // and when deserializing a pre-9 state file, I must make sure to
-        // deserialize an old-stype arg_struct and then convert it to a
-        // new one.
-        struct {
-            unsigned char type;
-            unsigned char length;
-            int4 target;
-            union {
-                int4 num;
-                char text[15];
-                char stk;
-                int cmd; /* For backward compatibility only! */
-                char lclbl;
-                double d;
-            } val;
-        } old_arg;
-        if (shell_read_saved_state(&old_arg, sizeof(old_arg))
-                != sizeof(old_arg))
-            return false;
-        arg->type = old_arg.type;
-        arg->length = old_arg.length;
-        arg->target = old_arg.target;
-        char *d = (char *) &arg->val;
-        char *s = (char *) &old_arg.val;
-        for (unsigned int i = 0; i < sizeof(old_arg.val); i++)
-            *d++ = *s++;
-        arg->val_d = old_arg.val.d;
-        return true;
-    } else if (bin_dec_mode_switch()) {
-        #ifdef BCD_MATH
-            bin_arg_struct ba;
-            if (shell_read_saved_state(&ba, sizeof(bin_arg_struct))
-                        != sizeof(bin_arg_struct))
-                return false;
-            arg->type = ba.type;
-            arg->length = ba.length;
-            arg->target = ba.target;
-            char *d = (char *) &arg->val;
-            char *s = (char *) &ba.val;
-            for (unsigned int i = 0; i < sizeof(ba.val); i++)
-                *d++ = *s++;
-            arg->val_d = ba.val_d;
-        #else
-            dec_arg_struct da;
-            if (shell_read_saved_state(&da, sizeof(dec_arg_struct))
-                        != sizeof(dec_arg_struct))
-                return false;
-            arg->type = da.type;
-            arg->length = da.length;
-            arg->target = da.target;
-            char *d = (char *) &arg->val;
-            char *s = (char *) &da.val;
-            for (unsigned int i = 0; i < sizeof(da.val); i++)
-                *d++ = *s++;
-            arg->val_d = decimal2double(da.val_d.data);
-        #endif
-        return true;
-    } else {
-        #if BCD_MATH
-        // For explanation, see the comment in write_arg()
-        if (shell_read_saved_state(arg, sizeof(dec_arg_struct))
-                != sizeof(dec_arg_struct))
-            return false;
-        int offset = sizeof(arg_struct) - sizeof(dec_arg_struct);
-        if (offset != 0) {
-            char *s = ((char *) arg) + sizeof(dec_arg_struct);
-            char *d = ((char *) arg) + sizeof(arg_struct);
-            for (unsigned int i = 0; i < 16; i++)
-                *--d = *--s;
-        }
-        return true;
-        #else
-        return shell_read_saved_state(arg, sizeof(arg_struct))
-            == sizeof(arg_struct);
-        #endif
-    }
-}
-
-bool write_arg(const arg_struct *arg) {
-#ifdef BCD_MATH
-    // The introduction of BID_UINT128 changed the alignment in arg_struct.
-    // BCDFloat was an array of 8 shorts, so was aligned on a 2-byte boundary,
-    // while BID_UINT128 is aligned on a 16-byte boundary. For compatibility,
-    // we eliminate the extra 8 bytes while writing.
-    int firstpartlen = sizeof(dec_arg_struct) - 16;
-    if (!shell_write_saved_state(arg, firstpartlen))
-        return false;
-    return shell_write_saved_state(&arg->val_d, 16);
-#else
-    return shell_write_saved_state(arg, sizeof(arg_struct));
-#endif
 }
 
 static bool convert_programs(bool *clear_stack) {
@@ -3213,18 +3853,16 @@ static bool convert_programs(bool *clear_stack) {
     }
     int mod_count = 0;
     int sp = rtn_sp;
-    int4 hi_bit = -1;
-    hi_bit -= ((unsigned int4) hi_bit) >> 1;
     if (rtn_solve_active || rtn_integ_active) {
         *clear_stack = true;
     } else {
         for (i = 0; i < rtn_level; i++) {
             sp--;
             int4 prgm = rtn_stack[sp].prgm;
-            mod_prgm[mod_count] = prgm & ~hi_bit;
+            mod_prgm[mod_count] = prgm & 0x7fffffff;
             mod_pc[mod_count] = rtn_stack[sp].pc;
             mod_sp[mod_count] = sp;
-            if ((prgm & hi_bit) != 0)
+            if ((prgm & 0x80000000) != 0)
                 sp -= 2;
             mod_count++;
         }
@@ -3444,51 +4082,6 @@ static void update_decimal_in_programs() {
 
     current_prgm = saved_prgm;
     pc = saved_pc;
-}
-#endif
-
-#ifdef ANDROID
-void reinitialize_globals() {
-    /* The Android version may call core_init() after core_quit(), in other
-     * words, the globals may live for more than one session. This caused
-     * crashes in the initial builds, because of course global initializers
-     * are only invoked once, and core_quit() did not bother to clean things
-     * up so that core_init() would be able to run safely.
-     * In my defense, this wasn't sloppy coding; core_quit() does deallocate
-     * everything -- I've tested Free42 for memory leaks using POSE many
-     * times, and it is solid in that regard. The dangling pointers left
-     * by core_quit() are never a problem as long as core_init() and
-     * core_quit() are only called once per process.
-     * Anyway: the following are re-initializations of some globals that
-     * could cause double-free() memory corruption, or other (less fatal, but
-     * still annoying) misbehaviors if left as they are.
-     */
-    reg_x = NULL;
-    reg_y = NULL;
-    reg_z = NULL;
-    reg_t = NULL;
-    reg_lastx = NULL;
-    reg_alpha_length = 0;
-    vars_capacity = 0;
-    vars_count = 0;
-    vars = NULL;
-    prgms_capacity = 0;
-    prgms_count = 0;
-    prgms = NULL;
-    labels_capacity = 0;
-    labels_count = 0;
-    labels = NULL;
-    current_prgm = -1;
-    prgm_highlight_row = 0;
-    mode_interruptible = NULL;
-    mode_pause = false;
-    baseapp = 0;
-    deferred_print = 0;
-    keybuf_head = 0;
-    keybuf_tail = 0;
-    remove_program_catalog = 0;
-    rtn_sp = 0;
-    rtn_stop_level = -1;
 }
 #endif
 

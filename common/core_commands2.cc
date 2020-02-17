@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -264,6 +264,19 @@ int docmd_fact(arg_struct *arg) {
         return ERR_INVALID_TYPE;
 }
 
+static int mappable_gamma(phloat x, phloat *y) {
+    if (x == 0 || x < 0 && x == floor(x))
+        return ERR_INVALID_DATA;
+    *y = tgamma(x);
+    int inf = p_isinf(*y);
+    if (inf != 0)
+        if (flags.f.range_error_ignore)
+            *y = inf < 0 ? NEG_HUGE_PHLOAT : POS_HUGE_PHLOAT;
+        else
+            return ERR_OUT_OF_RANGE;
+    return ERR_NONE;
+}
+
 int docmd_gamma(arg_struct *arg) {
     if (reg_x->type == TYPE_STRING)
         return ERR_ALPHA_DATA_IS_INVALID;
@@ -271,7 +284,7 @@ int docmd_gamma(arg_struct *arg) {
         return ERR_INVALID_TYPE;
     else {
         vartype *v;
-        int err = map_unary(reg_x, &v, math_gamma, NULL);
+        int err = map_unary(reg_x, &v, mappable_gamma, NULL);
         if (err == ERR_NONE)
             unary_result(v);
         return err;
@@ -561,13 +574,7 @@ int docmd_pse(arg_struct *arg) {
         pending_command = CMD_NONE;
         redisplay();
         pending_command = saved_command;
-#ifdef OLD_PSE
-        shell_delay(1000);
-        if (mode_goose >= 0)
-            mode_goose = -1 - mode_goose;
-#else
         mode_pause = true;
-#endif
     }
     return ERR_NONE;
 }
@@ -1720,7 +1727,7 @@ int docmd_gtodot(arg_struct *arg) {
 }
 
 int docmd_gtodotdot(arg_struct *arg) {
-    goto_dot_dot();
+    goto_dot_dot(false);
     return ERR_NONE;
 }
 

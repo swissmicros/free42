@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -16,9 +16,10 @@
  *****************************************************************************/
 
 #import <Cocoa/Cocoa.h>
+#import <WebKit/WebKit.h>
 
 #define FILENAMELEN 256
-#define SHELL_VERSION 0
+#define SHELL_VERSION 2
 
 struct state_type {
     int printerToTxtFile;
@@ -30,6 +31,10 @@ struct state_type {
     int mainWindowX, mainWindowY;
     int printWindowX, printWindowY, printWindowHeight;
     char skinName[FILENAMELEN];
+    char coreName[FILENAMELEN];
+    bool matrix_singularmatrix;
+    bool matrix_outofrange;
+    bool auto_repeat;
 };
 
 extern state_type state;
@@ -51,8 +56,10 @@ void calc_keyup(NSString *characters, NSUInteger flags, unsigned short keycode);
 void calc_keymodifierschanged(NSUInteger flags);
     
 @class ProgramListDataSource;
+@class SkinListDataSource;
 @class CalcView;
 @class PrintView;
+@class StatesWindow;
 
 @interface Free42AppDelegate : NSObject {
     NSWindow *mainWindow;
@@ -79,6 +86,16 @@ void calc_keymodifierschanged(NSUInteger flags);
     NSWindow *aboutWindow;
     NSTextField *aboutVersion;
     NSTextField *aboutCopyright;
+
+    NSWindow *loadSkinsWindow;
+    NSTextField *loadSkinsURL;
+    NSButton *loadSkinButton;
+    WebView *loadSkinsWebView;
+    NSWindow *deleteSkinsWindow;
+    NSTableView *skinListView;
+    SkinListDataSource *skinListDataSource;
+    
+    StatesWindow *statesWindow;
 }
 
 @property (nonatomic, retain) IBOutlet NSWindow *mainWindow;
@@ -101,6 +118,14 @@ void calc_keymodifierschanged(NSUInteger flags);
 @property (nonatomic, retain) IBOutlet NSWindow *aboutWindow;
 @property (nonatomic, retain) IBOutlet NSTextField *aboutVersion;
 @property (nonatomic, retain) IBOutlet NSTextField *aboutCopyright;
+@property (nonatomic, retain) IBOutlet NSWindow *loadSkinsWindow;
+@property (nonatomic, retain) IBOutlet NSTextField *loadSkinsURL;
+@property (nonatomic, retain) IBOutlet NSButton *loadSkinButton;
+@property (nonatomic, retain) IBOutlet WebView *loadSkinsWebView;
+@property (nonatomic, retain) IBOutlet NSWindow *deleteSkinsWindow;
+@property (nonatomic, retain) IBOutlet NSTableView *skinListView;
+@property (nonatomic, retain) IBOutlet SkinListDataSource *skinListDataSource;
+@property (nonatomic, retain) IBOutlet StatesWindow *statesWindow;
 
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification;
 - (void)applicationWillTerminate:(NSNotification *)aNotification;
@@ -112,16 +137,31 @@ void calc_keymodifierschanged(NSUInteger flags);
 - (void) getPreferences;
 - (IBAction) browsePrintTextFile:(id)sender;
 - (IBAction) browsePrintGIFFile:(id)sender;
+- (IBAction) states:(id)sender;
 - (IBAction) showPrintOut:(id)sender;
-- (IBAction) clearPrintOut:(id)sender;
+- (IBAction) paperAdvance:(id)sender;
 - (IBAction) importPrograms:(id)sender;
 - (IBAction) exportPrograms:(id)sender;
 - (IBAction) exportProgramsCancel:(id)sender;
 - (IBAction) exportProgramsOK:(id)sender;
 - (IBAction) doCopy:(id)sender;
 - (IBAction) doPaste:(id)sender;
+- (IBAction) doCopyPrintOutAsText:(id)sender;
+- (IBAction) doCopyPrintOutAsImage:(id)sender;
+- (IBAction) clearPrintOut:(id)sender;
+- (IBAction) loadSkins:(id)sender;
+- (IBAction) loadSkinsGo:(id)sender;
+- (IBAction) loadSkinsBack:(id)sender;
+- (IBAction) loadSkinsForward:(id)sender;
+- (IBAction) loadSkinsLoad:(id)sender;
+- (IBAction) deleteSkins:(id)sender;
+- (IBAction) deleteSkinsCancel:(id)sender;
+- (IBAction) deleteSkinsOK:(id)sender;
 + (const char *) getVersion;
++ (void) showMessage:(NSString *)message withTitle:(NSString *)title;
++ (void) showCMessage:(const char *)message withTitle:(const char *)title;
 - (IBAction) menuNeedsUpdate:(NSMenu *)menu;
 - (void) selectSkin:(id)sender;
++ (void) loadState:(const char *)name;
 
 @end

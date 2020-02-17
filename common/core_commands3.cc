@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -246,7 +246,7 @@ static int mappable_cosh_c(phloat xre, phloat xim, phloat *yre, phloat *yim) {
     int inf;
     sinhxre = sinh(xre);
     coshxre = cosh(xre);
-    sincos(xim, &sinxim, &cosxim);
+    p_sincos(xim, &sinxim, &cosxim);
     *yre = coshxre * cosxim;
     if ((inf = p_isinf(*yre)) != 0) {
         if (flags.f.range_error_ignore)
@@ -633,11 +633,10 @@ int docmd_dim(arg_struct *arg) {
 
 int docmd_dot(arg_struct *arg) {
     /* TODO: look for range errors in intermediate results.
-     * Right now, 1e300+1e300i DOT 1e300-1e300i returns NaN
-     * on the Palm, because two infinities of opposite signs
-     * are added. (Why no NaN on the PC? Weird stuff: doing
-     * "d = xre * yre + xim * yim" yields a different result
-     * than "d = xre * yre ; d += xim * yim". Go figure.)
+     * Right now, 1e6000+1e6000i DOT 1e6000-1e6000i returns NaN
+     * in the Decimal build, because two infinities of opposite
+     * signs are added. 1e300+1e300i DOT 1e300-1e300i probably
+     * does the same in the Binary build.
      */
     vartype *v;
     if (reg_x->type == TYPE_STRING || reg_y->type == TYPE_STRING)
@@ -1249,27 +1248,27 @@ static int hms_add_or_sub(bool add) {
         res = add ? ry + rx : ry - rx;
         ix = (int8) (((x - rx) * 1000000000000.0) + 0.5);
         iy = (int8) (((y - ry) * 1000000000000.0) + 0.5);
-        ixhr = ix % LL(10000000000);
-        iyhr = iy % LL(10000000000);
-        ix /= LL(10000000000);
-        iy /= LL(10000000000);
-        ixhr += (ix % 100) * LL(6000000000);
-        iyhr += (iy % 100) * LL(6000000000);
-        ixhr += (ix / 100) * LL(360000000000);
-        iyhr += (iy / 100) * LL(360000000000);
+        ixhr = ix % 10000000000LL;
+        iyhr = iy % 10000000000LL;
+        ix /= 10000000000LL;
+        iy /= 10000000000LL;
+        ixhr += (ix % 100) * 6000000000LL;
+        iyhr += (iy % 100) * 6000000000LL;
+        ixhr += (ix / 100) * 360000000000LL;
+        iyhr += (iy / 100) * 360000000000LL;
         ireshr = add ? iyhr + ixhr : iyhr - ixhr;
         while (ireshr < 0 && res > 0) {
-            ireshr += LL(360000000000);
+            ireshr += 360000000000LL;
             res -= 1;
         }
         while (ireshr > 0 && res < 0) {
-            ireshr -= LL(360000000000);
+            ireshr -= 360000000000LL;
             res += 1;
         }
-        ires = ireshr % LL(6000000000);
-        ireshr /= LL(6000000000);
-        ires += (ireshr % 60) * LL(10000000000);
-        ires += (ireshr / 60) * LL(1000000000000);
+        ires = ireshr % 6000000000LL;
+        ireshr /= 6000000000LL;
+        ires += (ireshr % 60) * 10000000000LL;
+        ires += (ireshr / 60) * 1000000000000LL;
         res += ires / 1000000000000.0;
         r = res;
     #endif

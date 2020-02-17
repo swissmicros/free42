@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -183,34 +183,9 @@ static int case_insens_comparator(const void *a, const void *b) {
     return strcasecmp(*(const char **) a, *(const char **) b);
 }
 
-typedef struct stringnode {
-    struct stringnode *next;
-    char string[1];
-} stringnode;
-
 void skin_menu_update(NSMenu *skinMenu) {
-    while ([skinMenu numberOfItems] > 0)
-        [skinMenu removeItemAtIndex:0];
-    
-    stringnode *namelist = NULL;
-    char buf[1024];
-    NSString *path = [[NSBundle mainBundle] pathForResource:@"builtin_skins" ofType:@"txt"];
-    [path getCString:buf maxLength:1024 encoding:NSUTF8StringEncoding];
-    FILE *builtins = fopen(buf, "r");
-    while (fgets(buf, 1024, builtins) != NULL) {
-        char *context;
-        char *cname = strtok_r(buf, " \t\r\n", &context);
-        NSString *name = [NSString stringWithCString:cname encoding:NSUTF8StringEncoding];
-        NSMenuItem *item = [skinMenu addItemWithTitle:name action: @selector(selectSkin:) keyEquivalent: @""];
-        if (strcasecmp(cname, state.skinName) == 0)
-            [item setState:NSOnState];
-        stringnode *n = (stringnode *) malloc(sizeof(stringnode) + strlen(cname));
-        // TODO - handle memory allocation failure
-        n->next = namelist;
-        strcpy(n->string, cname);
-        namelist = n;
-    }
-    fclose(builtins);
+    while ([skinMenu numberOfItems] > 3)
+        [skinMenu removeItemAtIndex:3];
     
     DIR *dir = opendir(free42dirname);
     if (dir == NULL)
@@ -229,34 +204,44 @@ void skin_menu_update(NSMenu *skinMenu) {
         namelen -= 7;
         if (strcasecmp(dent->d_name + namelen, ".layout") != 0)
             continue;
-        stringnode *n = namelist;
-        while (n != NULL) {
-            if (strlen(n->string) == namelen && strncasecmp(n->string, dent->d_name, namelen) == 0)
-                goto skip;
-            n = n->next;
-        }
         skn = (char *) malloc(namelen + 1);
         // TODO - handle memory allocation failure
         memcpy(skn, dent->d_name, namelen);
         skn[namelen] = 0;
         skinname[nskins++] = skn;
-        skip:;
     }
     closedir(dir);
     
-    while (namelist != NULL) {
-        stringnode *n = namelist;
-        namelist = namelist->next;
-        free(n);
-    }
-    
     qsort(skinname, nskins, sizeof(char *), case_insens_comparator);
+    
+    char buf[1024];
+    NSString *path = [[NSBundle mainBundle] pathForResource:@"builtin_skins" ofType:@"txt"];
+    [path getCString:buf maxLength:1024 encoding:NSUTF8StringEncoding];
+    FILE *builtins = fopen(buf, "r");
+    while (fgets(buf, 1024, builtins) != NULL) {
+        char *context;
+        char *cname = strtok_r(buf, " \t\r\n", &context);
+        NSString *name = [NSString stringWithUTF8String:cname];
+        NSMenuItem *item = [skinMenu addItemWithTitle:name action: @selector(selectSkin:) keyEquivalent: @""];
+        bool overridden = false;
+        for (int i = 0; i < nskins; i++)
+            if (strcasecmp(cname, skinname[i]) == 0) {
+                overridden = true;
+                break;
+            }
+        if (overridden)
+            [item setEnabled:NO];
+        else if (strcasecmp(cname, state.skinName) == 0)
+            [item setState:NSOnState];
+    }
+    fclose(builtins);
+
     for (int i = 0; i < nskins; i++) {
         if (!have_separator) {
             [skinMenu addItem:[NSMenuItem separatorItem]];
             have_separator = 1;
         }
-        NSString *name = [NSString stringWithCString:skinname[i] encoding:NSUTF8StringEncoding];
+        NSString *name = [NSString stringWithUTF8String:skinname[i]];
         NSMenuItem *item = [skinMenu addItemWithTitle:name action: @selector(selectSkin:) keyEquivalent: @""];
         if (strcasecmp(skinname[i], state.skinName) == 0)
             [item setState:NSOnState];
@@ -264,10 +249,18 @@ void skin_menu_update(NSMenu *skinMenu) {
     }
 }
 
-static int skin_open(const char *skinname, int open_layout) {
+static bool skin_open(const char *skinname, bool open_layout, bool force_builtin) {
     char buf[1024];
     
-    /* Look for built-in skin first */
+    if (!force_builtin) {
+        /* Look for file */
+        sprintf(buf, "%s/Library/Application Support/Free42/%s.%s", getenv("HOME"), skinname, open_layout ? "layout" : "gif");
+        external_file = fopen(buf, "rb");
+        if (external_file != NULL)
+            return true;
+    }
+
+    /* Look for built-in skin */
     NSString *path = [[NSBundle mainBundle] pathForResource:@"builtin_skins" ofType:@"txt"];
     [path getCString:buf maxLength:1024 encoding:NSUTF8StringEncoding];
     FILE *builtins = fopen(buf, "r");
@@ -276,20 +269,18 @@ static int skin_open(const char *skinname, int open_layout) {
         char *name = strtok_r(buf, " \t\r\n", &context);
         if (strcasecmp(skinname, name) == 0) {
             char *filename = strtok_r(NULL, " \t\r\n", &context);
-            NSString *skinpath = [[NSBundle mainBundle] pathForResource:[NSString stringWithCString:filename encoding:NSUTF8StringEncoding]
+            NSString *skinpath = [[NSBundle mainBundle] pathForResource:[NSString stringWithUTF8String:filename]
                                                         ofType:open_layout ? @"layout" : @"gif"];
             [skinpath getCString:buf maxLength:1024 encoding:NSUTF8StringEncoding];
             external_file = fopen(buf, "r");
             fclose(builtins);
-            return 1;
+            return true;
         }
     }
     fclose(builtins);
     
-    /* name did not match a built-in skin; look for file */
-    sprintf(buf, "%s/Library/Application Support/Free42/%s.%s", getenv("HOME"), skinname, open_layout ? "layout" : "gif");
-    external_file = fopen(buf, "rb");
-    return external_file != NULL;
+    /* Nothing found */
+    return false;
 }
 
 int skin_getchar() {
@@ -327,13 +318,14 @@ static void skin_close() {
 
 void skin_load(long *width, long *height) {
     char line[1024];
-    int success;
     int size;
     int kmcap = 0;
     int lineno = 0;
+    bool force_builtin = false;
     
     if (state.skinName[0] == 0) {
     fallback_on_1st_builtin_skin:
+        force_builtin = true;
         NSString *path = [[NSBundle mainBundle] pathForResource:@"builtin_skins" ofType:@"txt"];
         [path getCString:line maxLength:1024 encoding:NSUTF8StringEncoding];
         FILE *builtins = fopen(line, "r");
@@ -348,7 +340,7 @@ void skin_load(long *width, long *height) {
     /* Load skin description */
     /*************************/
     
-    if (!skin_open(state.skinName, 1))
+    if (!skin_open(state.skinName, true, force_builtin))
         goto fallback_on_1st_builtin_skin;
     
     if (keylist != NULL)
@@ -549,7 +541,7 @@ void skin_load(long *width, long *height) {
     /* Load skin bitmap */
     /********************/
     
-    if (!skin_open(state.skinName, 0))
+    if (!skin_open(state.skinName, false, force_builtin))
         goto fallback_on_1st_builtin_skin;
     
     /* shell_loadimage() calls skin_getchar() to load the image from the
@@ -557,7 +549,7 @@ void skin_load(long *width, long *height) {
      * skin_put_pixels(), and skin_finish_image() to create the in-memory
      * representation.
      */
-    success = shell_loadimage();
+    bool success = shell_loadimage();
     skin_close();
     
     if (!success)
@@ -769,7 +761,7 @@ void skin_update_annunciator(int which, int state) {
     annunciator_state[which] = state;
     SkinRect *r = &annunciators[which].disp_rect;
     Free42AppDelegate *delegate = (Free42AppDelegate *) [NSApp delegate];
-    [delegate.calcView setNeedsDisplayInRectSafely:CGRectMake(r->x, r->y, r->width, r->height)];
+    [delegate.calcView setNeedsDisplayInRect:CGRectMake(r->x, r->y, r->width, r->height)];
 }
 
 void skin_find_key(int x, int y, bool cshift, int *skey, int *ckey) {
@@ -830,11 +822,12 @@ unsigned char *skin_keymap_lookup(unsigned short keychar, bool printable,
             && alt == entry->alt
             && (printable || shift == entry->shift)
             && keychar == entry->keychar) {
-            macro = entry->macro;
             if (cshift == entry->cshift) {
                 *exact = true;
-                return macro;
+                return entry->macro;
             }
+            if (cshift)
+                macro = entry->macro;
         }
     }
     *exact = false;
@@ -851,11 +844,11 @@ static void invalidate_key(int key) {
         int w = 21 * display_scale.x;
         int h = 7 * display_scale.y;
         Free42AppDelegate *delegate = (Free42AppDelegate *) [NSApp delegate];
-        [delegate.calcView setNeedsDisplayInRectSafely:CGRectMake(x, y, w, h)];
+        [delegate.calcView setNeedsDisplayInRect:CGRectMake(x, y, w, h)];
     } else if (key >= 0 && key < nkeys) {
         SkinRect *r = &keylist[key].disp_rect;
         Free42AppDelegate *delegate = (Free42AppDelegate *) [NSApp delegate];
-        [delegate.calcView setNeedsDisplayInRectSafely:CGRectMake(r->x, r->y, r->width, r->height)];
+        [delegate.calcView setNeedsDisplayInRect:CGRectMake(r->x, r->y, r->width, r->height)];
     }
 }
 
@@ -880,7 +873,7 @@ void skin_display_blitter(const char *bits, int bytesperline, int x, int y, int 
         }
     
     Free42AppDelegate *delegate = (Free42AppDelegate *) [NSApp delegate];
-    [delegate.calcView setNeedsDisplayInRectSafely:CGRectMake(display_loc.x + x * display_scale.x,
+    [delegate.calcView setNeedsDisplayInRect:CGRectMake(display_loc.x + x * display_scale.x,
                                                               display_loc.y + (16 - y - height) * display_scale.y,
                                                               width * display_scale.x,
                                                               height * display_scale.y)];
@@ -891,7 +884,7 @@ void skin_repaint_display() {
         // Prevent screen flashing during macro execution
         return;
     Free42AppDelegate *delegate = (Free42AppDelegate *) [NSApp delegate];
-    [delegate.calcView setNeedsDisplayInRectSafely:CGRectMake(display_loc.x, display_loc.y, 131 * display_scale.x, 16 * display_scale.y)];
+    [delegate.calcView setNeedsDisplayInRect:CGRectMake(display_loc.x, display_loc.y, 131 * display_scale.x, 16 * display_scale.y)];
 }
 
 void skin_display_set_enabled(bool enable) {

@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2019  Thomas Okken
+ * Copyright (C) 2004-2020  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -20,6 +20,19 @@
 
 #include "free42.h"
 
+/* shell_platform()
+ *
+ * The shell should return a null-terminated string here that identifies the
+ * app's version number, and the platform it is built for. So, something like
+ * "2.5.3 Windows". N.B. It is not necessary to identify the version of the OS
+ * we're running on; what matters is the version of the app itself, and
+ * "Windows" conveys that information, while "Windows 2000 sp4" or "Windows 10"
+ * would add nothing useful.
+ * The returned string will not be freed by the caller, so it can be passed in
+ * a static buffer, or it may even be a constant.
+ */
+const char *shell_platform();
+
 /* shell_blitter()
  *
  * Callback invoked by the emulator core to cause the display, or some portion
@@ -28,12 +41,10 @@
  * 'bits' is a pointer to a 1 bpp (monochrome) bitmap. The bits within a byte
  * are laid out with left corresponding to least significant, right
  * corresponding to most significant; this corresponds to the convention for
- * X11 images, but it is the reverse of the convention for MacOS and its
- * derivatives (Microsoft Windows and PalmOS).
+ * X11 images, but it is the reverse of the convention for MacOS and Windows.
  * The bytes are laid out sequentially, that is, bits[0] is at the top
  * left corner, bits[1] is to the right of bits[0], bits[2] is to the right of
- * bits[1], and so on; this corresponds to X11, MacOS, Windows, and PalmOS
- * usage.
+ * bits[1], and so on; this corresponds to X11, MacOS, and Windows usage.
  * 'bytesperline' is the number of bytes per line of the bitmap; this means
  * that the bits just below bits[0] are at bits[bytesperline].
  * 'x', 'y', 'width', and 'height' define the part of the bitmap that needs to
@@ -90,28 +101,6 @@ void shell_delay(int duration);
  */
 void shell_request_timeout3(int delay);
 
-/* shell_read_saved_state()
- *
- * Callback to read from the saved state. The function will read up to n
- * bytes into the buffer pointed to by buf, and return the number of bytes
- * actually read. The function returns -1 if an error was encountered; a return
- * value of 0 signifies the end of input.
- * The emulator core should only call this function from core_init(), and only
- * if core_init() was called with an argument of 1. (Nothing horrible will
- * happen if you try to call this function during other contexts, but you will
- * always get an error then.)
- */
-int4 shell_read_saved_state(void *buf, int4 bufsize);
-
-/* shell_write_saved_state()
- * Callback to dump the saved state to persistent storage.
- * Returns 1 on success, 0 on error.
- * The emulator core should only call this function from core_quit(). (Nothing
- * horrible will happen if you try to call this function during other contexts,
- * but you will always get an error then.)
- */
-bool shell_write_saved_state(const void *buf, int4 nbytes);
-
 /* shell_get_mem()
  * Callback to get the amount of free memory in bytes.
  */
@@ -163,21 +152,6 @@ int shell_decimal_point();
 void shell_print(const char *text, int length,
                  const char *bits, int bytesperline,
                  int x, int y, int width, int height);
-
-/* shell_write()
- *
- * Callback for core_export_programs(). Returns 0 if a problem occurred;
- * core_export_programs() should abort in that case.
- */
-int shell_write(const char *buf, int4 buflen);
-
-/* shell_read()
- *
- * Callback for core_import_programs(). Returns the number of bytes actually
- * read. Returns -1 if an error occurred; a return value of 0 signifies end of
- * input.
- */
-int4 shell_read(char *buf, int4 buflen);
 
 #if defined(ANDROID) || defined(IPHONE)
 /* shell_get_acceleration()
@@ -231,6 +205,12 @@ int shell_always_on(int always_on);
  * The weekday is a number from 0 to 6, with 0 being Sunday.
  */
 void shell_get_time_date(uint4 *time, uint4 *date, int *weekday);
+
+/* shell_message()
+ * 
+ * Displays a modal pop-up message box.
+ */
+void shell_message(const char *message);
 
 /* shell_log()
  *
