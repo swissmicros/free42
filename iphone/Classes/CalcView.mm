@@ -80,7 +80,7 @@ static int ckey = 0;
 static int skey;
 static unsigned char *macro;
 static bool macro_is_name;
-static int mouse_key;
+static UITouch *currentTouch = nil;
 
 static bool timeout_active = false;
 static int timeout_which;
@@ -273,11 +273,28 @@ static CalcView *calcView = nil;
     [super dealloc];
 }
 
+static char touchDelayed = 0;
+static CGPoint touchPoint;
+
 - (void) touchesBegan: (NSSet *) touches withEvent: (UIEvent *) event {
     TRACE("touchesBegan");
     [super touchesBegan:touches withEvent:event];
-    UITouch *touch = (UITouch *) [touches anyObject];
-    CGPoint p = [touch locationInView:self];
+    if (touchDelayed != 0) {
+        [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(touchesBegan2) object:nil];
+        [self touchesBegan2];
+    }
+    if (ckey != 0)
+        shell_keyup();
+    [currentTouch release];
+    currentTouch = (UITouch *) [touches anyObject];
+    [currentTouch retain];
+    touchPoint = [currentTouch locationInView:self];
+    touchDelayed = 1;
+    [self performSelector:@selector(touchesBegan2) withObject:nil afterDelay:0.05];
+}
+
+- (void) touchesBegan2 {
+    CGPoint p = touchPoint;
     int x = (int) p.x;
     int y = (int) p.y;
     if (ckey == 0) {
@@ -300,23 +317,38 @@ static CalcView *calcView = nil;
             }
             macro = skin_find_macro(ckey, &macro_is_name);
             shell_keydown();
-            mouse_key = 1;
         }
+    }
+    if (touchDelayed == 2) {
+        if (ckey != 0)
+            shell_keyup();
+    }
+    touchDelayed = 0;
+}
+
+- (void) myTouchesEnded:(NSSet *) touches {
+    if (touchDelayed == 1) {
+        touchDelayed = 2;
+    } else {
+        if (ckey != 0 && [touches containsObject:currentTouch]) {
+            shell_keyup();
+            [currentTouch release];
+            currentTouch = nil;
+        }
+        touchDelayed = 0;
     }
 }
 
 - (void) touchesEnded: (NSSet *) touches withEvent: (UIEvent *) event {
     TRACE("touchesEnded");
     [super touchesEnded:touches withEvent:event];
-    if (ckey != 0 && mouse_key)
-        shell_keyup();
+    [self myTouchesEnded:touches];
 }
 
 - (void) touchesCancelled: (NSSet *) touches withEvent: (UIEvent *) event {
     TRACE("touchesCancelled");
     [super touchesCancelled:touches withEvent:event];
-    if (ckey != 0 && mouse_key)
-        shell_keyup();
+    [self myTouchesEnded:touches];
 }
 
 + (void) repaint {
@@ -450,6 +482,47 @@ static struct timeval runner_end_time;
         [self startRunner];
     if (shell_always_on(-1))
         [UIApplication sharedApplication].idleTimerDisabled = YES;
+    
+    UIPanGestureRecognizer *panrec = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
+    panrec.cancelsTouchesInView = NO;
+    panrec.delaysTouchesEnded = NO;
+    [self addGestureRecognizer:panrec];
+}
+
+- (void) handlePan:(UIPanGestureRecognizer *)panrec {
+    static CGFloat prevX;
+    UIGestureRecognizerState state = [panrec state];
+    CGPoint p = [panrec translationInView:[self superview]];
+    PrintView *print = ((Free42AppDelegate *) UIApplication.sharedApplication.delegate).rootViewController.printView;
+    CGRect cf = self.frame;
+    CGRect pf = print.frame;
+    if (state == UIGestureRecognizerStateBegan) {
+        // Make sure the Print-Out view isn't hidden
+        [RootViewController showPrintOut];
+        [RootViewController showMain];
+        [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(touchesBegan2) object:nil];
+        touchDelayed = 0;
+        prevX = self.frame.origin.x;
+    }
+    if (state == UIGestureRecognizerStateEnded) {
+        cf.origin.x = prevX;
+        self.frame = cf;
+        pf.origin.x = prevX;
+        print.frame = pf;
+        CGPoint v = [panrec velocityInView:[self superview]];
+        CGFloat scale = self.bounds.size.width / self.bounds.size.height;
+        if (scale < 1)
+            scale = 1;
+        if (scale * (p.x + v.x / 16) < -self.bounds.size.width / 3)
+            [RootViewController showPrintOut];
+    } else {
+        if (p.x > 0)
+            p.x = 0;
+        cf.origin.x = self.superview.bounds.origin.x + p.x;
+        self.frame = cf;
+        pf.origin.x = self.superview.bounds.origin.x + p.x + self.frame.size.width;
+        print.frame = pf;
+    }
 }
 
 + (void) loadState:(const char *)name {

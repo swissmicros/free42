@@ -16,7 +16,9 @@
  *****************************************************************************/
 
 #import "PrintView.h"
+#import "CalcView.h"
 #import "RootViewController.h"
+#import "Free42AppDelegate.h"
 #import "shell.h"
 #import "shell_spool.h"
 
@@ -51,7 +53,8 @@ int print_text_pixel_height;
     print_bitmap = (unsigned char *) malloc(PRINT_SIZE);
     print_text = (unsigned char *) malloc(PRINT_TEXT_SIZE);
     // TODO - handle memory allocation failure
-    scale = (CGFloat) (self.bounds.size.width / 179.0);
+    CGFloat w = self.bounds.size.width < self.bounds.size.height ? self.bounds.size.width : self.bounds.size.height;
+    scale = (CGFloat) (w / 179.0);
     
     FILE *printfile = fopen("config/print", "r");
     if (printfile != NULL) {
@@ -92,11 +95,69 @@ int print_text_pixel_height;
     print_text_top = 0;
 
     [self repositionTiles:true];
-    [self scrollToBottom];
+    // Calling scrollToBottom immediately doesn't work right if the
+    // print-out is sufficiently long, probably because something
+    // about the layout changes hasn't fully propagated yet. Calling
+    // it next time around the event loop seems to fix the problem.
+    [self performSelector:@selector(scrollToBottom) withObject:nil afterDelay:0];
+    
+    UIPanGestureRecognizer *panrec = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
+    [self addGestureRecognizer:panrec];
+}
+
+- (void) handlePan:(UIPanGestureRecognizer *)panrec {
+    static CGFloat prevX;
+    UIGestureRecognizerState state = [panrec state];
+    CGPoint p = [panrec translationInView:[self superview]];
+    CalcView *calc = ((Free42AppDelegate *) UIApplication.sharedApplication.delegate).rootViewController.calcView;
+    CGRect pf = self.frame;
+    CGRect cf = calc.frame;
+    if (state == UIGestureRecognizerStateBegan) {
+        // Make sure the Calculator view isn't hidden
+        [RootViewController showMain];
+        [RootViewController showPrintOut];
+        prevX = self.frame.origin.x;
+    }
+    if (state == UIGestureRecognizerStateEnded) {
+        pf.origin.x = prevX;
+        self.frame = pf;
+        cf.origin.x = prevX;
+        calc.frame = cf;
+        CGPoint v = [panrec velocityInView:[self superview]];
+        CGFloat scale = self.bounds.size.width / self.bounds.size.height;
+        if (scale < 1)
+            scale = 1;
+        if (scale * (p.x + v.x / 16) > self.bounds.size.width / 3)
+            [RootViewController showMain];
+    } else {
+        if (p.x < 0)
+            p.x = 0;
+        pf.origin.x = self.superview.bounds.origin.x + p.x;
+        self.frame = pf;
+        cf.origin.x = self.superview.bounds.origin.x + p.x - calc.frame.size.width;
+        calc.frame = cf;
+    }
 }
 
 - (void)dealloc {
     [super dealloc];
+}
+
+- (void) layoutSubviews {
+    [super layoutSubviews];
+    // Handle changing navigation bar height
+    // For some reason, the navigation bar itself always reports a height of
+    // 44 pixels, even though in landscape mode it is definitely thinner
+    int navHeight = self.bounds.size.width < self.bounds.size.height ? 44 : 32;
+    CGRect scrollFrame = self.scrollView.frame;
+    scrollFrame.size.height += scrollFrame.origin.y - navHeight;
+    scrollFrame.origin.y = navHeight;
+    [self.scrollView setFrame:scrollFrame];
+    
+    // Force print-out paper to be 179 simulated pixels wide
+    CGFloat w = self.bounds.size.width < self.bounds.size.height ? self.bounds.size.width : self.bounds.size.height;
+    scale = (CGFloat) (w / 179.0);
+    [self repositionTiles:true];
 }
 
 + (PrintView *) instance {
@@ -309,6 +370,8 @@ static void tbnonewliner() {
 
 - (void) scrollToBottom {
     CGPoint bottomOffset = CGPointMake(0, self.scrollView.contentSize.height - self.scrollView.bounds.size.height);
+    if (bottomOffset.y < 0)
+        bottomOffset.y = 0;
     [self.scrollView setContentOffset:bottomOffset animated:NO];
 }
 
@@ -384,17 +447,18 @@ static void tbnonewliner() {
 - (void) repositionTiles:(bool)force {
     CGPoint offset = scrollView.contentOffset;
     CGSize size = scrollView.bounds.size;
+    CGFloat tileWidth = 179 * scale;
     int printHeight = printout_bottom - printout_top;
     if (printHeight < 0)
         printHeight += PRINT_LINES;
     [scrollView setContentSize:CGSizeMake(self.bounds.size.width, printHeight * scale)];
     int tilePos = ((int) offset.y) / ((int) size.height);
-    CGRect tile1rect = CGRectMake(0, size.height * tilePos, size.width, size.height);
+    CGRect tile1rect = CGRectMake(0, size.height * tilePos, tileWidth, size.height);
     if (tile1rect.origin.y < 0) {
         tile1rect.size.height += tile1rect.origin.y;
         tile1rect.origin.y = 0;
     }
-    CGRect tile2rect = CGRectMake(0, size.height * (tilePos + 1), size.width, size.height);
+    CGRect tile2rect = CGRectMake(0, size.height * (tilePos + 1), tileWidth, size.height);
     int excessHeight = tile2rect.origin.y + tile2rect.size.height - printHeight * scale;
     if (excessHeight > 0) {
         int oldHeight = (int) tile2rect.size.height;

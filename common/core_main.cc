@@ -582,8 +582,11 @@ int core_keyup() {
             goto do_run;
         }
         if ((flags.f.trace_print || flags.f.normal_print)
-                && flags.f.printer_exists)
+                && flags.f.printer_exists) {
+            if (cmd == CMD_LBL)
+                print_text(NULL, 0, 1);
             print_program_line(current_prgm, oldpc);
+        }
         mode_disable_stack_lift = false;
         set_running(true);
         error = cmdlist(cmd)->handler(&arg);
@@ -856,11 +859,11 @@ static size_t raw_write(const char *buf, size_t size) {
 
 static void raw_close(const char *mode) {
     if (raw_buf == NULL) {
-	if (ferror(gfile)) {
-	    char msg[50];
-	    sprintf(msg, "An error occurred during program %s.", mode);
+        if (ferror(gfile)) {
+            char msg[50];
+            sprintf(msg, "An error occurred during program %s.", mode);
             shell_message(msg);
-	}
+        }
         fclose(gfile);
     }
 }
@@ -3059,8 +3062,19 @@ static void paste_programs(const char *buf) {
                 arg.type = ARGTYPE_DOUBLE;
                 goto store;
             } else {
-                // No decimal or exponent following the digits;
-                // for now, assume it's a line number.
+                // Check for 1/X or 10^X
+                int len = hpend - prev_hppos;
+                if (len == 3 && strncmp(hpbuf + prev_hppos, "1/X", 3) == 0) {
+                    cmd = CMD_INV;
+                    arg.type = ARGTYPE_NONE;
+                    goto store;
+                } else if (len == 4 && strncmp(hpbuf + prev_hppos, "10^X", 4) == 0) {
+                    cmd = CMD_10_POW_X;
+                    arg.type = ARGTYPE_NONE;
+                    goto store;
+                }
+                // No decimal or exponent following the digits, and it's
+                // not 1/X or 10^X; for now, assume it's a line number.
                 lineno_start = prev_hppos;
                 lineno_end = hppos;
             }
@@ -3550,6 +3564,11 @@ void core_paste(const char *buf) {
             // Scalar
             int len = (int) strlen(buf);
             char *asciibuf = (char *) malloc(len + 1);
+            if (asciibuf == NULL) {
+                display_error(ERR_INSUFFICIENT_MEMORY, 0);
+                redisplay();
+                return;
+            }
             strcpy(asciibuf, buf);
             if (len > 0 && asciibuf[len - 1] == '\n') {
                 asciibuf[--len] = 0;
@@ -3557,6 +3576,12 @@ void core_paste(const char *buf) {
                     asciibuf[--len] = 0;
             }
             char *hpbuf = (char *) malloc(len + 4);
+            if (hpbuf == NULL) {
+                free(asciibuf);
+                display_error(ERR_INSUFFICIENT_MEMORY, 0);
+                redisplay();
+                return;
+            }
             len = ascii2hp(hpbuf, asciibuf, len);
             free(asciibuf);
             v = parse_base(hpbuf, len);
@@ -3577,6 +3602,7 @@ void core_paste(const char *buf) {
                         break;
                 }
             }
+            free(hpbuf);
         } else {
             // Matrix
             int n = rows * cols;
@@ -3903,8 +3929,11 @@ static void continue_running() {
             return;
         }
         get_next_command(&pc, &cmd, &arg, 1);
-        if (flags.f.trace_print && flags.f.printer_exists)
+        if (flags.f.trace_print && flags.f.printer_exists) {
+            if (cmd == CMD_LBL)
+                print_text(NULL, 0, 1);
             print_program_line(current_prgm, oldpc);
+        }
         mode_disable_stack_lift = false;
         error = cmdlist(cmd)->handler(&arg);
         if (mode_pause) {

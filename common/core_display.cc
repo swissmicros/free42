@@ -1514,6 +1514,7 @@ typedef struct {
 } extension_struct;
 
 static extension_struct extensions[] = {
+    { CMD_MAX,     CMD_FIND,    NULL                               },
     { CMD_ACCEL,   CMD_ACCEL,   &core_settings.enable_ext_accel    },
     { CMD_LOCAT,   CMD_LOCAT,   &core_settings.enable_ext_locat    },
     { CMD_HEADING, CMD_HEADING, &core_settings.enable_ext_heading  },
@@ -1529,6 +1530,7 @@ static extension_struct extensions[] = {
 // A command number of -1 defines a range, from the number before it in
 // the list until the number after it.
 static int ext_fcn_cat[] = {
+    CMD_FIND, CMD_MAX, CMD_MIN,
     CMD_ADATE, -1, CMD_SWPT,
     CMD_YMD,
     CMD_BRESET, CMD_BSIGNED, CMD_BWRAP,
@@ -1715,14 +1717,14 @@ static void draw_catalog() {
                 case TYPE_REAL:
                 case TYPE_STRING:
                     if (show_real) vcount++;
-		    break;
+                    break;
                 case TYPE_COMPLEX:
                     if (show_cpx) vcount++;
-		    break;
+                    break;
                 case TYPE_REALMATRIX:
                 case TYPE_COMPLEXMATRIX:
                     if (show_mat) vcount++;
-		    break;
+                    break;
             }
         }
         if (vcount == 0) {
