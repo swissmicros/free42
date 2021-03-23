@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2020  Thomas Okken
+ * Copyright (C) 2004-2021  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -16,6 +16,7 @@
  *****************************************************************************/
 
 #include <stdlib.h>
+#include <string.h>
 
 #include "core_globals.h"
 #include "core_helpers.h"
@@ -27,24 +28,24 @@
 // We cache vartype_real, vartype_complex, and vartype_string instances, to
 // cut down on the malloc/free overhead.
 
-typedef struct pool_real {
+struct pool_real {
     vartype_real r;
-    struct pool_real *next;
-} pool_real;
+    pool_real *next;
+};
 
 static pool_real *realpool = NULL;
 
-typedef struct pool_complex {
+struct pool_complex {
     vartype_complex c;
-    struct pool_complex *next;
-} pool_complex;
+    pool_complex *next;
+};
 
 static pool_complex *complexpool = NULL;
 
-typedef struct pool_string {
+struct pool_string {
     vartype_string s;
-    struct pool_string *next;
-} pool_string;
+    pool_string *next;
+};
 
 static pool_string *stringpool = NULL;
 
@@ -80,21 +81,30 @@ vartype *new_complex(phloat re, phloat im) {
 }
 
 vartype *new_string(const char *text, int length) {
+    char *dbuf;
+    if (length > SSLENV) {
+        dbuf = (char *) malloc(length);
+        if (dbuf == NULL)
+            return NULL;
+    }
     pool_string *s;
     if (stringpool == NULL) {
         s = (pool_string *) malloc(sizeof(pool_string));
-        if (s == NULL)
+        if (s == NULL) {
+            if (length > SSLENV)
+                free(dbuf);
             return NULL;
+        }
         s->s.type = TYPE_STRING;
     } else {
         s = stringpool;
         stringpool = stringpool->next;
     }
-    int i;
-    s->s.type = TYPE_STRING;
-    s->s.length = length > 6 ? 6 : length;
-    for (i = 0; i < s->s.length; i++)
-        s->s.text[i] = text[i];
+    s->s.length = length;
+    if (length > SSLENV)
+        s->s.t.ptr = dbuf;
+    if (text != NULL)
+        memcpy(length > SSLENV ? s->s.t.ptr : s->s.t.buf, text, length);
     return (vartype *) s;
 }
 
@@ -119,14 +129,12 @@ vartype *new_realmatrix(int4 rows, int4 columns) {
     }
     rm->array->data = (phloat *) malloc(sz * sizeof(phloat));
     if (rm->array->data == NULL) {
-        /* Oops */
         free(rm->array);
         free(rm);
         return NULL;
     }
     rm->array->is_string = (char *) malloc(sz);
     if (rm->array->is_string == NULL) {
-        /* Oops */
         free(rm->array->data);
         free(rm->array);
         free(rm);
@@ -134,8 +142,7 @@ vartype *new_realmatrix(int4 rows, int4 columns) {
     }
     for (i = 0; i < sz; i++)
         rm->array->data[i] = 0;
-    for (i = 0; i < sz; i++)
-        rm->array->is_string[i] = 0;
+    memset(rm->array->is_string, 0, sz);
     rm->array->refcount = 1;
     return (vartype *) rm;
 }
@@ -161,7 +168,6 @@ vartype *new_complexmatrix(int4 rows, int4 columns) {
     }
     cm->array->data = (phloat *) malloc(sz * sizeof(phloat));
     if (cm->array->data == NULL) {
-        /* Oops */
         free(cm->array);
         free(cm);
         return NULL;
@@ -172,27 +178,26 @@ vartype *new_complexmatrix(int4 rows, int4 columns) {
     return (vartype *) cm;
 }
 
-vartype *new_matrix_alias(vartype *m) {
-    if (m->type == TYPE_REALMATRIX) {
-        vartype_realmatrix *rm1 = (vartype_realmatrix *) m;
-        vartype_realmatrix *rm2 = (vartype_realmatrix *)
-                                        malloc(sizeof(vartype_realmatrix));
-        if (rm2 == NULL)
-            return NULL;
-        *rm2 = *rm1;
-        rm2->array->refcount++;
-        return (vartype *) rm2;
-    } else if (m->type == TYPE_COMPLEXMATRIX) {
-        vartype_complexmatrix *cm1 = (vartype_complexmatrix *) m;
-        vartype_complexmatrix *cm2 = (vartype_complexmatrix *)
-                                        malloc(sizeof(vartype_complexmatrix));
-        if (cm2 == NULL)
-            return NULL;
-        *cm2 = *cm1;
-        cm2->array->refcount++;
-        return (vartype *) cm2;
-    } else
+vartype *new_list(int4 size) {
+    vartype_list *list = (vartype_list *) malloc(sizeof(vartype_list));
+    if (list == NULL)
         return NULL;
+    list->type = TYPE_LIST;
+    list->size = size;
+    list->array = (list_data *) malloc(sizeof(list_data));
+    if (list->array == NULL) {
+        free(list);
+        return NULL;
+    }
+    list->array->data = (vartype **) malloc(size * sizeof(vartype *));
+    if (list->array->data == NULL) {
+        free(list->array);
+        free(list);
+        return NULL;
+    }
+    memset(list->array->data, 0, size * sizeof(vartype *));
+    list->array->refcount = 1;
+    return (vartype *) list;
 }
 
 void free_vartype(vartype *v) {
@@ -213,6 +218,8 @@ void free_vartype(vartype *v) {
         }
         case TYPE_STRING: {
             pool_string *s = (pool_string *) v;
+            if (s->s.length > SSLENV)
+                free(s->s.t.ptr);
             s->next = stringpool;
             stringpool = s;
             break;
@@ -220,6 +227,8 @@ void free_vartype(vartype *v) {
         case TYPE_REALMATRIX: {
             vartype_realmatrix *rm = (vartype_realmatrix *) v;
             if (--(rm->array->refcount) == 0) {
+                int4 sz = rm->rows * rm->columns;
+                free_long_strings(rm->array->is_string, rm->array->data, sz);
                 free(rm->array->data);
                 free(rm->array->is_string);
                 free(rm->array);
@@ -234,6 +243,17 @@ void free_vartype(vartype *v) {
                 free(cm->array);
             }
             free(cm);
+            break;
+        }
+        case TYPE_LIST: {
+            vartype_list *list = (vartype_list *) v;
+            if (--(list->array->refcount) == 0) {
+                for (int4 i = 0; i < list->size; i++)
+                    free_vartype(list->array->data[i]);
+                free(list->array->data);
+                free(list->array);
+            }
+            free(list);
             break;
         }
     }
@@ -257,6 +277,59 @@ void clean_vartype_pools() {
     }
 }
 
+void free_long_strings(char *is_string, phloat *data, int4 n) {
+    for (int4 i = 0; i < n; i++)
+        if (is_string[i] == 2)
+            free(*(void **) &data[i]);
+}
+
+void get_matrix_string(vartype_realmatrix *rm, int i, char **text, int4 *length) {
+    if (rm->array->is_string[i] == 1) {
+        char *t = (char *) &rm->array->data[i];
+        *text = t + 1;
+        *length = *t;
+    } else {
+        int4 *p = *(int4 **) &rm->array->data[i];
+        *text = (char *) (p + 1);
+        *length = *p;
+    }
+}
+
+void get_matrix_string(const vartype_realmatrix *rm, int i, const char **text, int4 *length) {
+    get_matrix_string((vartype_realmatrix *) rm, i, (char **) text, length);
+}
+
+bool put_matrix_string(vartype_realmatrix *rm, int i, const char *text, int4 length) {
+    char *ptext;
+    int4 plength;
+    if (rm->array->is_string[i] != 0) {
+        get_matrix_string(rm, i, &ptext, &plength);
+        if (plength == length) {
+            memcpy(ptext, text, length);
+            return true;
+        }
+    }
+    if (length > SSLENM) {
+        int4 *p = (int4 *) malloc(length + 4);
+        if (p == NULL)
+            return false;
+        *p = length;
+        memcpy(p + 1, text, length);
+        if (rm->array->is_string[i] == 2)
+            free(*(void **) &rm->array->data[i]);
+        *(int4 **) &rm->array->data[i] = p;
+        rm->array->is_string[i] = 2;
+    } else {
+        if (rm->array->is_string[i] == 2)
+            free(*(void **) &rm->array->data[i]);
+        char *t = (char *) &rm->array->data[i];
+        t[0] = length;
+        memmove(t + 1, text, length);
+        rm->array->is_string[i] = 1;
+    }
+    return true;
+}
+
 vartype *dup_vartype(const vartype *v) {
     if (v == NULL)
         return NULL;
@@ -275,10 +348,7 @@ vartype *dup_vartype(const vartype *v) {
                                         malloc(sizeof(vartype_realmatrix));
             if (rm2 == NULL)
                 return NULL;
-            rm2->type = TYPE_REALMATRIX;
-            rm2->rows = rm->rows;
-            rm2->columns = rm->columns;
-            rm2->array = rm->array;
+            *rm2 = *rm;
             rm->array->refcount++;
             return (vartype *) rm2;
         }
@@ -288,16 +358,22 @@ vartype *dup_vartype(const vartype *v) {
                                         malloc(sizeof(vartype_complexmatrix));
             if (cm2 == NULL)
                 return NULL;
-            cm2->type = TYPE_COMPLEXMATRIX;
-            cm2->rows = cm->rows;
-            cm2->columns = cm->columns;
-            cm2->array = cm->array;
+            *cm2 = *cm;
             cm->array->refcount++;
             return (vartype *) cm2;
         }
         case TYPE_STRING: {
             vartype_string *s = (vartype_string *) v;
-            return new_string(s->text, s->length);
+            return new_string(s->txt(), s->length);
+        }
+        case TYPE_LIST: {
+            vartype_list *list = (vartype_list *) v;
+            vartype_list *list2 = (vartype_list *) malloc(sizeof(vartype_list));
+            if (list2 == NULL)
+                return NULL;
+            *list2 = *list;
+            list->array->refcount++;
+            return (vartype *) list2;
         }
         default:
             return NULL;
@@ -328,10 +404,25 @@ int disentangle(vartype *v) {
                     free(md);
                     return 0;
                 }
-                for (i = 0; i < sz; i++)
-                    md->data[i] = rm->array->data[i];
-                for (i = 0; i < sz; i++)
+                for (i = 0; i < sz; i++) {
                     md->is_string[i] = rm->array->is_string[i];
+                    if (md->is_string[i] == 2) {
+                        int4 *sp = *(int4 **) &rm->array->data[i];
+                        int4 len = *sp + 4;
+                        int4 *dp = (int4 *) malloc(len);
+                        if (dp == NULL) {
+                            free_long_strings(md->is_string, md->data, i);
+                            free(md->is_string);
+                            free(md->data);
+                            free(md);
+                            return 0;
+                        }
+                        memcpy(dp, sp, len);
+                        *(int4 **) &md->data[i] = dp;
+                    } else {
+                        md->data[i] = rm->array->data[i];
+                    }
+                }
                 md->refcount = 1;
                 rm->array->refcount--;
                 rm->array = md;
@@ -362,6 +453,39 @@ int disentangle(vartype *v) {
                 return 1;
             }
         }
+        case TYPE_LIST: {
+            vartype_list *list = (vartype_list *) v;
+            if (list->array->refcount == 1)
+                return 1;
+            else {
+                list_data *ld = (list_data *) malloc(sizeof(list_data));
+                if (ld == NULL)
+                    return 0;
+                ld->data = (vartype **) malloc(list->size * sizeof(vartype *));
+                if (ld->data == NULL) {
+                    free(ld);
+                    return 0;
+                }
+                for (int4 i = 0; i < list->size; i++) {
+                    vartype *vv = list->array->data[i];
+                    if (vv != NULL) {
+                        vv = dup_vartype(vv);
+                        if (vv == NULL) {
+                            for (int4 j = 0; j < i; j++)
+                                free_vartype(ld->data[j]);
+                            free(ld->data);
+                            free(ld);
+                            return 0;
+                        }
+                    }
+                    ld->data[i] = vv;
+                }
+                ld->refcount = 1;
+                list->array->refcount--;
+                list->array = ld;
+                return 1;
+            }
+        }
         case TYPE_REAL:
         case TYPE_COMPLEX:
         case TYPE_STRING:
@@ -373,7 +497,7 @@ int disentangle(vartype *v) {
 int lookup_var(const char *name, int namelength) {
     int i, j;
     for (i = vars_count - 1; i >= 0; i--) {
-        if (vars[i].hidden)
+        if ((vars[i].flags & (VAR_HIDDEN | VAR_PRIVATE)) != 0)
             continue;
         if (vars[i].length == namelength) {
             for (j = 0; j < namelength; j++)
@@ -425,8 +549,7 @@ int store_var(const char *name, int namelength, vartype *value, bool local) {
         for (i = 0; i < namelength; i++)
             vars[varindex].name[i] = name[i];
         vars[varindex].level = local ? get_rtn_level() : -1;
-        vars[varindex].hidden = false;
-        vars[varindex].hiding = false;
+        vars[varindex].flags = 0;
     } else if (local && vars[varindex].level < get_rtn_level()) {
         if (vars_count == vars_capacity) {
             int nc = vars_capacity + 25;
@@ -436,14 +559,13 @@ int store_var(const char *name, int namelength, vartype *value, bool local) {
             vars_capacity = nc;
             vars = nv;
         }
-        vars[varindex].hidden = true;
+        vars[varindex].flags |= VAR_HIDDEN;
         varindex = vars_count++;
         vars[varindex].length = namelength;
         for (i = 0; i < namelength; i++)
             vars[varindex].name[i] = name[i];
         vars[varindex].level = get_rtn_level();
-        vars[varindex].hidden = false;
-        vars[varindex].hiding = true;
+        vars[varindex].flags = VAR_HIDING;
         push_indexed_matrix(name, namelength);
     } else {
         if (matedit_mode == 1 &&
@@ -470,10 +592,10 @@ void purge_var(const char *name, int namelength) {
     if (matedit_mode == 1 && string_equals(matedit_name, matedit_length, name, namelength))
         matedit_mode = 0;
     free_vartype(vars[varindex].value);
-    if (vars[varindex].hiding) {
+    if ((vars[varindex].flags & VAR_HIDING) != 0) {
         for (int i = varindex - 1; i >= 0; i--)
-            if (vars[i].hidden && string_equals(vars[i].name, vars[i].length, name, namelength)) {
-                vars[i].hidden = false;
+            if ((vars[i].flags & VAR_HIDDEN) != 0 && string_equals(vars[i].name, vars[i].length, name, namelength)) {
+                vars[i].flags &= ~VAR_HIDDEN;
                 break;
             }
         pop_indexed_matrix(name, namelength);
@@ -491,65 +613,70 @@ void purge_all_vars() {
     vars_count = 0;
 }
 
-int vars_exist(int real, int cpx, int matrix) {
+bool vars_exist(int section) {
     int i;
     for (i = 0; i < vars_count; i++) {
-        if (vars[i].hidden)
+        if ((vars[i].flags & (VAR_HIDDEN | VAR_PRIVATE)) != 0)
             continue;
+        if (section == -1)
+            return true;
         switch (vars[i].value->type) {
             case TYPE_REAL:
             case TYPE_STRING:
-                if (real)
-                    return 1;
+                if (section == CATSECT_REAL)
+                    return true;
                 else
                     break;
             case TYPE_COMPLEX:
-                if (cpx)
-                    return 1;
+                if (section == CATSECT_CPX)
+                    return true;
                 else
                     break;
             case TYPE_REALMATRIX:
             case TYPE_COMPLEXMATRIX:
-                if (matrix)
-                    return 1;
+                if (section == CATSECT_MAT)
+                    return true;
                 else
                     break;
         }
     }
-    return 0;
+    return false;
 }
 
-int contains_no_strings(const vartype_realmatrix *rm) {
+bool contains_strings(const vartype_realmatrix *rm) {
     int4 size = rm->rows * rm->columns;
-    int4 i;
-    for (i = 0; i < size; i++)
-        if (rm->array->is_string[i])
-            return 0;
-    return 1;
+    for (int4 i = 0; i < size; i++)
+        if (rm->array->is_string[i] != 0)
+            return true;
+    return false;
 }
 
+/* This is only used by core_linalg1, and does not deal with strings,
+ * even when copying a real matrix to a real matrix. It returns an
+ * error if any are encountered.
+ */
 int matrix_copy(vartype *dst, const vartype *src) {
-    int4 size, i;
     if (src->type == TYPE_REALMATRIX) {
         vartype_realmatrix *s = (vartype_realmatrix *) src;
         if (dst->type == TYPE_REALMATRIX) {
             vartype_realmatrix *d = (vartype_realmatrix *) dst;
             if (s->rows != d->rows || s->columns != d->columns)
                 return ERR_DIMENSION_ERROR;
-            size = s->rows * s->columns;
-            for (i = 0; i < size; i++) {
-                d->array->is_string[i] = s->array->is_string[i];
-                d->array->data[i] = s->array->data[i];
-            }
+            if (contains_strings(s))
+                return ERR_ALPHA_DATA_IS_INVALID;
+            int4 size = s->rows * s->columns;
+            free_long_strings(d->array->is_string, d->array->data, size);
+            memset(d->array->is_string, 0, size);
+            memcpy(d->array->data, s->array->data, size * sizeof(phloat));
             return ERR_NONE;
         } else if (dst->type == TYPE_COMPLEXMATRIX) {
             vartype_complexmatrix *d = (vartype_complexmatrix *) dst;
             if (s->rows != d->rows || s->columns != d->columns)
                 return ERR_DIMENSION_ERROR;
-            if (!contains_no_strings(s))
+            if (contains_strings(s))
                 return ERR_ALPHA_DATA_IS_INVALID;
-            size = s->rows * s->columns;
-            for (i = 0; i < size; i++) {
+            int4 size = s->rows * s->columns;
+            for (int4 i = 0; i < size; i++) {
                 d->array->data[2 * i] = s->array->data[i];
                 d->array->data[2 * i + 1] = 0;
             }
@@ -562,10 +689,75 @@ int matrix_copy(vartype *dst, const vartype *src) {
         vartype_complexmatrix *d = (vartype_complexmatrix *) dst;
         if (s->rows != d->rows || s->columns != d->columns)
             return ERR_DIMENSION_ERROR;
-        size = s->rows * s->columns * 2;
-        for (i = 0; i < size; i++)
-            d->array->data[i] = s->array->data[i];
+        int4 size = s->rows * s->columns * 2;
+        memcpy(d->array->data, s->array->data, size * sizeof(phloat));
         return ERR_NONE;
     } else
         return ERR_INVALID_TYPE;
+}
+
+static int lookup_private_var(const char *name, int namelength) {
+    int level = get_rtn_level();
+    int i, j;
+    for (i = vars_count - 1; i >= 0; i--) {
+        int vlevel = vars[i].level;
+        if (vlevel == -1)
+            continue;
+        if (vlevel < level)
+            break;
+        if ((vars[i].flags & VAR_PRIVATE) == 0)
+            continue;
+        if (vars[i].length == namelength) {
+            for (j = 0; j < namelength; j++)
+                if (vars[i].name[j] != name[j])
+                    goto nomatch;
+            return i;
+        }
+        nomatch:;
+    }
+    return -1;
+}
+
+vartype *recall_private_var(const char *name, int namelength) {
+    int varindex = lookup_private_var(name, namelength);
+    if (varindex == -1)
+        return NULL;
+    else
+        return vars[varindex].value;
+}
+
+vartype *recall_and_purge_private_var(const char *name, int namelength) {
+    int varindex = lookup_private_var(name, namelength);
+    if (varindex == -1)
+        return NULL;
+    vartype *ret = vars[varindex].value;
+    for (int i = varindex; i < vars_count - 1; i++)
+        vars[i] = vars[i + 1];
+    vars_count--;
+    return ret;
+}
+
+int store_private_var(const char *name, int namelength, vartype *value) {
+    int varindex = lookup_private_var(name, namelength);
+    int i;
+    if (varindex == -1) {
+        if (vars_count == vars_capacity) {
+            int nc = vars_capacity + 25;
+            var_struct *nv = (var_struct *) realloc(vars, nc * sizeof(var_struct));
+            if (nv == NULL)
+                return ERR_INSUFFICIENT_MEMORY;
+            vars_capacity = nc;
+            vars = nv;
+        }
+        varindex = vars_count++;
+        vars[varindex].length = namelength;
+        for (i = 0; i < namelength; i++)
+            vars[varindex].name[i] = name[i];
+        vars[varindex].level = get_rtn_level();
+        vars[varindex].flags = VAR_PRIVATE;
+    } else {
+        free_vartype(vars[varindex].value);
+    }
+    vars[varindex].value = value;
+    return ERR_NONE;
 }

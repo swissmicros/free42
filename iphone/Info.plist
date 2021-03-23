@@ -52,19 +52,23 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>25.20</string>
+	<string>30.1</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
 	<key>CFBundleVersion</key>
-	<string>2.5.20</string>
+	<string>3.0.1</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>This is needed for the LOCAT function to work.</string>
 	<key>NSMainNibFile</key>
 	<string>MainWindow</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Saving Print-Out Image</string>
 	<key>UIFileSharingEnabled</key>
 	<true/>
+	<key>UILaunchStoryboardName</key>
+	<string>Launch Screen</string>
 	<key>UIPrerenderedIcon</key>
 	<true/>
 	<key>UISupportedInterfaceOrientations</key>

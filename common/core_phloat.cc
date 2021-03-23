@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2020  Thomas Okken
+ * Copyright (C) 2004-2021  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -37,6 +37,8 @@ phloat NEG_HUGE_PHLOAT;
 phloat POS_TINY_PHLOAT;
 phloat NEG_TINY_PHLOAT;
 phloat NAN_PHLOAT;
+phloat NAN_1_PHLOAT;
+phloat NAN_2_PHLOAT;
 
 
 /* Note: this function does not handle infinities or NaN */
@@ -98,6 +100,8 @@ void phloat_init() {
     NEG_TINY_PHLOAT = negtiny;
     bid128_div(&nan, &zero, &zero);
     NAN_PHLOAT = nan;
+    bid128_nan(&NAN_1_PHLOAT.val, "1");
+    bid128_nan(&NAN_2_PHLOAT.val, "2");
 }
 
 int string2phloat(const char *buf, int buflen, phloat *d) {
@@ -729,6 +733,12 @@ Phloat floor(Phloat p) {
     return Phloat(res);
 }
 
+Phloat fma(Phloat x, Phloat y, Phloat z) {
+    BID_UINT128 res;
+    bid128_fma(&res, &x.val, &y.val, &z.val);
+    return Phloat(res);
+}
+
 Phloat operator*(int x, Phloat y) {
     BID_UINT128 xx, res;
     bid128_from_int32(&xx, &x);
@@ -794,9 +804,7 @@ void update_decimal(BID_UINT128 *val) {
 void phloat_init() {
     POS_HUGE_PHLOAT = DBL_MAX;
     NEG_HUGE_PHLOAT = -POS_HUGE_PHLOAT;
-#ifndef WINDOWS
-    POS_TINY_PHLOAT = nextafter(0.0, 1.0);
-#else
+#ifdef WINDOWS
     double d = 1;
     while (1) {
         double d2 = d / 2;
@@ -805,10 +813,15 @@ void phloat_init() {
         d = d2;
     }
     POS_TINY_PHLOAT = d;
+    *(int8 *) &NAN_1_PHLOAT = 0x7ff8000000000001;
+    *(int8 *) &NAN_2_PHLOAT = 0x7ff8000000000002;
+#else
+    POS_TINY_PHLOAT = nextafter(0.0, 1.0);
+    NAN_1_PHLOAT = nan("1");
+    NAN_2_PHLOAT = nan("2");
 #endif
     NEG_TINY_PHLOAT = -POS_TINY_PHLOAT;
-    double zero = 0.0;
-    NAN_PHLOAT = zero / 0.0;
+    NAN_PHLOAT = nan("");
 }
 
 int string2phloat(const char *buf, int buflen, phloat *d) {

@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2020  Thomas Okken
+ * Copyright (C) 2004-2021  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -27,7 +27,7 @@
 /* Commands */
 /************/
 
-/* These are indices into the cmdlist array,
+/* These are indices into cmd_array,
  * declared below (except the negative ones!)
  */
 
@@ -365,7 +365,7 @@
 #define CMD_GETZ        326
 #define CMD_PUTZ        327
 #define CMD_DELP        328
-/* Byron Foster's Bigstack extension (Obsolete) */
+/* Big Stack; additional functions from 4STK */
 #define CMD_DROP        329
 /* iPhone hardware support */
 #define CMD_ACCEL       330
@@ -418,8 +418,76 @@
 #define CMD_BSIGNED     374
 #define CMD_BWRAP       375
 #define CMD_BRESET      376
+/* The order up to and including BRESET is set in stone, because those       */
+/* functions can all appear in state files from before 2.5, when programs in */
+/* state files were still stored as memory dumps. From 2.5 onward, programs  */
+/* in state files are stored in "raw" format, so how they are stored in      */
+/* memory becomes a private implementation detail.                           */
+#define CMD_GETKEY1     377
+#define CMD_LASTO       378
+/* Useful X-Fcn functions missing from the 42S */
+#define CMD_ANUM        379
+#define CMD_X_SWAP_F    380
+#define CMD_RCLFLAG     381
+#define CMD_STOFLAG     382
+/* User-defined functions */
+#define CMD_FUNC        383
+#define CMD_RTNYES      384
+#define CMD_RTNNO       385
+#define CMD_RTNERR      386
+#define CMD_STRACE      387
+/* Big Stack */
+#define CMD_4STK        388
+#define CMD_L4STK       389
+#define CMD_NSTK        390
+#define CMD_LNSTK       391
+#define CMD_DEPTH       392
+#define CMD_DROPN       393
+#define CMD_DUP         394
+#define CMD_DUPN        395
+#define CMD_PICK        396
+#define CMD_UNPICK      397
+#define CMD_RDNN        398
+#define CMD_RUPN        399
+/* Miscellaneous */
+#define CMD_NOP         400
+#define CMD_FMA         401
+#define CMD_PGMMENU     402
+/* (Skipping 403 because of single-byte equality checks with CMD_END) */
+#define CMD_PMEXEC      404
+#define CMD_PRMVAR      405
+/* String & List Functions */
+#define CMD_XASTO       406
+#define CMD_LXASTO      407
+#define CMD_APPEND      408
+#define CMD_EXTEND      409
+#define CMD_SUBSTR      410
+#define CMD_LENGTH      411
+#define CMD_HEAD        412
+#define CMD_REV         413
+#define CMD_POS         414
+#define CMD_S_TO_N      415
+#define CMD_N_TO_S      416
+#define CMD_C_TO_N      417
+#define CMD_N_TO_C      418
+#define CMD_LIST_T      419
+#define CMD_NEWLIST     420
+#define CMD_NEWSTR      421
+/* Generalized Comparisons */
+#define CMD_X_EQ_NN     422
+#define CMD_X_NE_NN     423
+#define CMD_X_LT_NN     424
+#define CMD_X_GT_NN     425
+#define CMD_X_LE_NN     426
+#define CMD_X_GE_NN     427
+#define CMD_0_EQ_NN     428
+#define CMD_0_NE_NN     429
+#define CMD_0_LT_NN     430
+#define CMD_0_GT_NN     431
+#define CMD_0_LE_NN     432
+#define CMD_0_GE_NN     433
 
-#define CMD_SENTINEL    377
+#define CMD_SENTINEL    434
 
 
 /* command_spec.argtype */
@@ -432,23 +500,25 @@
 #define ARG_NUM11     5 /* num (0..11), ind */
 #define ARG_NUM99     6 /* num (0..99), ind */
 #define ARG_COUNT     7 /* numeric-only (SIMQ, DEL, SIZE, LIST) */
-#define ARG_LBL       8 /* Label: num, lclbl, global, ind */
-#define ARG_CKEY      9 /* Key in custom menu */
-#define ARG_MKEY     10 /* Key in programmable menu (KEYG/KEYX) */
-#define ARG_PRGM     11 /* Alpha label (CATSECT_PGM) */
-#define ARG_RVAR     12 /* Variable (real only) (MVAR, INTEG, SOLVE) */
-#define ARG_MAT      13 /* Variable (matrix only) (EDITN, INDEX) */
-#define ARG_OTHER    14 /* Weirdos */
+#define ARG_FUNC      8 /* numeric-only, [0-4][0-4] (FUNC) */
+#define ARG_LBL       9 /* Label: num, lclbl, global, ind */
+#define ARG_CKEY     10 /* Key in custom menu */
+#define ARG_MKEY     11 /* Key in programmable menu (KEYG/KEYX) */
+#define ARG_PRGM     12 /* Alpha label (CATSECT_PGM) */
+#define ARG_RVAR     13 /* Variable (real only) (MVAR, INTEG, SOLVE) */
+#define ARG_MAT      14 /* Variable (matrix only) (EDITN, INDEX) */
+#define ARG_OTHER    15 /* Weirdos */
 
 
 /* command_spec.flags */
 
-#define FLAG_NONE      0  /* Boring! */
 #define FLAG_PRGM_ONLY 1  /* Only allowed in program mode (LBL, DEL, ...) */
 #define FLAG_IMMED     2  /* Executes in program mode (DEL, GTO.nnn, ...) */
 #define FLAG_HIDDEN    4  /* Cannot be activated using XEQ "NAME" (SIMQ, ...) */
 #define FLAG_NO_PRGM   8  /* Cannot be programmed (SIMQ, MATA, ...) */
 #define FLAG_NO_SHOW  16  /* Do not show after keytimeout1 */
+#define FLAG_SPECIAL  32  /* hp42s_code flags 0x01 */
+#define FLAG_ILLEGAL  64  /* hp42s_code flags 0x02 */
 
 
 /* Builtin cmd arg types */
@@ -473,7 +543,7 @@
 #define ARGTYPE_LBLINDEX 11
 
 
-typedef struct {
+struct arg_struct {
     unsigned char type;
     unsigned char length;
     int4 target;
@@ -487,20 +557,25 @@ typedef struct {
     // This used to be a member of the 'val' union, but once I changed it
     // from 'double' to 'phloat', that was no longer possible.
     phloat val_d;
-} arg_struct;
+};
 
 
-typedef struct {
-    char name[12];
-    int name_length;
+struct command_spec {
     int (*handler)(arg_struct *arg);
-    uint4 hp42s_code;
-    int argtype;
-    int flags;
-} command_spec;
+    const char *name;
+    unsigned char flags;
+    unsigned char scode;
+    unsigned char code1;
+    unsigned char code2;
+    unsigned char name_length;
+    unsigned char argtype;
+    signed char argcount;
+    unsigned char rttypes;
+};
 
+extern const command_spec cmd_array[];
 
-const command_spec *cmdlist(int index);
+int handle(int cmd, arg_struct *arg);
 
 
 #endif

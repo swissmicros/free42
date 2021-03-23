@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2020  Thomas Okken
+ * Copyright (C) 2004-2021  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -25,7 +25,7 @@
 extern GtkWidget *calc_widget;
 extern bool allow_paint;
 
-#define SHELL_VERSION 7
+#define SHELL_VERSION 8
 
 struct state_type {
     int extras;
@@ -44,6 +44,7 @@ struct state_type {
     bool matrix_outofrange;
     bool auto_repeat;
     bool old_repaint;
+    bool allow_big_stack;
 };
 
 extern state_type state;
@@ -52,14 +53,14 @@ extern char free42dirname[FILENAMELEN];
 
 
 #define KEYMAP_MAX_MACRO_LENGTH 31
-typedef struct {
+struct keymap_entry {
     bool ctrl;
     bool alt;
     bool shift;
     bool cshift;
     guint keyval;
     unsigned char macro[KEYMAP_MAX_MACRO_LENGTH + 1];
-} keymap_entry;
+};
     
 keymap_entry *parse_keymap_entry(char *line, int lineno);
 

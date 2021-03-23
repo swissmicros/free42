@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2020  Thomas Okken
+ * Copyright (C) 2004-2021  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -57,14 +57,14 @@ static int dirTypeCapacity = 0;
     // Drawing code
 }
 
-+ (void) raiseWithTitle:(NSString *)wt selectTitle:(NSString *)st types:(NSString *)t selectDir:(BOOL)sd callbackObject:(id)cb_id callbackSelector:(SEL)cb_sel {
++ (void) raiseWithTitle:(NSString *)wt selectTitle:(NSString *)st types:(NSString *)t initialFile:(NSString *)path selectDir:(BOOL)sd callbackObject:(id)cb_id callbackSelector:(SEL)cb_sel {
     windowTitle = [wt retain];
     selectTitle = [st retain];
     types = [t retain];
     selectDir = sd;
     callbackObject = [cb_id retain];
     callbackSelector = cb_sel;
-    dirName = @".";
+    dirName = [path retain];
     [RootViewController showSelectFile];
 }
 
@@ -104,6 +104,24 @@ static int dirTypeCapacity = 0;
         // not actually remove all segments, so now we make sure:
         while ([typeSelector numberOfSegments] > tc)
             [typeSelector removeSegmentAtIndex:tc animated:NO];
+    }
+
+    if (dirName == nil) {
+        [nameField setText:@""];
+        dirName = @".";
+    } else {
+        [dirName release];
+        NSRange r = [dirName rangeOfString:@"/" options:NSBackwardsSearch];
+        if (r.location == NSNotFound) {
+            [nameField setText:dirName];
+            dirName = @".";
+        } else {
+            [nameField setText:[dirName substringFromIndex:r.location + 1]];
+            dirName = [dirName substringToIndex:r.location];
+            r = [dirName rangeOfString:@"./" options:NSAnchoredSearch];
+            if (r.location == NSNotFound)
+                dirName = [NSString stringWithFormat:@"./%@", dirName];
+        }
     }
     
     // Force initial directory read

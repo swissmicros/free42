@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2020  Thomas Okken
+ * Copyright (C) 2004-2021  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -21,6 +21,7 @@
 #include "core_globals.h"
 #include "core_commands2.h"
 #include "core_commands4.h"
+#include "core_commands7.h"
 #include "core_display.h"
 #include "core_helpers.h"
 #include "core_main.h"
@@ -43,16 +44,14 @@ FILE *gfile = NULL;
 const error_spec errors[] = {
     { /* NONE */                   NULL,                       0 },
     { /* ALPHA_DATA_IS_INVALID */  "Alpha Data Is Invalid",   21 },
-    { /* INSUFFICIENT_MEMORY */    "Insufficient Memory",     19 },
-    { /* NOT_YET_IMPLEMENTED */    "Not Yet Implemented",     19 },
     { /* OUT_OF_RANGE */           "Out of Range",            12 },
     { /* DIVIDE_BY_0 */            "Divide by 0",             11 },
     { /* INVALID_TYPE */           "Invalid Type",            12 },
     { /* INVALID_DATA */           "Invalid Data",            12 },
-    { /* DIMENSION_ERROR */        "Dimension Error",         15 },
-    { /* SIZE_ERROR */             "Size Error",              10 },
-    { /* INTERNAL_ERROR */         "Internal Error",          14 },
     { /* NONEXISTENT */            "Nonexistent",             11 },
+    { /* DIMENSION_ERROR */        "Dimension Error",         15 },
+    { /* TOO_FEW_ARGUMENTS */      "Too Few Arguments",       17 },
+    { /* SIZE_ERROR */             "Size Error",              10 },
     { /* RESTRICTED_OPERATION */   "Restricted Operation",    20 },
     { /* YES */                    "Yes",                      3 },
     { /* NO */                     "No",                       2 },
@@ -64,7 +63,6 @@ const error_spec errors[] = {
     { /* NO_MENU_VARIABLES */      "No Menu Variables",       17 },
     { /* STAT_MATH_ERROR */        "Stat Math Error",         15 },
     { /* INVALID_FORECAST_MODEL */ "Invalid Forecast Model",  22 },
-    { /* SOLVE_INTEG_RTN_LOST */   "Solve/Integ RTN Lost",    20 },
     { /* SINGULAR_MATRIX */        "Singular Matrix",         15 },
     { /* SOLVE_SOLVE */            "Solve(Solve)",            12 },
     { /* INTEG_INTEG */            "Integ(Integ)",            12 },
@@ -73,8 +71,16 @@ const error_spec errors[] = {
     { /* PRINTING_IS_DISABLED */   "Printing Is Disabled",    20 },
     { /* INTERRUPTIBLE */          NULL,                       0 },
     { /* NO_VARIABLES */           "No Variables",            12 },
+    { /* INSUFFICIENT_MEMORY */    "Insufficient Memory",     19 },
+    { /* NOT_YET_IMPLEMENTED */    "Not Yet Implemented",     19 },
+    { /* INTERNAL_ERROR */         "Internal Error",          14 },
     { /* SUSPICIOUS_OFF */         "Suspicious OFF",          14 },
-    { /* RTN_STACK_FULL */         "RTN Stack Full",          14 }
+    { /* RTN_STACK_FULL */         "RTN Stack Full",          14 },
+    { /* NUMBER_TOO_LARGE */       "Number Too Large",        16 },
+    { /* NUMBER_TOO_SMALL */       "Number Too Small",        16 },
+    { /* BIG_STACK_DISABLED */     "Big Stack Disabled",      18 },
+    { /* INVALID_CONTEXT */        "Invalid Context",         15 },
+    { /* NAME_TOO_LONG */          "Name Too Long",           13 }
 };
 
 
@@ -233,7 +239,7 @@ const menu_spec menus[] = {
                         { MENU_NONE, 0, "" },
                         { MENU_NONE, 0, "" },
                         { MENU_NONE, 0, "" } } },
-    { /* MENU_MODES1 */ MENU_NONE, MENU_MODES2, MENU_MODES3,
+    { /* MENU_MODES1 */ MENU_NONE, MENU_MODES2, MENU_MODES5,
                       { { 0x2000 + CMD_DEG,   0, "" },
                         { 0x2000 + CMD_RAD,   0, "" },
                         { 0x2000 + CMD_GRAD,  0, "" },
@@ -247,13 +253,27 @@ const menu_spec menus[] = {
                         { 0x2000 + CMD_REALRES, 0, "" },
                         { 0x2000 + CMD_KEYASN,  0, "" },
                         { 0x2000 + CMD_LCLBL,   0, "" } } },
-    { /* MENU_MODES3 */ MENU_NONE, MENU_MODES1, MENU_MODES2,
+    { /* MENU_MODES3 */ MENU_NONE, MENU_MODES4, MENU_MODES2,
                       { { 0x1000 + CMD_WSIZE,   0, "" },
                         { 0x1000 + CMD_WSIZE_T, 0, "" },
                         { 0x2000 + CMD_BSIGNED, 0, "" },
                         { 0x2000 + CMD_BWRAP,   0, "" },
                         { 0x1000 + CMD_NULL,    0, "" },
                         { 0x1000 + CMD_BRESET,  0, "" } } },
+    { /* MENU_MODES4 */ MENU_NONE, MENU_MODES5, MENU_MODES3,
+                      { { 0x2000 + CMD_MDY,     0, "" },
+                        { 0x2000 + CMD_DMY,     0, "" },
+                        { 0x2000 + CMD_YMD,     0, "" },
+                        { 0x1000 + CMD_NULL,    0, "" },
+                        { 0x2000 + CMD_CLK12,   0, "" },
+                        { 0x2000 + CMD_CLK24,   0, "" } } },
+    { /* MENU_MODES5 */ MENU_NONE, MENU_MODES1, MENU_MODES4,
+                      { { 0x2000 + CMD_4STK,    0, "" },
+                        { 0x2000 + CMD_NSTK,    0, "" },
+                        { 0x1000 + CMD_NULL,    0, "" },
+                        { 0x1000 + CMD_NULL,    0, "" },
+                        { 0x1000 + CMD_NULL,    0, "" },
+                        { 0x1000 + CMD_NULL,    0, "" } } },
     { /* MENU_DISP */ MENU_NONE, MENU_NONE, MENU_NONE,
                       { { 0x2000 + CMD_FIX,      0, "" },
                         { 0x2000 + CMD_SCI,      0, "" },
@@ -381,12 +401,12 @@ const menu_spec menus[] = {
                         { 0x1000 + CMD_NULL,  0, "" },
                         { 0x1000 + CMD_DELAY, 0, "" } } },
     { /* MENU_PRINT3 */ MENU_NONE, MENU_PRINT1, MENU_PRINT2,
-                      { { 0x2000 + CMD_PON,   0, "" },
-                        { 0x2000 + CMD_POFF,  0, "" },
-                        { 0x1000 + CMD_NULL,  0, "" },
-                        { 0x2000 + CMD_MAN,   0, "" },
-                        { 0x2000 + CMD_NORM,  0, "" },
-                        { 0x2000 + CMD_TRACE, 0, "" } } },
+                      { { 0x2000 + CMD_PON,    0, "" },
+                        { 0x2000 + CMD_POFF,   0, "" },
+                        { 0x2000 + CMD_MAN,    0, "" },
+                        { 0x2000 + CMD_NORM,   0, "" },
+                        { 0x2000 + CMD_TRACE,  0, "" },
+                        { 0x2000 + CMD_STRACE, 0, "" } } },
     { /* MENU_TOP_FCN */ MENU_NONE, MENU_NONE, MENU_NONE,
                       { { 0x1000 + CMD_SIGMAADD, 0, "" },
                         { 0x1000 + CMD_INV,      0, "" },
@@ -545,16 +565,18 @@ const menu_spec menus[] = {
 #define LABELS_INCREMENT 10
 
 /* Registers */
-vartype *reg_x = NULL;
-vartype *reg_y = NULL;
-vartype *reg_z = NULL;
-vartype *reg_t = NULL;
-vartype *reg_lastx = NULL;
+vartype **stack = NULL;
+int sp = -1;
+int stack_capacity = 0;
+vartype *lastx = NULL;
 int reg_alpha_length = 0;
 char reg_alpha[44];
 
 /* Flags */
 flags_struct flags;
+const char *virtual_flags =
+    /* 00-49 */ "00000000000000000000000000010000000000000000111111"
+    /* 50-99 */ "00010000000000010000000001000000000000000000000000";
 
 /* Variables */
 int vars_capacity = 0;
@@ -582,7 +604,7 @@ char varmenu_labeltext[6][7];
 int varmenu_role;
 
 bool mode_clall;
-int (*mode_interruptible)(int) = NULL;
+int (*mode_interruptible)(bool) = NULL;
 bool mode_stoppable;
 bool mode_command_entry;
 bool mode_number_entry;
@@ -596,6 +618,7 @@ int mode_alphamenu;
 int mode_commandmenu;
 bool mode_running;
 bool mode_getkey;
+bool mode_getkey1;
 bool mode_pause = false;
 bool mode_disable_stack_lift; /* transient */
 bool mode_varmenu;
@@ -617,8 +640,8 @@ int xeq_invisible;
 /* Multi-keystroke commands -- edit state */
 /* Relevant when mode_command_entry != 0 */
 int incomplete_command;
-int incomplete_ind;
-int incomplete_alpha;
+bool incomplete_ind;
+bool incomplete_alpha;
 int incomplete_length;
 int incomplete_maxdigits;
 int incomplete_argtype;
@@ -742,8 +765,14 @@ bool no_keystrokes_yet;
  * Version 29: 2.5.7  SOLVE: Tracking second best guess in order to be able to
  *                    report it accurately in Y, and to provide additional data
  *                    points for distinguishing between zeroes and poles.
+ * Version 30: 2.5.23 Private local variables
+ * Version 31: 2.5.24 Merge RTN and FRT functionality
+ * Version 32: 2.5.24 Replace FUNC[012] with FUNC [0-4][0-4]
+ * Version 33: 3.0    Big stack; parameterized RTNERR
+ * Version 34: 3.0    Long strings
+ * Version 35: 3.0    Changing 'int' to 'bool' where appropriate
  */
-#define FREE42_VERSION 29
+#define FREE42_VERSION 35
 
 
 /*******************/
@@ -753,19 +782,46 @@ bool no_keystrokes_yet;
 static bool state_bool_is_int;
 bool state_is_portable;
 
-typedef struct {
+struct rtn_stack_entry {
     int4 prgm;
     int4 pc;
-} rtn_stack_entry;
+    int4 get_prgm() {
+        int4 p = prgm & 0x3fffffff;
+        if ((p & 0x20000000) != 0)
+            p |= 0xc0000000;
+        return p;
+    }
+    void set_prgm(int4 prgm) {
+        this->prgm = prgm & 0x3fffffff;
+    }
+    bool has_matrix() {
+        return (prgm & 0x80000000) != 0;
+    }
+    void set_has_matrix(bool state) {
+        if (state)
+            prgm |= 0x80000000;
+        else
+            prgm &= 0x7fffffff;
+    }
+    bool has_func() {
+        return (prgm & 0x40000000) != 0;
+    }
+    void set_has_func(bool state) {
+        if (state)
+            prgm |= 0x40000000;
+        else
+            prgm &= 0xbfffffff;
+    }
+};
 
-typedef struct {
+struct rtn_stack_matrix_name_entry {
     unsigned char length;
     char name[7];
-} rtn_stack_matrix_name_entry;
+};
 
-typedef struct {
+struct rtn_stack_matrix_ij_entry {
     int4 i, j;
-} rtn_stack_matrix_ij_entry;
+};
 
 /* Stack pointer vs. level:
  * The stack pointer is the pointer into the actual rtn_stack array, while
@@ -786,6 +842,7 @@ static int rtn_stack_capacity = 0;
 static rtn_stack_entry *rtn_stack = NULL;
 static int rtn_level = 0;
 static bool rtn_level_0_has_matrix_entry;
+static bool rtn_level_0_has_func_state;
 static int rtn_stop_level = -1;
 static bool rtn_solve_active = false;
 static bool rtn_integ_active = false;
@@ -798,11 +855,11 @@ static bool rtn_integ_active = false;
 bool off_enable_flag = false;
 #endif
 
-typedef struct {
+struct matrix_persister {
     int type;
     int4 rows;
     int4 columns;
-} matrix_persister;
+};
 
 static int array_count;
 static int array_list_capacity;
@@ -827,6 +884,19 @@ static void update_decimal_in_programs();
 #define bin_dec_mode_switch() ( state_file_number_format != NUMBER_FORMAT_BINARY )
 #endif
 
+
+void vartype_string::trim1() {
+    if (length > SSLENV + 1) {
+        memmove(t.ptr, t.ptr + 1, --length);
+    } else if (length == SSLENV + 1) {
+        char temp[SSLENV];
+        memcpy(temp, t.ptr + 1, --length);
+        free(t.ptr);
+        memcpy(t.buf, temp, length);
+    } else if (length > 0) {
+        memmove(t.buf, t.buf + 1, --length);
+    }
+}
 
 static bool array_list_grow() {
     if (array_count < array_list_capacity)
@@ -863,8 +933,8 @@ static bool persist_vartype(vartype *v) {
         }
         case TYPE_STRING: {
             vartype_string *s = (vartype_string *) v;
-            return write_char(s->length)
-                && fwrite(s->text, 1, s->length, gfile) == s->length;
+            return write_int4(s->length)
+                && fwrite(s->txt(), 1, s->length, gfile) == s->length;
         }
         case TYPE_REALMATRIX: {
             vartype_realmatrix *rm = (vartype_realmatrix *) v;
@@ -894,12 +964,16 @@ static bool persist_vartype(vartype *v) {
                 if (fwrite(rm->array->is_string, 1, size, gfile) != size)
                     return false;
                 for (int i = 0; i < size; i++) {
-                    if (rm->array->is_string[i]) {
-                        char *str = (char *) &rm->array->data[i];
-                        if (fwrite(str, 1, 7, gfile) != 7)
+                    if (rm->array->is_string[i] == 0) {
+                        if (!write_phloat(rm->array->data[i]))
                             return false;
                     } else {
-                        if (!write_phloat(rm->array->data[i]))
+                        char *text;
+                        int4 len;
+                        get_matrix_string(rm, i, &text, &len);
+                        if (!write_int4(len))
+                            return false;
+                        if (fwrite(text, 1, len, gfile) != len)
                             return false;
                     }
                 }
@@ -937,6 +1011,34 @@ static bool persist_vartype(vartype *v) {
             }
             return true;
         }
+        case TYPE_LIST: {
+            vartype_list *list = (vartype_list *) v;
+            int4 size = list->size;
+            int data_index = -1;
+            bool must_write = true;
+            if (list->array->refcount > 1) {
+                int n = array_list_search(list->array);
+                if (n == -1) {
+                    // data_index == -2 indicates a new shared list
+                    data_index = -2;
+                    if (!array_list_grow())
+                        return false;
+                    array_list[array_count++] = list->array;
+                } else {
+                    // data_index >= 0 refers to a previously shared list
+                    data_index = n;
+                    must_write = false;
+                }
+            }
+            write_int4(size);
+            write_int(data_index);
+            if (must_write) {
+                for (int4 i = 0; i < list->size; i++)
+                    if (!persist_vartype(list->array->data[i]))
+                        return false;
+            }
+            return true;
+        }
         default:
             /* Should not happen */
             return false;
@@ -951,6 +1053,12 @@ struct fake_bcd {
     char data[16];
 };
 
+struct old_vartype_string {
+    int type;
+    int length;
+    char text[6];
+};
+
 // For coping with bad 2.5 state files. 0 means don't do anything special;
 // 1 means check for bad string lengths in real matrices; 2 is bug-
 // compatibility mode; and 3 is a signal to switch from mode 1 to mode 2.
@@ -960,6 +1068,10 @@ struct fake_bcd {
 // and try again in mode 2.
 
 int bug_mode;
+
+// Using a global for 'ver' so we don't have to pass it around all the time
+
+int4 ver;
 
 static bool unpersist_vartype(vartype **v, bool padded) {
     if (state_is_portable) {
@@ -994,15 +1106,23 @@ static bool unpersist_vartype(vartype **v, bool padded) {
                 return true;
             }
             case TYPE_STRING: {
-                vartype_string *s = (vartype_string *) new_string("", 0);
+                int4 len;
+                if (ver < 34) {
+                    char c;
+                    if (!read_char(&c))
+                        return false;
+                    len = c;
+                } else {
+                    if (!read_int4(&len))
+                        return false;
+                }
+                vartype_string *s = (vartype_string *) new_string(NULL, len);
                 if (s == NULL)
                     return false;
-                char len;
-                if (!read_char(&len) || fread(s->text, 1, len, gfile) != len) {
+                if (fread(s->txt(), 1, len, gfile) != len) {
                     free_vartype((vartype *) s);
                     return false;
                 }
-                s->length = len;
                 *v = (vartype *) s;
                 return true;
             }
@@ -1012,7 +1132,7 @@ static bool unpersist_vartype(vartype **v, bool padded) {
                     return false;
                 if (rows == 0) {
                     // Shared matrix
-                    vartype *m = new_matrix_alias((vartype *) array_list[columns]);
+                    vartype *m = dup_vartype((vartype *) array_list[columns]);
                     if (m == NULL)
                         return false;
                     else {
@@ -1032,29 +1152,57 @@ static bool unpersist_vartype(vartype **v, bool padded) {
                     return false;
                 }
                 bool success = true;
-                for (int4 i = 0; i < size; i++) {
-                    if (rm->array->is_string[i]) {
-                        char *dst = (char *) &rm->array->data[i];
+                int4 i;
+                for (i = 0; i < size; i++) {
+                    success = false;
+                    if (rm->array->is_string[i] == 0) {
+                        if (!read_phloat(&rm->array->data[i]))
+                            break;
+                    } else {
+                        rm->array->is_string[i] = 1;
                         if (bug_mode == 0) {
-                            // 6 bytes of text followed by length byte
-                            if (fread(dst, 1, 7, gfile) != 7) {
-                                success = false;
-                                break;
+                            if (ver < 34) {
+                                // 6 bytes of text followed by length byte
+                                char *t = (char *) &rm->array->data[i];
+                                if (fread(t + 1, 1, 7, gfile) != 7)
+                                    break;
+                                t[0] = t[7];
+                            } else {
+                                // 4-byte length followed by n bytes of text
+                                int4 len;
+                                if (!read_int4(&len))
+                                    break;
+                                if (len > SSLENM) {
+                                    int4 *p = (int4 *) malloc(len + 4);
+                                    if (p == NULL)
+                                        break;
+                                    if (fread(p + 1, 1, len, gfile) != len) {
+                                        free(p);
+                                        break;
+                                    }
+                                    *p = len;
+                                    *(int4 **) &rm->array->data[i] = p;
+                                    rm->array->is_string[i] = 2;
+                                } else {
+                                    char *t = (char *) &rm->array->data[i];
+                                    *t = len;
+                                    if (fread(t + 1, 1, len, gfile) != len)
+                                        break;
+                                }
                             }
                         } else if (bug_mode == 1) {
                             // Could be as above, or could be length-prefixed.
                             // Read 7 bytes, and if byte 7 looks plausible,
                             // carry on; otherwise, set bug_mode to 3, signalling
                             // we should start over in bug-compatibility mode.
-                            if (fread(dst, 1, 7, gfile) != 7) {
-                                success = false;
+                            char *t = (char *) &rm->array->data[i];
+                            if (fread(t + 1, 1, 7, gfile) != 7)
                                 break;
-                            }
-                            if (dst[6] < 0 || dst[6] > 6) {
+                            if (t[7] < 0 || t[7] > 6) {
                                 bug_mode = 3;
-                                success = false;
                                 break;
                             }
+                            t[0] = t[7];
                         } else {
                             // bug_mode == 2, means this has to be a file with
                             // length-prefixed strings in matrices. Bear in
@@ -1062,30 +1210,22 @@ static bool unpersist_vartype(vartype **v, bool padded) {
                             // clamp them to the 0..6 range, but for advancing
                             // in the file, take them at face value.
                             unsigned char len;
-                            if (fread(&len, 1, 1, gfile) != 1) {
-                                success = false;
+                            if (fread(&len, 1, 1, gfile) != 1)
                                 break;
-                            }
                             unsigned char reallen = len > 6 ? 6 : len;
-                            dst[0] = len;
-                            if (fread(dst + 1, 1, reallen, gfile) != reallen) {
-                                success = false;
+                            char *t = (char *) &rm->array->data[i];
+                            if (fread(t + 1, 1, reallen, gfile) != reallen)
                                 break;
-                            }
+                            t[0] = reallen;
                             len -= reallen;
-                            if (len > 0 && fseek(gfile, len, SEEK_CUR) != 0) {
-                                success = false;
+                            if (len > 0 && fseek(gfile, len, SEEK_CUR) != 0)
                                 break;
-                            }
-                        }
-                    } else {
-                        if (!read_phloat(&rm->array->data[i])) {
-                            success = false;
-                            break;
                         }
                     }
+                    success = true;
                 }
                 if (!success) {
+                    memset(rm->array->is_string + i, 0, size - i);
                     free_vartype((vartype *) rm);
                     return false;
                 }
@@ -1105,7 +1245,7 @@ static bool unpersist_vartype(vartype **v, bool padded) {
                     return false;
                 if (rows == 0) {
                     // Shared matrix
-                    vartype *m = new_matrix_alias((vartype *) array_list[columns]);
+                    vartype *m = dup_vartype((vartype *) array_list[columns]);
                     if (m == NULL)
                         return false;
                     else {
@@ -1134,6 +1274,41 @@ static bool unpersist_vartype(vartype **v, bool padded) {
                     array_list[array_count++] = cm;
                 }
                 *v = (vartype *) cm;
+                return true;
+            }
+            case TYPE_LIST: {
+                int4 size;
+                int data_index;
+                if (!read_int4(&size) || !read_int(&data_index))
+                    return false;
+                if (data_index >= 0) {
+                    // Shared list
+                    vartype *m = dup_vartype((vartype *) array_list[data_index]);
+                    if (m == NULL)
+                        return false;
+                    else {
+                        *v = m;
+                        return true;
+                    }
+                }
+                bool shared = data_index == -2;
+                vartype_list *list = (vartype_list *) new_list(size);
+                if (list == NULL)
+                    return false;
+                if (shared) {
+                    if (!array_list_grow()) {
+                        free_vartype((vartype *) list);
+                        return false;
+                    }
+                    array_list[array_count++] = list;
+                }
+                for (int4 i = 0; i < size; i++) {
+                    if (!unpersist_vartype(&list->array->data[i], false)) {
+                        free_vartype((vartype *) list);
+                        return false;
+                    }
+                }
+                *v = (vartype *) list;
                 return true;
             }
             default:
@@ -1252,17 +1427,15 @@ static bool unpersist_vartype(vartype **v, bool padded) {
             return true;
         }
         case TYPE_STRING: {
-            vartype_string *s = (vartype_string *) new_string("", 0);
-            int n = sizeof(vartype_string) - sizeof(int);
+            old_vartype_string os;
+            int n = sizeof(old_vartype_string) - sizeof(int);
+            if (fread(&os.type + 1, 1, n, gfile) != n)
+                return false;
+            vartype_string *s = (vartype_string *) new_string(os.text, os.length);
             if (s == NULL)
                 return false;
-            if (fread(&s->type + 1, 1, n, gfile) != n) {
-                free_vartype((vartype *) s);
-                return false;
-            } else {
-                *v = (vartype *) s;
-                return true;
-            }
+            *v = (vartype *) s;
+            return true;
         }
         case TYPE_REALMATRIX: {
             matrix_persister mp;
@@ -1271,7 +1444,7 @@ static bool unpersist_vartype(vartype **v, bool padded) {
                 return false;
             if (mp.rows == 0) {
                 // Shared matrix
-                vartype *m = new_matrix_alias((vartype *) array_list[mp.columns]);
+                vartype *m = dup_vartype((vartype *) array_list[mp.columns]);
                 if (m == NULL)
                     return false;
                 else {
@@ -1313,7 +1486,8 @@ static bool unpersist_vartype(vartype **v, bool padded) {
                         if (rm->array->is_string[i]) {
                             char *src = temp + i * phsz;
                             char *dst = (char *) (rm->array->data + i);
-                            for (int j = 0; j < 7; j++)
+                            *dst++ = src[6];
+                            for (int j = 0; j < 6; j++)
                                 *dst++ = *src++;
                         } else {
                             rm->array->data[i] = ((double *) temp)[i];
@@ -1324,7 +1498,8 @@ static bool unpersist_vartype(vartype **v, bool padded) {
                         if (rm->array->is_string[i]) {
                             char *src = temp + i * phsz;
                             char *dst = (char *) (rm->array->data + i);
-                            for (int j = 0; j < 7; j++)
+                            *dst++ = src[6];
+                            for (int j = 0; j < 6; j++)
                                 *dst++ = *src++;
                         } else {
                             rm->array->data[i] = decimal2double((char *) (temp + phsz * i));
@@ -1367,7 +1542,7 @@ static bool unpersist_vartype(vartype **v, bool padded) {
                 return false;
             if (mp.rows == 0) {
                 // Shared matrix
-                vartype *m = new_matrix_alias((vartype *) array_list[mp.columns]);
+                vartype *m = dup_vartype((vartype *) array_list[mp.columns]);
                 if (m == NULL)
                     return false;
                 else {
@@ -1425,15 +1600,12 @@ static bool persist_globals() {
     array_list = NULL;
     bool ret = false;
 
-    if (!persist_vartype(reg_x))
+    if (!write_int(sp))
         goto done;
-    if (!persist_vartype(reg_y))
-        goto done;
-    if (!persist_vartype(reg_z))
-        goto done;
-    if (!persist_vartype(reg_t))
-        goto done;
-    if (!persist_vartype(reg_lastx))
+    for (int i = 0; i <= sp; i++)
+        if (!persist_vartype(stack[i]))
+            goto done;
+    if (!persist_vartype(lastx))
         goto done;
     if (!write_int(reg_alpha_length))
         goto done;
@@ -1467,8 +1639,7 @@ static bool persist_globals() {
         if (!write_char(vars[i].length)
             || fwrite(vars[i].name, 1, vars[i].length, gfile) != vars[i].length
             || !write_int2(vars[i].level)
-            || !write_bool(vars[i].hidden)
-            || !write_bool(vars[i].hiding)
+            || !write_int2(vars[i].flags)
             || !persist_vartype(vars[i].value))
             goto done;
     }
@@ -1492,6 +1663,8 @@ static bool persist_globals() {
         goto done;
     if (!write_bool(rtn_level_0_has_matrix_entry))
         goto done;
+    if (!write_bool(rtn_level_0_has_func_state))
+        goto done;
     int saved_prgm;
     saved_prgm = current_prgm;
     for (i = rtn_sp - 1; i >= 0; i--) {
@@ -1499,17 +1672,13 @@ static bool persist_globals() {
         if (matrix_entry_follows) {
             i++;
         } else {
-            int4 p = rtn_stack[i].prgm;
-            matrix_entry_follows = p < 0;
-            p = p & 0x7fffffff;
-            if ((p & 0x40000000) != 0)
-                p |= 0x80000000;
-            current_prgm = p;
-            int4 l = rtn_stack[i].pc;
+            matrix_entry_follows = rtn_stack[i].has_matrix();
+            current_prgm = rtn_stack[i].get_prgm();
+            int4 line = rtn_stack[i].pc;
             if (current_prgm >= 0)
-                l = pc2line(l);
+                line = pc2line(line);
             if (!write_int4(rtn_stack[i].prgm)
-                    || !write_int4(l))
+                    || !write_int4(line))
                 goto done;
         }
         if (matrix_entry_follows) {
@@ -1534,9 +1703,9 @@ static bool persist_globals() {
     return ret;
 }
 
-static bool suppress_varmenu_update = false;
+bool loading_state = false;
 
-static bool unpersist_globals(int4 ver) {
+static bool unpersist_globals() {
     int i;
     array_count = 0;
     array_list_capacity = 0;
@@ -1549,26 +1718,45 @@ static bool unpersist_globals(int4 ver) {
 #endif
     char tmp_dmy = 2;
 
-    free_vartype(reg_x);
-    if (!unpersist_vartype(&reg_x, padded))
+    if (ver < 33) {
+        sp = 3;
+    } else {
+        if (!read_int(&sp)) {
+            sp = -1;
+            goto done;
+        }
+    }
+    stack_capacity = sp + 1;
+    if (stack_capacity < 4)
+        stack_capacity = 4;
+    stack = (vartype **) malloc(stack_capacity * sizeof(vartype *));
+    if (stack == NULL) {
+        stack_capacity = 0;
+        sp = -1;
         goto done;
+    }
+    for (int i = 0; i <= sp; i++) {
+        if (!unpersist_vartype(&stack[i], padded) || stack[i] == NULL) {
+            for (int j = 0; j < i; j++)
+                free_vartype(stack[j]);
+            free(stack);
+            stack = NULL;
+            sp = -1;
+            stack_capacity = 0;
+            goto done;
+        }
+    }
+    if (ver < 33) {
+        vartype *tmp = stack[REG_X];
+        stack[REG_X] = stack[REG_T];
+        stack[REG_T] = tmp;
+        tmp = stack[REG_Y];
+        stack[REG_Y] = stack[REG_Z];
+        stack[REG_Z] = tmp;
+    }
 
-    // Hack to deal with bad Android state files
-    if (reg_x == NULL)
-        goto done;
-    // End of hack
-
-    free_vartype(reg_y);
-    if (!unpersist_vartype(&reg_y, padded))
-        goto done;
-    free_vartype(reg_z);
-    if (!unpersist_vartype(&reg_z, padded))
-        goto done;
-    free_vartype(reg_t);
-    if (!unpersist_vartype(&reg_t, padded))
-        goto done;
-    free_vartype(reg_lastx);
-    if (!unpersist_vartype(&reg_lastx, padded))
+    free_vartype(lastx);
+    if (!unpersist_vartype(&lastx, padded))
         goto done;
 
     if (ver >= 12 && ver < 20) {
@@ -1629,6 +1817,8 @@ static bool unpersist_globals(int4 ver) {
         flags.f.base_signed = 1;
         flags.f.base_wrap = 0;
     }
+    if (ver < 33)
+        flags.f.big_stack = 0;
 
     if (!state_is_portable) {
         vars_capacity = 0;
@@ -1655,8 +1845,7 @@ static bool unpersist_globals(int4 ver) {
         if (ver < 24)
             for (i = 0; i < vars_count; i++) {
                 vars[i].level = -1;
-                vars[i].hidden = false;
-                vars[i].hiding = false;
+                vars[i].flags = 0;
             }
         for (i = 0; i < vars_count; i++)
             if (!unpersist_vartype(&vars[i].value, padded)) {
@@ -1684,9 +1873,9 @@ static bool unpersist_globals(int4 ver) {
         goto done;
     }
     if (state_is_portable) {
-        suppress_varmenu_update = true;
+        loading_state = true;
         core_import_programs(nprogs, NULL);
-        suppress_varmenu_update = false;
+        loading_state = false;
     } else {
         prgms_count = nprogs;
         prgms = (prgm_struct *) malloc(prgms_count * sizeof(prgm_struct));
@@ -1748,12 +1937,24 @@ static bool unpersist_globals(int4 ver) {
             goto done;
         }
         for (i = 0; i < vars_count; i++) {
-            if (!read_char((char *) &vars[i].length)
-                || fread(vars[i].name, 1, vars[i].length, gfile) != vars[i].length
-                || !read_int2(&vars[i].level)
-                || !read_bool(&vars[i].hidden)
-                || !read_bool(&vars[i].hiding)
-                || !unpersist_vartype(&vars[i].value, false)) {
+            if (!read_char((char *) &vars[i].length))
+                goto vars_fail;
+            if (fread(vars[i].name, 1, vars[i].length, gfile) != vars[i].length)
+                goto vars_fail;
+            if (!read_int2(&vars[i].level))
+                goto vars_fail;
+            if (ver < 30) {
+                bool hidden, hiding;
+                if (!read_bool(&hidden) || !read_bool(&hiding))
+                    goto vars_fail;
+                vars[i].flags = (hidden ? VAR_HIDDEN : 0)
+                                | (hiding ? VAR_HIDING : 0);
+            } else {
+                if (!read_int2(&vars[i].flags))
+                    goto vars_fail;
+            }
+            if (!unpersist_vartype(&vars[i].value, false)) {
+                vars_fail:
                 for (int j = 0; j < i; j++)
                     free_vartype(vars[j].value);
                 free(vars);
@@ -1805,6 +2006,12 @@ static bool unpersist_globals(int4 ver) {
             goto done;
         if (!read_bool(&rtn_level_0_has_matrix_entry))
             goto done;
+        if (ver >= 31) {
+            if (!read_bool(&rtn_level_0_has_func_state))
+                goto done;
+        } else {
+            rtn_level_0_has_func_state = false;
+        }
         rtn_stack_capacity = 16;
         while (rtn_sp > rtn_stack_capacity)
             rtn_stack_capacity <<= 1;
@@ -1816,18 +2023,15 @@ static bool unpersist_globals(int4 ver) {
                 if (matrix_entry_follows) {
                     i++;
                 } else {
-                    int4 tprgm, p, l;
-                    if (!read_int4(&tprgm) || !read_int4(&l))
+                    int4 prgm, line;
+                    if (!read_int4(&prgm) || !read_int4(&line))
                         goto done;
-                    matrix_entry_follows = tprgm < 0;
-                    p = tprgm & 0x7fffffff;
-                    if ((p & 0x40000000) != 0)
-                        p |= 0x80000000;
-                    current_prgm = p;
-                    if (p >= 0)
-                        l = line2pc(l);
-                    rtn_stack[i].prgm = tprgm;
-                    rtn_stack[i].pc = l;
+                    rtn_stack[i].prgm = prgm;
+                    matrix_entry_follows = rtn_stack[i].has_matrix();
+                    current_prgm = rtn_stack[i].get_prgm();
+                    if (current_prgm >= 0)
+                        line = line2pc(line);
+                    rtn_stack[i].pc = line;
                 }
                 if (matrix_entry_follows) {
                     rtn_stack_matrix_name_entry *e1 = (rtn_stack_matrix_name_entry *) &rtn_stack[--i];
@@ -1852,6 +2056,7 @@ static bool unpersist_globals(int4 ver) {
     } else {
         rtn_level = rtn_sp;
         rtn_level_0_has_matrix_entry = false;
+        rtn_level_0_has_func_state = false;
         rtn_stack_capacity = 16;
         rtn_stack = (rtn_stack_entry *) realloc(rtn_stack, rtn_stack_capacity * sizeof(rtn_stack_entry));
         rtn_solve_active = false;
@@ -1860,7 +2065,7 @@ static bool unpersist_globals(int4 ver) {
             int prgm;
             if (fread(&prgm, 1, sizeof(int), gfile) != sizeof(int))
                 goto done;
-            rtn_stack[i].prgm = prgm & 0x7fffffff;
+            rtn_stack[i].set_prgm(prgm);
             if (i < rtn_sp)
                 if (prgm == -2)
                     rtn_solve_active = true;
@@ -1991,7 +2196,7 @@ void clear_prgm_lines(int4 count) {
     while (count > 0) {
         int command;
         arg_struct arg;
-        get_next_command(&pc, &command, &arg, 0);
+        get_next_command(&pc, &command, &arg, 0, NULL);
         if (command == CMD_END) {
             pc -= 2;
             break;
@@ -2033,7 +2238,7 @@ void goto_dot_dot(bool force_new) {
         /* Check if last program is empty */
         pc = 0;
         current_prgm = prgms_count - 1;
-        get_next_command(&pc, &command, &arg, 0);
+        get_next_command(&pc, &command, &arg, 0, NULL);
         if (command == CMD_END) {
             pc = -1;
             return;
@@ -2058,7 +2263,7 @@ void goto_dot_dot(bool force_new) {
     prgms[current_prgm].text = NULL;
     command = CMD_END;
     arg.type = ARGTYPE_NONE;
-    store_command(0, command, &arg);
+    store_command(0, command, &arg, NULL);
     pc = -1;
 }
 
@@ -2081,7 +2286,7 @@ int label_has_mvar(int lblindex) {
     current_prgm = labels[lblindex].prgm;
     pc = labels[lblindex].pc;
     pc += get_command_length(current_prgm, pc);
-    get_next_command(&pc, &command, &arg, 0);
+    get_next_command(&pc, &command, &arg, 0, NULL);
     current_prgm = saved_prgm;
     return command == CMD_MVAR;
 }
@@ -2091,7 +2296,8 @@ int get_command_length(int prgm_index, int4 pc) {
     int4 pc2 = pc;
     int command = prgm->text[pc2++];
     int argtype = prgm->text[pc2++];
-    command |= (argtype & 240) << 4;
+    command |= (argtype & 112) << 4;
+    bool have_orig_num = command == CMD_NUMBER && (argtype & 128) != 0;
     argtype &= 15;
 
     if ((command == CMD_GTO || command == CMD_XEQ)
@@ -2120,10 +2326,12 @@ int get_command_length(int prgm_index, int4 pc) {
             pc2 += sizeof(phloat);
             break;
     }
+    if (have_orig_num)
+        while (prgm->text[pc2++]);
     return pc2 - pc;
 }
 
-void get_next_command(int4 *pc, int *command, arg_struct *arg, int find_target){
+void get_next_command(int4 *pc, int *command, arg_struct *arg, int find_target, const char **num_str) {
     prgm_struct *prgm = prgms + current_prgm;
     int i;
     int4 target_pc;
@@ -2131,7 +2339,8 @@ void get_next_command(int4 *pc, int *command, arg_struct *arg, int find_target){
 
     *command = prgm->text[(*pc)++];
     arg->type = prgm->text[(*pc)++];
-    *command |= (arg->type & 240) << 4;
+    *command |= (arg->type & 112) << 4;
+    bool have_orig_num = *command == CMD_NUMBER && (arg->type & 128) != 0;
     arg->type &= 15;
 
     if ((*command == CMD_GTO || *command == CMD_XEQ)
@@ -2195,10 +2404,33 @@ void get_next_command(int4 *pc, int *command, arg_struct *arg, int find_target){
         }
     }
 
-    if (*command == CMD_NUMBER && arg->type != ARGTYPE_DOUBLE) {
-        /* argtype is ARGTYPE_NUM; convert to phloat */
-        arg->val_d = arg->val.num;
-        arg->type = ARGTYPE_DOUBLE;
+    if (*command == CMD_NUMBER) {
+        if (have_orig_num) {
+            char *p = (char *) &prgm->text[*pc];
+            if (num_str != NULL)
+                *num_str = p;
+            /* Make sure the decimal stored in the program matches
+             * the current setting of flag 28.
+             */
+            char wrong_dot = flags.f.decimal_point ? ',' : '.';
+            char right_dot = flags.f.decimal_point ? '.' : ',';
+            int numlen = 1;
+            while (*p != 0) {
+                if (*p == wrong_dot)
+                    *p = right_dot;
+                p++;
+                numlen++;
+            }
+            *pc += numlen;
+        } else {
+            if (num_str != NULL)
+                *num_str = NULL;
+        }
+        if (arg->type != ARGTYPE_DOUBLE) {
+            /* argtype is ARGTYPE_NUM; convert to phloat */
+            arg->val_d = arg->val.num;
+            arg->type = ARGTYPE_DOUBLE;
+        }
     }
     
     if (find_target) {
@@ -2227,7 +2459,7 @@ void rebuild_label_table() {
         while (pc < prgm->size) {
             int command = prgm->text[pc];
             int argtype = prgm->text[pc + 1];
-            command |= (argtype & 240) << 4;
+            command |= (argtype & 112) << 4;
             argtype &= 15;
 
             if (command == CMD_END
@@ -2280,7 +2512,7 @@ static void invalidate_lclbls(int prgm_index, bool force) {
         while (pc2 < prgm->size) {
             int command = prgm->text[pc2];
             int argtype = prgm->text[pc2 + 1];
-            command |= (argtype & 240) << 4;
+            command |= (argtype & 112) << 4;
             argtype &= 15;
             if ((command == CMD_GTO || command == CMD_XEQ)
                     && (argtype == ARGTYPE_NUM || argtype == ARGTYPE_STK
@@ -2306,7 +2538,7 @@ void delete_command(int4 pc) {
     int length = get_command_length(current_prgm, pc);
     int4 pos;
 
-    command |= (argtype & 240) << 4;
+    command |= (argtype & 112) << 4;
     argtype &= 15;
 
     if (command == CMD_END) {
@@ -2353,7 +2585,7 @@ void delete_command(int4 pc) {
     draw_varmenu();
 }
 
-void store_command(int4 pc, int command, arg_struct *arg) {
+void store_command(int4 pc, int command, arg_struct *arg, const char *num_str) {
     unsigned char buf[100];
     int bufptr = 0;
     int i;
@@ -2368,6 +2600,44 @@ void store_command(int4 pc, int command, arg_struct *arg) {
         arg->type = ARGTYPE_NEG_NUM;
         arg->val.num = -arg->val.num;
     } else if (command == CMD_NUMBER) {
+        /* Store the string representation of the number, unless it matches
+         * the canonical representation, or unless the number is zero.
+         */
+        if (num_str != NULL) {
+            if (arg->val_d == 0) {
+                num_str = NULL;
+            } else {
+                const char *ap = phloat2program(arg->val_d);
+                const char *bp = num_str;
+                bool equal = true;
+                while (1) {
+                    char a = *ap++;
+                    char b = *bp++;
+                    if (a == 0) {
+                        if (b != 0)
+                            equal = false;
+                        break;
+                    } else if (b == 0) {
+                        goto notequal;
+                    }
+                    if (a != b) {
+                        if (a == 24) {
+                            if (b != 'E' && b != 'e')
+                                goto notequal;
+                        } else if (a == '.' || a == ',') {
+                            if (b != '.' && b != ',')
+                                goto notequal;
+                        } else {
+                            notequal:
+                            equal = false;
+                            break;
+                        }
+                    }
+                }
+                if (equal)
+                    num_str = NULL;
+            }
+        }
         /* arg.type is always ARGTYPE_DOUBLE for CMD_NUMBER, but for storage
          * efficiency, we handle integers specially and store them as
          * ARGTYPE_NUM or ARGTYPE_NEG_NUM instead.
@@ -2391,7 +2661,7 @@ void store_command(int4 pc, int command, arg_struct *arg) {
     }
 
     buf[bufptr++] = command & 255;
-    buf[bufptr++] = arg->type | ((command & ~255) >> 4);
+    buf[bufptr++] = arg->type | ((command & 0x700) >> 4) | (command != CMD_NUMBER || num_str == NULL ? 0 : 128);
 
     /* If the program is nonempty, it must already contain an END,
      * since that's the very first thing that gets stored in any new
@@ -2490,6 +2760,21 @@ void store_command(int4 pc, int command, arg_struct *arg) {
         }
     }
 
+    if (command == CMD_NUMBER && num_str != NULL) {
+        const char *p = num_str;
+        char c;
+        const char wrong_dot = flags.f.decimal_point ? ',' : '.';
+        const char right_dot = flags.f.decimal_point ? '.' : ',';
+        while ((c = *p++) != 0) {
+            if (c == wrong_dot)
+                c = right_dot;
+            else if (c == 'E' || c == 'e')
+                c = 24;
+            buf[bufptr++] = c;
+        }
+        buf[bufptr++] = 0;
+    }
+
     if (bufptr + prgm->size > prgm->capacity) {
         unsigned char *newtext;
         prgm->capacity += 512;
@@ -2519,16 +2804,16 @@ void store_command(int4 pc, int command, arg_struct *arg) {
         update_label_table(current_prgm, pc, bufptr);
     invalidate_lclbls(current_prgm, false);
     clear_all_rtns();
-    if (!suppress_varmenu_update)
+    if (!loading_state)
         draw_varmenu();
 }
 
-void store_command_after(int4 *pc, int command, arg_struct *arg) {
+void store_command_after(int4 *pc, int command, arg_struct *arg, const char *num_str) {
     if (*pc == -1)
         *pc = 0;
     else if (prgms[current_prgm].text[*pc] != CMD_END)
         *pc += get_command_length(current_prgm, *pc);
-    store_command(*pc, command, arg);
+    store_command(*pc, command, arg, num_str);
 }
 
 static int pc_line_convert(int4 loc, int loc_is_pc) {
@@ -2585,7 +2870,7 @@ int4 find_local_label(const arg_struct *arg) {
         }
         command = prgm->text[search_pc];
         argtype = prgm->text[search_pc + 1];
-        command |= (argtype & 240) << 4;
+        command |= (argtype & 112) << 4;
         argtype &= 15;
         if (command == CMD_LBL && (argtype == arg->type
                                 || argtype == ARGTYPE_STK)) {
@@ -2630,7 +2915,7 @@ int4 find_local_label(const arg_struct *arg) {
     return -2;
 }
 
-int find_global_label(const arg_struct *arg, int *prgm, int4 *pc) {
+static int find_global_label_2(const arg_struct *arg, int *prgm, int4 *pc, int *idx) {
     int i;
     const char *name = arg->val.text;
     int namelen = arg->length;
@@ -2643,12 +2928,24 @@ int find_global_label(const arg_struct *arg, int *prgm, int4 *pc) {
         for (j = 0; j < namelen; j++)
             if (labelname[j] != name[j])
                 goto nomatch;
-        *prgm = labels[i].prgm;
-        *pc = labels[i].pc;
+        if (prgm != NULL)
+            *prgm = labels[i].prgm;
+        if (pc != NULL)
+            *pc = labels[i].pc;
+        if (idx != NULL)
+            *idx = i;
         return 1;
         nomatch:;
     }
     return 0;
+}
+
+int find_global_label(const arg_struct *arg, int *prgm, int4 *pc) {
+    return find_global_label_2(arg, prgm, pc, NULL);
+}
+
+int find_global_label_index(const arg_struct *arg, int *idx) {
+    return find_global_label_2(arg, NULL, NULL, idx);
 }
 
 int push_rtn_addr(int prgm, int4 pc) {
@@ -2662,7 +2959,7 @@ int push_rtn_addr(int prgm, int4 pc) {
         rtn_stack_capacity = new_rtn_stack_capacity;
         rtn_stack = new_rtn_stack;
     }
-    rtn_stack[rtn_sp].prgm = prgm & 0x7fffffff;
+    rtn_stack[rtn_sp].set_prgm(prgm);
     rtn_stack[rtn_sp].pc = pc;
     rtn_sp++;
     rtn_level++;
@@ -2704,7 +3001,7 @@ int push_indexed_matrix(const char *name, int len) {
         e2.j = matedit_j;
         memcpy(&rtn_stack[rtn_sp - 2], &e2, sizeof(e2));
     } else {
-        if ((rtn_stack[rtn_sp - 1].prgm & 0x80000000) != 0)
+        if (rtn_stack[rtn_sp - 1].has_matrix())
             return ERR_NONE;
         if (rtn_sp + 2 > rtn_stack_capacity) {
             int new_rtn_stack_capacity = rtn_stack_capacity + 16;
@@ -2716,7 +3013,7 @@ int push_indexed_matrix(const char *name, int len) {
         }
         rtn_sp += 2;
         rtn_stack[rtn_sp - 1] = rtn_stack[rtn_sp - 3];
-        rtn_stack[rtn_sp - 1].prgm |= 0x80000000;
+        rtn_stack[rtn_sp - 1].set_has_matrix(true);
         rtn_stack_matrix_name_entry e1;
         int dlen;
         string_copy(e1.name, &dlen, name, len);
@@ -2728,6 +3025,365 @@ int push_indexed_matrix(const char *name, int len) {
         memcpy(&rtn_stack[rtn_sp - 3], &e2, sizeof(e2));
     }
     matedit_mode = 0;
+    return ERR_NONE;
+}
+
+int push_func_state(int n) {
+    if (!program_running())
+        return ERR_RESTRICTED_OPERATION;
+    vartype *fd = recall_private_var("FD", 2);
+    if (fd != NULL)
+        return ERR_INVALID_CONTEXT;
+    vartype *st = recall_private_var("ST", 2);
+    if (st != NULL)
+        return ERR_INVALID_CONTEXT;
+    if (!ensure_var_space(1))
+        return ERR_INSUFFICIENT_MEMORY;
+    int inputs = flags.f.big_stack ? n / 10 : 4;
+    if (sp + 1 < inputs)
+        return ERR_TOO_FEW_ARGUMENTS;
+    int size = inputs + 4;
+    // FD list layout:
+    // 0: n, the 2-digit parameter to FUNC
+    // 1: original stack depth, or -1 for 4-level stack
+    // 2: flag 25, encoded as a string "0" or "1"
+    // 3: lastx
+    // 4: X / level 1
+    // 5: Y / level 2
+    // etc.
+    // For 4-level stack, all 4 registers are saved;
+    // for big stack, the input parameters are saved.
+    fd = new_list(size);
+    if (fd == NULL)
+        return ERR_INSUFFICIENT_MEMORY;
+    vartype **fd_data = ((vartype_list *) fd)->array->data;
+    fd_data[0] = new_real(n);
+    fd_data[1] = new_real(flags.f.big_stack ? sp + 1 : -1);
+    fd_data[2] = new_string(flags.f.error_ignore ? "1" : "0", 1);
+    fd_data[3] = dup_vartype(lastx);
+    for (int i = 0; i < inputs; i++)
+        fd_data[i + 4] = dup_vartype(stack[sp - i]);
+    for (int i = 0; i < size; i++)
+        if (fd_data[i] == NULL) {
+            free_vartype(fd);
+            return ERR_INSUFFICIENT_MEMORY;
+        }
+    store_private_var("FD", 2, fd);
+    flags.f.error_ignore = 0;
+
+    if (rtn_level == 0)
+        rtn_level_0_has_func_state = true;
+    else
+        rtn_stack[rtn_sp - 1].set_has_func(true);
+    return ERR_NONE;
+}
+
+int push_stack_state(bool big) {
+    vartype *st = recall_private_var("ST", 2);
+    if (st != NULL)
+        return ERR_INVALID_CONTEXT;
+
+    if (!ensure_var_space(1))
+        return ERR_INSUFFICIENT_MEMORY;
+    int save_levels;
+    vartype *dups[4];
+    int n_dups = 0;
+    if (!big && flags.f.big_stack) {
+        // Save levels 5 and up, unless FUNC has been called, in which case,
+        // save levels <NumInputs> + 1 and up.
+        vartype *fd = recall_private_var("FD", 2);
+        if (fd != NULL) {
+            vartype **fd_data = ((vartype_list *) fd)->array->data;
+            int n = to_int(((vartype_real *) fd_data[0])->x);
+            int in = n / 10;
+            n_dups = 4 - in;
+            for (int i = 0; i < n_dups; i++) {
+                int p = sp - 3 + i;
+                if (p < 0)
+                    dups[i] = new_real(0);
+                else
+                    dups[i] = dup_vartype(stack[p]);
+                if (dups[i] == NULL) {
+                    n_dups = i;
+                    goto nomem;
+                }
+            }
+            save_levels = sp + 1 - in;
+        } else {
+            save_levels = sp - 3;
+        }
+        if (save_levels < 0)
+            save_levels = 0;
+    } else {
+        save_levels = 0;
+    }
+    st = new_list(save_levels + 1);
+    if (st == NULL) {
+        nomem:
+        for (int j = 0; j < n_dups; j++)
+            free_vartype(dups[j]);
+        return ERR_INSUFFICIENT_MEMORY;
+    }
+
+    vartype **st_data = ((vartype_list *) st)->array->data;
+    st_data[0] = new_string(flags.f.big_stack ? "1" : "0", 1);
+    if (st_data[0] == NULL) {
+        free_vartype(st);
+        goto nomem;
+    }
+    memcpy(st_data + 1, stack, save_levels * sizeof(vartype *));
+    memmove(stack + n_dups, stack + sp - 3 + n_dups, (sp + 1 - save_levels) * sizeof(vartype *));
+    memcpy(stack, dups, n_dups * sizeof(vartype *));
+    sp -= save_levels - n_dups;
+
+    store_private_var("ST", 2, st);
+    flags.f.big_stack = big;
+
+    if (rtn_level == 0)
+        rtn_level_0_has_func_state = true;
+    else
+        rtn_stack[rtn_sp - 1].set_has_func(true);
+    return ERR_NONE;
+}
+
+int pop_func_state(bool error) {
+    if (rtn_level == 0) {
+        if (!rtn_level_0_has_func_state)
+            return ERR_NONE;
+    } else {
+        if (!rtn_stack[rtn_sp - 1].has_func())
+            return ERR_NONE;
+    }
+
+    vartype_list *st = (vartype_list *) recall_private_var("ST", 2);
+    vartype_list *fd = (vartype_list *) recall_private_var("FD", 2);
+
+    if (st == NULL && fd == NULL)
+        // Pre-bigstack. Rather a hassle to deal with, so punt.
+        // Note that this can only happen if a user upgrades from
+        // 2.5.23 or 2.5.24 to >2.5.24 while execution is stopped
+        // with old FUNC data on the stack. That seems like a
+        // reasonable scenario to ignore.
+        return ERR_INVALID_DATA;
+
+    if (st != NULL) {
+        vartype **st_data = st->array->data;
+        char big = ((vartype_string *) st_data[0])->txt()[0] == '1';
+        if (big == flags.f.big_stack)
+            st = NULL;
+    }
+
+    if (st != NULL && fd == NULL) {
+        vartype **st_data = st->array->data;
+        char big = ((vartype_string *) st_data[0])->txt()[0] == '1';
+        if (big) {
+            if (!core_settings.allow_big_stack)
+                return ERR_BIG_STACK_DISABLED;
+            int4 size = st->size - 1;
+            if (size > 0) {
+                if (!ensure_stack_capacity(size))
+                    return ERR_INSUFFICIENT_MEMORY;
+                memmove(stack + size, stack, 4 * sizeof(vartype *));
+                memcpy(stack, st_data + 1, size * sizeof(vartype *));
+                memset(st_data + 1, 0, size * sizeof(vartype *));
+                sp += size;
+            }
+            flags.f.big_stack = 1;
+        } else {
+            int err = docmd_4stk(NULL);
+            if (err != ERR_NONE)
+                return err;
+        }
+        goto done;
+    }
+
+    if (st == NULL && fd != NULL) {
+        vartype **fd_data = fd->array->data;
+        int n = to_int(((vartype_real *) fd_data[0])->x);
+        int old_depth = to_int(((vartype_real *) fd_data[1])->x);
+        char big = old_depth >= 0;
+        if (big != flags.f.big_stack)
+            // Note that this must be the result of NSTK or 4STK;
+            // the effects of LNSTK or L4STK would already have been
+            // undone by the time we get here (if switching back
+            // to the saved mode was a no-op), or we wouldn't even
+            // be here in the first place (the case of st != NULL
+            // and fd != NULL with a nontrivial L4STK/LNSTK
+            // wrap-up, is handled separately at the end of this
+            // function).
+            return ERR_INVALID_CONTEXT;
+
+        if (error)
+            n = 0;
+        int in = n / 10;
+        int out = n % 10;
+
+        if (!big) {
+            int n_tdups = (in == 4 ? 3 : in) - out;
+            if (n_tdups < 0)
+                n_tdups = 0;
+            vartype *tdups[3];
+            for (int i = 0; i < n_tdups; i++) {
+                tdups[i] = dup_vartype(fd_data[7]); // T
+                if (tdups[i] == NULL) {
+                    for (int j = 0; j < i; j++)
+                        free_vartype(tdups[j]);
+                    return ERR_INSUFFICIENT_MEMORY;
+                }
+            }
+            for (int d = out; d < 4; d++) {
+                int s = d + in - out;
+                vartype *v;
+                if (s < 4) {
+                    v = fd_data[s + 4];
+                    fd_data[s + 4] = NULL;
+                } else if (d > out) {
+                    v = tdups[--n_tdups];
+                } else {
+                    v = fd_data[7]; // T
+                    fd_data[7] = NULL;
+                }
+                free_vartype(stack[sp - d]);
+                stack[sp - d] = v;
+            }
+        } else if (error) {
+            int other_depth = old_depth - fd->size + 4;
+            while (sp >= other_depth)
+                free_vartype(stack[sp--]);
+            for (int i = fd->size - 1; i >= 4; i--) {
+                stack[++sp] = fd_data[i];
+                fd_data[i] = NULL;
+            }
+        } else {
+            int depth = sp + 1;
+            int excess = depth - (old_depth - in + out);
+            if (excess > 0) {
+                for (int i = 0; i < excess; i++)
+                    free_vartype(stack[sp - out - i]);
+                memmove(stack + depth - out - excess, stack + depth - out, out * sizeof(vartype *));
+                sp -= excess;
+            }
+        }
+
+        free_vartype(lastx);
+        int li = in == 0 ? 3 : 4; // L : X
+        lastx = fd_data[li];
+        fd_data[li] = NULL;
+
+        char f25 = ((vartype_string *) fd_data[2])->txt()[0] == '1';
+        flags.f.error_ignore = f25;
+
+        goto done;
+    }
+
+    if (st != NULL && fd != NULL) {
+        vartype **st_data = st->array->data;
+        char st_big = ((vartype_string *) st_data[0])->txt()[0] == '1';
+        vartype **fd_data = fd->array->data;
+        int old_depth = to_int(((vartype_real *) fd_data[1])->x);
+        char fd_big = old_depth >= 0;
+        if (st_big != fd_big)
+            // Apparently someone called 4STK/NSTK between FUNC and L4STK/LNSTK
+            return ERR_INVALID_CONTEXT;
+        if (fd_big && !core_settings.allow_big_stack)
+            return ERR_BIG_STACK_DISABLED;
+
+        int n = to_int(((vartype_real *) fd_data[0])->x);
+
+        if (error)
+            n = 0;
+        int in = n / 10;
+        int out = n % 10;
+
+        if (!fd_big) {
+            int n_tdups = (in == 4 ? 3 : in) - out;
+            if (n_tdups < 0)
+                n_tdups = 0;
+            vartype *tdups[3];
+            for (int i = 0; i < n_tdups; i++) {
+                tdups[i] = dup_vartype(fd_data[7]); // T
+                if (tdups[i] == NULL) {
+                    for (int j = 0; j < i; j++)
+                        free_vartype(tdups[j]);
+                    return ERR_INSUFFICIENT_MEMORY;
+                }
+            }
+            int err = docmd_4stk(NULL);
+            if (err != ERR_NONE) {
+                for (int i = 0; i < n_tdups; i++)
+                    free_vartype(tdups[i]);
+                return err;
+            }
+            for (int d = out; d < 4; d++) {
+                int s = d + in - out;
+                vartype *v;
+                if (s < 4) {
+                    v = fd_data[s + 4];
+                    fd_data[s + 4] = NULL;
+                } else if (d > out) {
+                    v = tdups[--n_tdups];
+                } else {
+                    v = fd_data[7]; // T
+                    fd_data[7] = NULL;
+                }
+                free_vartype(stack[sp - d]);
+                stack[sp - d] = v;
+            }
+        } else if (error) {
+            int fd_levels = fd->size - 4;
+            int st_levels = st->size - 1;
+            int old_depth = fd_levels + st_levels;
+            if (stack_capacity < old_depth) {
+                vartype **new_stack = (vartype **) realloc(stack, old_depth * sizeof(vartype *));
+                if (new_stack == NULL)
+                    return ERR_INSUFFICIENT_MEMORY;
+                stack = new_stack;
+                stack_capacity = old_depth;
+            }
+            for (int i = 0; i <= sp; i++)
+                free_vartype(stack[i]);
+            memcpy(stack, st->array->data + 1, st_levels * sizeof(vartype *));
+            memset(st->array->data + 1, 0, st_levels * sizeof(vartype *));
+            sp = st_levels - 1;
+            for (int i = fd->size - 1; i >= 4; i++)
+                stack[++sp] = fd_data[i];
+            memset(fd->array->data + 4, 0, fd_levels * sizeof(vartype *));
+        } else {
+            int st_levels = st->size - 1;
+            int needed_capacity = st_levels + out;
+            if (stack_capacity < needed_capacity) {
+                vartype **new_stack = (vartype **) realloc(stack, needed_capacity * sizeof(vartype *));
+                if (new_stack == NULL)
+                    return ERR_INSUFFICIENT_MEMORY;
+                stack = new_stack;
+                stack_capacity = needed_capacity;
+            }
+            for (int i = 0; i <= sp - out; i++)
+                free_vartype(stack[i]);
+            memmove(stack + st_levels, stack + sp + 1 - out, out * sizeof(vartype *));
+            memcpy(stack, st->array->data + 1, st_levels * sizeof(vartype *));
+            sp = st_levels + out - 1;
+            memset(st->array->data + 1, 0, st_levels * sizeof(vartype *));
+        }
+
+        free_vartype(lastx);
+        int li = in == 0 ? 3 : 4; // L : X
+        lastx = fd_data[li];
+        fd_data[li] = NULL;
+
+        char f25 = ((vartype_string *) fd_data[2])->txt()[0] == '1';
+        flags.f.error_ignore = f25;
+
+        flags.f.big_stack = fd_big;
+    }
+
+    done:
+    if (rtn_level == 0)
+        rtn_level_0_has_func_state = false;
+    else
+        rtn_stack[rtn_sp - 1].set_has_func(false);
+
+    print_trace();
     return ERR_NONE;
 }
 
@@ -2763,10 +3419,10 @@ static void remove_locals() {
             }
             matedit_mode = 0;
         }
-        if (vars[i].hiding) {
+        if ((vars[i].flags & VAR_HIDING) != 0) {
             for (int j = i - 1; j >= 0; j--)
-                if (vars[j].hidden && string_equals(vars[i].name, vars[i].length, vars[j].name, vars[j].length)) {
-                    vars[j].hidden = false;
+                if ((vars[j].flags & VAR_HIDDEN) != 0 && string_equals(vars[i].name, vars[i].length, vars[j].name, vars[j].length)) {
+                    vars[j].flags &= ~VAR_HIDDEN;
                     break;
                 }
         }
@@ -2787,12 +3443,67 @@ static void remove_locals() {
     update_catalog();
 }
 
+int rtn(int err) {
+    // NOTE: 'err' should be one of ERR_NONE, ERR_YES, or ERR_NO.
+    // For any actual *error*, i.e. anything that should actually
+    // stop program execution, use rtn_with_error() instead.
+    int newprgm;
+    int4 newpc;
+    bool stop;
+    pop_rtn_addr(&newprgm, &newpc, &stop);
+    if (newprgm == -3) {
+        return return_to_integ(stop);
+    } else if (newprgm == -2) {
+        return return_to_solve(0, stop);
+    } else if (newprgm == -1) {
+        if (pc >= prgms[current_prgm].size)
+            /* It's an END; go to line 0 */
+            pc = -1;
+        if (err != ERR_NONE)
+            display_error(err, true);
+        return ERR_STOP;
+    } else {
+        current_prgm = newprgm;
+        pc = newpc;
+        if (err == ERR_NO) {
+            int command;
+            arg_struct arg;
+            get_next_command(&pc, &command, &arg, 0, NULL);
+            if (command == CMD_END)
+                pc = newpc;
+        }
+        return stop ? ERR_STOP : ERR_NONE;
+    }
+}
+
+int rtn_with_error(int err) {
+    bool stop;
+    if (solve_active() && (err == ERR_OUT_OF_RANGE
+                            || err == ERR_DIVIDE_BY_0
+                            || err == ERR_INVALID_DATA
+                            || err == ERR_STAT_MATH_ERROR)) {
+        stop = unwind_stack_until_solve();
+        return return_to_solve(1, stop);
+    }
+    int newprgm;
+    int4 newpc;
+    pop_rtn_addr(&newprgm, &newpc, &stop);
+    if (newprgm >= 0) {
+        // Stop on the calling XEQ, not the RTNERR
+        current_prgm = newprgm;
+        int line = pc2line(newpc);
+        set_old_pc(line2pc(line - 1));
+    }
+    return err;
+}
+
 void pop_rtn_addr(int *prgm, int4 *pc, bool *stop) {
     remove_locals();
     if (rtn_level == 0) {
         *prgm = -1;
         *pc = -1;
         rtn_stop_level = -1;
+        rtn_level_0_has_func_state = false;
         if (rtn_level_0_has_matrix_entry) {
             rtn_level_0_has_matrix_entry = false;
             restore_indexed_matrix:
@@ -2808,11 +3519,7 @@ void pop_rtn_addr(int *prgm, int4 *pc, bool *stop) {
     } else {
         rtn_sp--;
         rtn_level--;
-        int4 tprgm = rtn_stack[rtn_sp].prgm;
-        *prgm = tprgm & 0x7fffffff;
-        // Fix sign, or -2 and -3 won't work!
-        if ((tprgm & 0x40000000) != 0)
-            *prgm |= 0x80000000;
+        *prgm = rtn_stack[rtn_sp].get_prgm();
         *pc = rtn_stack[rtn_sp].pc;
         if (rtn_stop_level >= rtn_level) {
             *stop = true;
@@ -2823,7 +3530,7 @@ void pop_rtn_addr(int *prgm, int4 *pc, bool *stop) {
             rtn_solve_active = false;
         else if (*prgm == -3)
             rtn_integ_active = false;
-        if ((tprgm & 0x80000000) != 0)
+        if (rtn_stack[rtn_sp].has_matrix())
             goto restore_indexed_matrix;
     }
 }
@@ -2845,8 +3552,7 @@ void pop_indexed_matrix(const char *name, int namelen) {
             }
         }
     } else {
-        int4 tprgm = rtn_stack[rtn_sp - 1].prgm;
-        if ((tprgm & 0x80000000) != 0) {
+        if (rtn_stack[rtn_sp - 1].has_matrix()) {
             rtn_stack_matrix_name_entry e1;
             memcpy(&e1, &rtn_stack[rtn_sp - 2], sizeof(e1));
             if (string_equals(e1.name, e1.length, name, namelen)) {
@@ -2856,7 +3562,7 @@ void pop_indexed_matrix(const char *name, int namelen) {
                 matedit_i = e2.i;
                 matedit_j = e2.j;
                 matedit_mode = 1;
-                rtn_stack[rtn_sp - 3].prgm = tprgm & 0x7fffffff;
+                rtn_stack[rtn_sp - 3].set_has_matrix(false);
                 rtn_stack[rtn_sp - 3].pc = rtn_stack[rtn_sp - 1].pc;
                 rtn_sp -= 2;
             }
@@ -2864,13 +3570,38 @@ void pop_indexed_matrix(const char *name, int namelen) {
     }
 }
 
+static void get_saved_stack_mode(int *m) {
+    if (rtn_level == 0) {
+        if (!rtn_level_0_has_func_state)
+            return;
+    } else {
+        if (!rtn_stack[rtn_sp - 1].has_func())
+            return;
+    }
+    vartype_list *st = (vartype_list *) recall_private_var("ST", 2);
+    if (st == NULL)
+        return;
+    vartype **st_data = st->array->data;
+    *m = ((vartype_string *) st_data[0])->txt()[0] == '1';
+}
+
 void clear_all_rtns() {
     int dummy1;
     int4 dummy2;
     bool dummy3;
-    while (rtn_level > 0)
+    int st_mode = -1;
+    while (rtn_level > 0) {
+        get_saved_stack_mode(&st_mode);
         pop_rtn_addr(&dummy1, &dummy2, &dummy3);
+    }
+    get_saved_stack_mode(&st_mode);
     pop_rtn_addr(&dummy1, &dummy2, &dummy3);
+    if (st_mode == 0) {
+        arg_struct dummy_arg;
+        docmd_4stk(&dummy_arg);
+    } else if (st_mode == 1) {
+        docmd_nstk(NULL);
+    }
 }
 
 int get_rtn_level() {
@@ -3283,7 +4014,7 @@ bool write_arg(const arg_struct *arg) {
     }
 }
 
-static bool load_state2(int4 ver, bool *clear, bool *too_new) {
+static bool load_state2(bool *clear, bool *too_new) {
     int4 magic;
     int4 version;
     *clear = false;
@@ -3396,17 +4127,19 @@ static bool load_state2(int4 ver, bool *clear, bool *too_new) {
     if (!read_int(&mode_transientmenu)) return false;
     if (!read_int(&mode_alphamenu)) return false;
     if (!read_int(&mode_commandmenu)) return false;
-    if (ver < 25) {
-        if (mode_appmenu > MENU_MODES2)
-            mode_appmenu++;
-        if (mode_plainmenu > MENU_MODES2)
-            mode_plainmenu++;
-        if (mode_transientmenu > MENU_MODES2)
-            mode_transientmenu++;
-        if (mode_alphamenu > MENU_MODES2)
-            mode_alphamenu++;
-        if (mode_commandmenu > MENU_MODES2)
-            mode_commandmenu++;
+    if (ver < 33) {
+        int extra = ver < 25 ? 3 : 2;
+        int highestmode = ver < 25 ? MENU_MODES2 : MENU_MODES3;
+        if (mode_appmenu > highestmode)
+            mode_appmenu += extra;
+        if (mode_plainmenu > highestmode)
+            mode_plainmenu += extra;
+        if (mode_transientmenu > highestmode)
+            mode_transientmenu += extra;
+        if (mode_alphamenu > highestmode)
+            mode_alphamenu += extra;
+        if (mode_commandmenu > highestmode)
+            mode_commandmenu += extra;
     }
     if (!read_bool(&mode_running)) return false;
     if (!read_bool(&mode_varmenu)) return false;
@@ -3426,8 +4159,16 @@ static bool load_state2(int4 ver, bool *clear, bool *too_new) {
     if (!read_int(&xeq_invisible)) return false;
 
     if (!read_int(&incomplete_command)) return false;
-    if (!read_int(&incomplete_ind)) return false;
-    if (!read_int(&incomplete_alpha)) return false;
+    if (ver < 35) {
+        int temp;
+        if (!read_int(&temp)) return false;
+        incomplete_ind = temp != 0;
+        if (!read_int(&temp)) return false;
+        incomplete_alpha = temp != 0;
+    } else {
+        if (!read_bool(&incomplete_ind)) return false;
+        if (!read_bool(&incomplete_alpha)) return false;
+    }
     if (!read_int(&incomplete_length)) return false;
     if (!read_int(&incomplete_maxdigits)) return false;
     if (!read_int(&incomplete_argtype)) return false;
@@ -3485,7 +4226,7 @@ static bool load_state2(int4 ver, bool *clear, bool *too_new) {
 
     if (!unpersist_display(ver))
         return false;
-    if (!unpersist_globals(ver))
+    if (!unpersist_globals())
         return false;
 
     if (ver < 4) {
@@ -3533,10 +4274,11 @@ static bool load_state2(int4 ver, bool *clear, bool *too_new) {
 
 // See the comment for bug_mode at its declaration...
 
-bool load_state(int4 ver, bool *clear, bool *too_new) {
+bool load_state(int4 ver_p, bool *clear, bool *too_new) {
     bug_mode = 0;
+    ver = ver_p;
     long fpos = ftell(gfile);
-    if (load_state2(ver, clear, too_new))
+    if (load_state2(clear, too_new))
         return true;
     if (bug_mode != 3)
         return false;
@@ -3546,7 +4288,7 @@ bool load_state(int4 ver, bool *clear, bool *too_new) {
     core_cleanup();
     fseek(gfile, fpos, SEEK_SET);
     bug_mode = 2;
-    return load_state2(ver, clear, too_new);
+    return load_state2(clear, too_new);
 }
 
 void save_state() {
@@ -3594,8 +4336,8 @@ void save_state() {
     if (!write_int(xeq_invisible)) return;
 
     if (!write_int(incomplete_command)) return;
-    if (!write_int(incomplete_ind)) return;
-    if (!write_int(incomplete_alpha)) return;
+    if (!write_bool(incomplete_ind)) return;
+    if (!write_bool(incomplete_alpha)) return;
     if (!write_int(incomplete_length)) return;
     if (!write_int(incomplete_maxdigits)) return;
     if (!write_int(incomplete_argtype)) return;
@@ -3652,16 +4394,16 @@ void hard_reset(int reason) {
     vartype *regs;
 
     /* Clear stack */
-    free_vartype(reg_x);
-    free_vartype(reg_y);
-    free_vartype(reg_z);
-    free_vartype(reg_t);
-    free_vartype(reg_lastx);
-    reg_x = new_real(0);
-    reg_y = new_real(0);
-    reg_z = new_real(0);
-    reg_t = new_real(0);
-    reg_lastx = new_real(0);
+    for (int i = 0; i <= sp; i++)
+        free_vartype(stack[i]);
+    free(stack);
+    free_vartype(lastx);
+    sp = 3;
+    stack_capacity = 4;
+    stack = (vartype **) malloc(stack_capacity * sizeof(vartype *));
+    for (int i = 0; i <= sp; i++)
+        stack[i] = new_real(0);
+    lastx = new_real(0);
 
     /* Clear alpha */
     reg_alpha_length = 0;
@@ -3722,10 +4464,11 @@ void hard_reset(int reason) {
     flags.f.error_ignore = 0;
     flags.f.audio_enable = 1;
     /* flags.f.VIRTUAL_custom_menu = 0; */
-    flags.f.decimal_point = shell_decimal_point(); // HP-42S sets this to 1 on hard reset
+    flags.f.decimal_point = shell_decimal_point() ? 1 : 0; // HP-42S sets this to 1 on hard reset
     flags.f.thousands_separators = 1;
     flags.f.stack_lift_disable = 0;
-    flags.f.dmy = 0;
+    int df = shell_date_format();
+    flags.f.dmy = df == 1;
     flags.f.f32 = flags.f.f33 = 0;
     flags.f.agraph_control1 = 0;
     flags.f.agraph_control0 = 0;
@@ -3760,7 +4503,7 @@ void hard_reset(int reason) {
     flags.f.shift_state = 0;
     /* flags.f.VIRTUAL_matrix_editor = 0; */
     flags.f.grow = 0;
-    flags.f.ymd = 0;
+    flags.f.ymd = df == 2;
     flags.f.base_bit0 = 0;
     flags.f.base_bit1 = 0;
     flags.f.base_bit2 = 0;
@@ -3773,7 +4516,8 @@ void hard_reset(int reason) {
     flags.f.matrix_end_wrap = 0;
     flags.f.base_signed = 1;
     flags.f.base_wrap = 0;
-    flags.f.f80 = flags.f.f81 = flags.f.f82 = flags.f.f83 = flags.f.f84 = 0;
+    flags.f.big_stack = 0;
+    flags.f.f81 = flags.f.f82 = flags.f.f83 = flags.f.f84 = 0;
     flags.f.f85 = flags.f.f86 = flags.f.f87 = flags.f.f88 = flags.f.f89 = 0;
     flags.f.f90 = flags.f.f91 = flags.f.f92 = flags.f.f93 = flags.f.f94 = 0;
     flags.f.f95 = flags.f.f96 = flags.f.f97 = flags.f.f98 = flags.f.f99 = 0;
@@ -3798,7 +4542,7 @@ void hard_reset(int reason) {
     mode_sigma_reg = 11;
     mode_goose = -1;
     mode_time_clktd = false;
-    mode_time_clk24 = false;
+    mode_time_clk24 = shell_clk24();
     mode_wsize = 36;
 
     reset_math();
@@ -3852,18 +4596,17 @@ static bool convert_programs(bool *clear_stack) {
         return success;
     }
     int mod_count = 0;
-    int sp = rtn_sp;
+    int rsp = rtn_sp;
     if (rtn_solve_active || rtn_integ_active) {
         *clear_stack = true;
     } else {
         for (i = 0; i < rtn_level; i++) {
-            sp--;
-            int4 prgm = rtn_stack[sp].prgm;
-            mod_prgm[mod_count] = prgm & 0x7fffffff;
-            mod_pc[mod_count] = rtn_stack[sp].pc;
-            mod_sp[mod_count] = sp;
-            if ((prgm & 0x80000000) != 0)
-                sp -= 2;
+            rsp--;
+            mod_prgm[mod_count] = rtn_stack[rsp].get_prgm();
+            mod_pc[mod_count] = rtn_stack[rsp].pc;
+            mod_sp[mod_count] = rsp;
+            if (rtn_stack[rsp].has_matrix())
+                rsp -= 2;
             mod_count++;
         }
     }
@@ -3881,6 +4624,9 @@ static bool convert_programs(bool *clear_stack) {
     }
     mod_count--;
 
+    // I know, I know, bubble sort, right?
+    // Bear in mind that this only applies to old state files,
+    // where the stack has only 8 levels max.
     for (i = 0; i < mod_count; i++)
         for (int j = i + 1; j <= mod_count; j++)
             if (mod_prgm[i] < mod_prgm[j]
@@ -3915,12 +4661,15 @@ static bool convert_programs(bool *clear_stack) {
                 else if (s == -2)
                     incomplete_saved_pc = pc;
                 else
-                    rtn_stack[sp].pc = pc;
+                    rtn_stack[s].pc = pc;
                 mod_count--;
             }
             int4 prevpc = pc;
             int command = prgm->text[pc++];
             int argtype = prgm->text[pc++];
+            // Note: not handling original number for CMD_NUMBER here, since
+            // that was introduced after we'd stopped writing the in-memory
+            // representations of programs to state files.
             command |= (argtype & 240) << 4;
             argtype &= 15;
 
@@ -4036,6 +4785,9 @@ static void update_decimal_in_programs() {
         while (true) {
             int command = prgm->text[pc++];
             int argtype = prgm->text[pc++];
+            // Note: not handling original number for CMD_NUMBER here, since
+            // that was introduced after we'd stopped writing the in-memory
+            // representations of programs to state files.
             command |= (argtype & 240) << 4;
             argtype &= 15;
 
@@ -4089,16 +4841,10 @@ static void update_decimal_in_programs() {
 bool off_enabled() {
     if (off_enable_flag)
         return true;
-    if (reg_x->type != TYPE_STRING)
+    if (sp == -1 || stack[sp]->type != TYPE_STRING)
         return false;
-    vartype_string *str = (vartype_string *) reg_x;
-    off_enable_flag = str->length == 6
-                      && str->text[0] == 'Y'
-                      && str->text[1] == 'E'
-                      && str->text[2] == 'S'
-                      && str->text[3] == 'O'
-                      && str->text[4] == 'F'
-                      && str->text[5] == 'F';
+    vartype_string *str = (vartype_string *) stack[sp];
+    off_enable_flag = string_equals(str->txt(), str->length, "YESOFF", 6);
     return off_enable_flag;
 }
 #endif

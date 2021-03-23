@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2020  Thomas Okken
+ * Copyright (C) 2004-2021  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -172,7 +172,7 @@ static BOOL battery_is_low_ann = NO;
     }
 }
 
-int shell_low_battery() {
+bool shell_low_battery() {
     if (battery_is_low_ann != battery_is_low) {
         battery_is_low_ann = battery_is_low;
         skin_update_annunciator(5, battery_is_low, instance.calcView);
@@ -181,13 +181,19 @@ int shell_low_battery() {
 }
 
 + (void) showMessage:(NSString *) message {
-    UIAlertView *errorAlert = [[UIAlertView alloc] initWithTitle:@"Message"
-                                                         message:message
-                                                        delegate:nil
-                                               cancelButtonTitle:@"OK"
-                                               otherButtonTitles:nil];
-    [errorAlert show];
-    [errorAlert release];
+    UIAlertController *ctrl = [UIAlertController
+            alertControllerWithTitle:@"Message"
+            message:message
+            preferredStyle:UIAlertControllerStyleAlert];
+    [ctrl addAction:[UIAlertAction
+                     actionWithTitle:@"OK"
+                     style:UIAlertActionStyleDefault
+                     handler:nil]];
+    [instance presentViewController:ctrl animated:YES completion:nil];
+}
+
++ (void) presentViewController:(UIViewController *)ctrl animated:(BOOL)a completion:(void (^)(void))completion {
+    [instance presentViewController:ctrl animated:a completion:completion];
 }
 
 void shell_message(const char *message) {
@@ -260,7 +266,7 @@ void shell_message(const char *message) {
 }
 
 + (void) doImport {
-    [SelectFileView raiseWithTitle:@"Import Programs" selectTitle:@"Import" types:@"raw,*" selectDir:NO callbackObject:instance callbackSelector:@selector(doImport2:)];
+    [SelectFileView raiseWithTitle:@"Import Programs" selectTitle:@"Import" types:@"raw,*" initialFile:nil selectDir:NO callbackObject:instance callbackSelector:@selector(doImport2:)];
 }
 
 - (void) doImport2:(NSString *) path {

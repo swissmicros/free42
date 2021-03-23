@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2020  Thomas Okken
+ * Copyright (C) 2004-2021  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -16,6 +16,7 @@
  *****************************************************************************/
 
 #include <stdlib.h>
+#include <string.h>
 
 #include "core_keydown.h"
 #include "core_commands2.h"
@@ -31,8 +32,7 @@
 int no_menu_key_this_time = 0;
 
 static int is_number_key(int shift, int key) {
-    int *menu = get_front_menu();
-    if (menu != NULL && *menu == MENU_BASE_A_THRU_F && !no_menu_key_this_time
+    if (get_front_menu() == MENU_BASE_A_THRU_F && !no_menu_key_this_time
             && (key == KEY_SIGMA || key == KEY_INV || key == KEY_SQRT
                 || key == KEY_LOG || key == KEY_LN || key == KEY_XEQ))
         return 1;
@@ -45,15 +45,15 @@ static int is_number_key(int shift, int key) {
 static int basekeys() {
     if (!baseapp)
         return 0;
-    int *menu = get_front_menu();
-    return menu != NULL && *menu >= MENU_BASE && *menu <= MENU_BASE_LOGIC;
+    int menu = get_front_menu();
+    return menu >= MENU_BASE && menu <= MENU_BASE_LOGIC;
 }
 
 static void set_solve_integ(int solve) {
     if (flags.f.prgm_mode || !mvar_prgms_exist()) {
         set_menu(MENULEVEL_APP, solve ? MENU_SOLVE : MENU_INTEG);
         if (!flags.f.prgm_mode)
-            display_error(ERR_NO_MENU_VARIABLES, 0);
+            display_error(ERR_NO_MENU_VARIABLES, false);
     } else {
         int err = set_menu_return_err(MENULEVEL_APP, MENU_CATALOG, false);
         if (err == ERR_NONE) {
@@ -67,7 +67,7 @@ static void set_solve_integ(int solve) {
             flags.f.message = 1;
             flags.f.two_line_message = 0;
         } else
-            display_error(err, 1);
+            display_error(err, true);
     }
     redisplay();
 }
@@ -81,7 +81,7 @@ static void view(const char *varname, int varlength) {
         arg.val.text[i] = varname[i];
     err = view_helper(&arg, 0);
     if (err != ERR_NONE) {
-        display_error(err, 1);
+        display_error(err, true);
         flush_display();
         pending_command = CMD_NONE;
     } else {
@@ -90,10 +90,10 @@ static void view(const char *varname, int varlength) {
     }
 }
 
-typedef struct {
+struct cmd_getkey_mapping_struct {
     int2 key;
     int2 cmd;
-} cmd_getkey_mapping_struct;
+};
 
 static cmd_getkey_mapping_struct cmd_getkey_mapping[] = {
     {  1, CMD_SIGMAADD },
@@ -136,8 +136,6 @@ static cmd_getkey_mapping_struct cmd_getkey_mapping[] = {
 };
 
 void keydown(int shift, int key) {
-    int *menu;
-
     // Preserve state of Shift, to allow MENU handlers to implement
     // different behaviors for unshifted and shifted menu keys.
     flags.f.shift_state = shift;
@@ -151,8 +149,8 @@ void keydown(int shift, int key) {
          * handle them properly in all cases. Using a code coverage tool on
          * the keydown handler might be an idea...
          */
-        menu = get_front_menu();
-        if (menu == NULL || *menu < MENU_ALPHA1 || *menu > MENU_ALPHA_MISC2)
+        int menu = get_front_menu();
+        if (menu < MENU_ALPHA1 || menu > MENU_ALPHA_MISC2)
             return;
     } else if (key < 1 || key > 37 && key < 2048) {
         /* Bad key code */
@@ -194,13 +192,15 @@ void keydown(int shift, int key) {
         }
         vartype *result = new_real(key);
         if (result != NULL) {
-            recall_result(result);
+            if (recall_result(result) != ERR_NONE)
+                goto nomem;
             flags.f.stack_lift_disable = 0;
         } else {
-            display_error(ERR_INSUFFICIENT_MEMORY, 1);
+            nomem:
+            display_error(ERR_INSUFFICIENT_MEMORY, true);
             set_running(false);
         }
-        if (key == KEY_EXIT || (!shift && key == KEY_RUN))
+        if (key == KEY_RUN || !mode_getkey1 && (key == KEY_EXIT || key == KEY_EXIT + 37))
             set_running(false);
         mode_getkey = false;
         if (!mode_running)
@@ -225,7 +225,8 @@ void keydown(int shift, int key) {
                 arg_struct arg;
                 arg.type = ARGTYPE_DOUBLE;
                 arg.val_d = entered_number;
-                store_command(pc, CMD_NUMBER, &arg);
+                cmdline[cmdline_length] = 0;
+                store_command(pc, CMD_NUMBER, &arg, cmdline);
                 prgm_highlight_row = 1;
             }
         } else if (mode_alpha_entry) {
@@ -269,7 +270,7 @@ void keydown(int shift, int key) {
     flags.f.two_line_message = 0;
 
     if (mode_number_entry && get_base() == 16 && key == KEY_SIGMA
-            && (menu = get_front_menu()) != NULL && *menu == MENU_BASE) {
+            && get_front_menu() == MENU_BASE) {
         /* Special case -- entering the A...F menu while in base 16
          * does *not* cancel number entry mode (unlike all other menu
          * keys)... So we intercept and handle it before all the other
@@ -289,15 +290,20 @@ void keydown(int shift, int key) {
             arg_struct arg;
             arg.type = ARGTYPE_DOUBLE;
             arg.val_d = entered_number;
-            store_command(pc, CMD_NUMBER, &arg);
+            cmdline[cmdline_length] = 0;
+            store_command(pc, CMD_NUMBER, &arg, cmdline);
             prgm_highlight_row = 1;
         } else if ((flags.f.trace_print || flags.f.normal_print)
                 && flags.f.printer_exists)
             deferred_print = 1;
+        if (flags.f.big_stack && !shift && key == KEY_ENTER) {
+            redisplay();
+            return;
+        }
     }
 
     if (mode_command_entry
-            && (shift || get_front_menu() == NULL)
+            && (shift || get_front_menu() == MENU_NONE)
             && (key == KEY_UP || key == KEY_DOWN)) {
         /* Trying to do SST or BST while in command entry mode */
         squeak();
@@ -305,7 +311,7 @@ void keydown(int shift, int key) {
     }
 
     if (key == KEY_UP || (key == KEY_DOWN &&
-                (flags.f.prgm_mode || (!shift && get_front_menu() != NULL)))) {
+                (flags.f.prgm_mode || (!shift && get_front_menu() != MENU_NONE)))) {
         /* UP, DOWN, BST, or prgm-mode SST */
         repeating = 1;
         repeating_shift = shift;
@@ -313,7 +319,7 @@ void keydown(int shift, int key) {
     }
 
     if (flags.f.prgm_mode && (key == KEY_UP || key == KEY_DOWN)
-            && (shift || get_front_menu() == NULL)) {
+            && (shift || get_front_menu() == MENU_NONE)) {
         /* Stepping through the program in prgm mode */
         if (flags.f.prgm_mode && mode_alpha_entry)
             finish_alpha_prgm_line();
@@ -324,10 +330,25 @@ void keydown(int shift, int key) {
             sst();
         redisplay();
         return;
-    }    
+    }
+    
+    if (key == KEY_UP || key == KEY_DOWN) {
+        if (get_front_menu() == MENU_CATALOG) {
+            int sect = get_cat_section();
+            if (sect == CATSECT_TOP) {
+                set_cat_section(CATSECT_EXT);
+                redisplay();
+                return;
+            } else if (sect == CATSECT_EXT) {
+                set_cat_section(CATSECT_TOP);
+                redisplay();
+                return;
+            }
+        }
+    }
     
     if (!flags.f.prgm_mode && key == KEY_UP
-            && (shift || get_front_menu() == NULL)) {
+            && (shift || get_front_menu() == MENU_NONE)) {
         /* BST in normal or alpha mode */
         if (mode_alpha_entry
                 && (flags.f.trace_print || flags.f.normal_print)
@@ -384,7 +405,7 @@ void keydown_number_entry(int shift, int key) {
             redisplay();
             return;
         } else {
-            pending_command = CMD_CLX;
+            pending_command = flags.f.big_stack ? CMD_DROP : CMD_CLX;
             return;
         }
     }
@@ -445,9 +466,9 @@ void keydown_number_entry(int shift, int key) {
                          * does it, so there.
                          */
                         mode_number_entry = false;
-                        free_vartype(reg_x);
-                        reg_x = new_real(0);
-                        pending_command = CMD_CLX;
+                        free_vartype(stack[sp]);
+                        stack[sp] = new_real(0);
+                        pending_command = flags.f.big_stack ? CMD_DROP : CMD_CLX;
                         return;
                     }
                 }
@@ -596,8 +617,8 @@ void keydown_number_entry(int shift, int key) {
     if (flags.f.prgm_mode)
         entered_number = x;
     else {
-        free_vartype(reg_x);
-        reg_x = new_real(x);
+        free_vartype(stack[sp]);
+        stack[sp] = new_real(x);
     }
 
     draw_number:
@@ -617,8 +638,11 @@ void keydown_number_entry(int shift, int key) {
     } else if (input_length > 0) {
         string2buf(buf, 100, &bufptr, input_name, input_length);
         char2buf(buf, 100, &bufptr, '?');
-    } else
+    } else if (flags.f.big_stack) {
+        string2buf(buf, 100, &bufptr, "1\200", 2);
+    } else {
         string2buf(buf, 100, &bufptr, "x\200", 2);
+    }
 #ifdef ARM
     int promptlen = bufptr;
 #endif
@@ -656,7 +680,7 @@ void keydown_command_entry(int shift, int key) {
         if (!shift && ((menukey >= 0 && menukey <= 4)
                 || (menukey == 5 && mode_commandmenu == MENU_IND_ST))) {
             if (mode_commandmenu == MENU_IND_ST && menukey == 0) {
-                incomplete_ind = 1;
+                incomplete_ind = true;
                 incomplete_maxdigits = 2;
                 set_catalog_menu(CATSECT_REAL_ONLY);
                 redisplay();
@@ -716,7 +740,7 @@ void keydown_command_entry(int shift, int key) {
             if (mode_commandmenu == MENU_CATALOG)
                 squeak();
             else {
-                incomplete_alpha = 1;
+                incomplete_alpha = true;
                 set_catalog_menu(CATSECT_TOP);
                 redisplay();
             }
@@ -738,7 +762,7 @@ void keydown_command_entry(int shift, int key) {
         /* More LBL weirdness: you can switch to ALPHA mode while entering
          * a numeric LBL
          */
-        incomplete_alpha = 1;
+        incomplete_alpha = true;
         incomplete_str[0] = '0' + incomplete_num;
         incomplete_num = 0;
         mode_commandmenu = MENU_ALPHA1;
@@ -839,7 +863,7 @@ void keydown_command_entry(int shift, int key) {
                         move_cat_row(0);
                         break;
                     case 2:
-                        if (!vars_exist(1, 0, 0)) {
+                        if (!vars_exist(CATSECT_REAL)) {
                             squeak();
                             return;
                         } else {
@@ -848,7 +872,7 @@ void keydown_command_entry(int shift, int key) {
                             break;
                         }
                     case 3:
-                        if (!vars_exist(0, 1, 0)) {
+                        if (!vars_exist(CATSECT_CPX)) {
                             squeak();
                             return;
                         } else {
@@ -857,7 +881,7 @@ void keydown_command_entry(int shift, int key) {
                             break;
                         }
                     case 4:
-                        if (!vars_exist(0, 0, 1)) {
+                        if (!vars_exist(CATSECT_MAT)) {
                             squeak();
                             return;
                         } else {
@@ -869,6 +893,43 @@ void keydown_command_entry(int shift, int key) {
                             pending_command = CMD_LINGER1;
                             shell_request_timeout3(2000);
                             return;
+                }
+                redisplay();
+                return;
+            } else if (catsect == CATSECT_EXT) {
+                switch (menukey) {
+                    case 0:
+                        set_cat_section(CATSECT_EXT_TIME);
+                        move_cat_row(0);
+                        break;
+                    case 1:
+                        set_cat_section(CATSECT_EXT_XFCN);
+                        move_cat_row(0);
+                        break;
+                    case 2:
+                        set_cat_section(CATSECT_EXT_BASE);
+                        move_cat_row(0);
+                        break;
+                    case 3:
+                        set_cat_section(CATSECT_EXT_PRGM);
+                        move_cat_row(0);
+                        break;
+                    case 4:
+                        if (core_settings.allow_big_stack)
+                            set_cat_section(CATSECT_EXT_STK);
+                        else
+                            set_cat_section(CATSECT_EXT_MISC);
+                        move_cat_row(0);
+                        break;
+                    case 5:
+                        if (core_settings.allow_big_stack) {
+                            set_cat_section(CATSECT_EXT_MISC);
+                        } else {
+                            squeak();
+                            return;
+                        }
+                        move_cat_row(0);
+                        break;
                 }
                 redisplay();
                 return;
@@ -916,8 +977,9 @@ void keydown_command_entry(int shift, int key) {
                 pending_command = incomplete_command;
                 pending_command_arg.type =
                             incomplete_ind ? ARGTYPE_IND_STR : ARGTYPE_STR;
-                if (catsect == CATSECT_FCN) {
-                    const command_spec *cs = cmdlist(itemindex);
+                if (catsect == CATSECT_FCN
+                        || catsect >= CATSECT_EXT_TIME && catsect <= CATSECT_EXT_MISC) {
+                    const command_spec *cs = &cmd_array[itemindex];
                     pending_command_arg.length = cs->name_length;
                     for (i = 0; i < pending_command_arg.length; i++)
                         pending_command_arg.val.text[i] = cs->name[i];
@@ -946,6 +1008,14 @@ void keydown_command_entry(int shift, int key) {
                     || catsect == CATSECT_CPX
                     || catsect == CATSECT_MAT) {
                 set_cat_section(CATSECT_TOP);
+                redisplay();
+            } else if (catsect == CATSECT_EXT_TIME
+                    || catsect == CATSECT_EXT_XFCN
+                    || catsect == CATSECT_EXT_BASE
+                    || catsect == CATSECT_EXT_PRGM
+                    || catsect == CATSECT_EXT_STK
+                    || catsect == CATSECT_EXT_MISC) {
+                set_cat_section(CATSECT_EXT);
                 redisplay();
             } else {
                 pending_command = CMD_CANCELLED;
@@ -1029,14 +1099,14 @@ void keydown_command_entry(int shift, int key) {
             if (!shift && key == KEY_SIGMA) {
                 incomplete_command = CMD_GTO;
                 incomplete_argtype = ARG_LBL;
-                incomplete_ind = 1;
+                incomplete_ind = true;
                 incomplete_maxdigits = 2;
                 set_catalog_menu(CATSECT_REAL_ONLY);
                 redisplay();
                 return;
             } else if (key == KEY_ENTER) {
                 incomplete_argtype = ARG_LBL;
-                incomplete_alpha = 1;
+                incomplete_alpha = true;
                 set_menu(MENULEVEL_COMMAND, MENU_ALPHA1);
                 redisplay();
                 return;
@@ -1094,7 +1164,7 @@ void keydown_command_entry(int shift, int key) {
             if (incomplete_length == 0) {
                 if (incomplete_ind
                         && !flags.f.prgm_mode
-                        && !vars_exist(1, 0, 0))
+                        && !vars_exist(CATSECT_REAL))
                     squeak();
                 else if (incomplete_ind
                         || incomplete_argtype == ARG_VAR
@@ -1102,7 +1172,7 @@ void keydown_command_entry(int shift, int key) {
                         || incomplete_argtype == ARG_NAMED
                         || incomplete_argtype == ARG_LBL
                         || incomplete_argtype == ARG_PRGM) {
-                    incomplete_alpha = 1;
+                    incomplete_alpha = true;
                     set_menu(MENULEVEL_COMMAND, MENU_ALPHA1);
                     redisplay();
                 } else
@@ -1153,7 +1223,7 @@ void keydown_command_entry(int shift, int key) {
                         || incomplete_argtype == ARG_NUM11
                         || incomplete_argtype == ARG_NUM99
                         || incomplete_argtype == ARG_LBL) {
-                    incomplete_ind = 1;
+                    incomplete_ind = true;
                     incomplete_maxdigits = 2;
                     set_catalog_menu(CATSECT_REAL_ONLY);
                     redisplay();
@@ -1181,6 +1251,14 @@ void keydown_command_entry(int shift, int key) {
                 case KEY_7: digit = 7; break;
                 case KEY_8: digit = 8; break;
                 case KEY_9: digit = 9; break;
+            }
+            if (incomplete_argtype == ARG_FUNC && digit > 4) {
+                squeak();
+                return;
+            }
+            if (incomplete_command == CMD_RTNERR && !incomplete_ind && digit > 8) {
+                squeak();
+                return;
             }
             incomplete_num = incomplete_num * 10 + digit;
             incomplete_length++;
@@ -1291,7 +1369,7 @@ void keydown_command_entry(int shift, int key) {
                 set_menu(MENULEVEL_COMMAND, m->parent);
             /* incomplete_alpha can be 0 at this point if
              * the command is CMD_LBL. */
-            incomplete_alpha = 1;
+            incomplete_alpha = true;
             redisplay();
             return;
         }
@@ -1309,8 +1387,8 @@ void keydown_command_entry(int shift, int key) {
                 && (mode_commandmenu < MENU_ALPHA1
                     || mode_commandmenu > MENU_ALPHA_MISC2)
                 && !shift && key == KEY_DOT) {
-            incomplete_ind = 1;
-            incomplete_alpha = 0;
+            incomplete_ind = true;
+            incomplete_alpha = false;
             set_catalog_menu(CATSECT_REAL_ONLY);
             redisplay();
             return;
@@ -1360,7 +1438,7 @@ void keydown_command_entry(int shift, int key) {
             incomplete_str[incomplete_length++] = c;
         /* incomplete_alpha can be 0 at this point if
          * the command is CMD_LBL. */
-        incomplete_alpha = 1;
+        incomplete_alpha = true;
         redisplay();
         return;
         nocharkey1:
@@ -1430,7 +1508,7 @@ void keydown_command_entry(int shift, int key) {
                     if (incomplete_command == CMD_GTODOT) {
                         incomplete_argtype = ARG_OTHER;
                         incomplete_maxdigits = 4;
-                        incomplete_alpha = 0;
+                        incomplete_alpha = false;
                         set_menu(MENULEVEL_COMMAND, MENU_IND);
                         redisplay();
                         return;
@@ -1448,7 +1526,7 @@ void keydown_command_entry(int shift, int key) {
                         } else
                             goto out_of_alpha;
                     } else if (incomplete_argtype == ARG_MAT) {
-                        if (vars_exist(0, 0, 1))
+                        if (vars_exist(CATSECT_MAT))
                             set_catalog_menu(CATSECT_MAT_ONLY);
                         else
                             set_menu(MENULEVEL_COMMAND, MENU_NONE);
@@ -1465,6 +1543,15 @@ void keydown_command_entry(int shift, int key) {
                                 || catsect == CATSECT_MAT)) {
                     set_catalog_menu(CATSECT_TOP);
                     redisplay();
+                } else if (mode_commandmenu == MENU_CATALOG
+                        && ((catsect = get_cat_section()) == CATSECT_EXT_TIME
+                                || catsect == CATSECT_EXT_XFCN
+                                || catsect == CATSECT_EXT_BASE
+                                || catsect == CATSECT_EXT_PRGM
+                                || catsect == CATSECT_EXT_STK
+                                || catsect == CATSECT_EXT_MISC)) {
+                    set_catalog_menu(CATSECT_EXT);
+                    redisplay();
                 } else {
                     pending_command = CMD_NULL;
                     finish_command_entry(false);
@@ -1476,7 +1563,7 @@ void keydown_command_entry(int shift, int key) {
                 if (incomplete_command == CMD_GTODOT) {
                     incomplete_argtype = ARG_OTHER;
                     incomplete_maxdigits = 4;
-                    incomplete_alpha = 0;
+                    incomplete_alpha = false;
                     set_menu(MENULEVEL_COMMAND, MENU_IND);
                     redisplay();
                     return;
@@ -1488,10 +1575,10 @@ void keydown_command_entry(int shift, int key) {
                     if (incomplete_ind)
                         goto out_of_alpha;
                 } else if (incomplete_argtype == ARG_RVAR) {
-                    if (vars_exist(1, 0, 0))
+                    if (vars_exist(CATSECT_REAL))
                         set_catalog_menu(CATSECT_REAL_ONLY);
                 } else if (incomplete_argtype == ARG_MAT) {
-                    if (vars_exist(0, 0, 1))
+                    if (vars_exist(CATSECT_MAT))
                         set_catalog_menu(CATSECT_MAT_ONLY);
                 } else if (incomplete_argtype == ARG_PRGM)
                     set_catalog_menu(CATSECT_PGM_ONLY);
@@ -1499,7 +1586,7 @@ void keydown_command_entry(int shift, int key) {
                     out_of_alpha:
                     if (incomplete_ind
                             || incomplete_argtype != ARG_RVAR)
-                        incomplete_alpha = 0;
+                        incomplete_alpha = false;
                     if (incomplete_ind)
                         set_catalog_menu(CATSECT_REAL_ONLY);
                     else if (incomplete_argtype == ARG_VAR)
@@ -1540,7 +1627,13 @@ void keydown_command_entry(int shift, int key) {
                             && catsect != CATSECT_PGM
                             && catsect != CATSECT_REAL
                             && catsect != CATSECT_CPX
-                            && catsect != CATSECT_MAT)) {
+                            && catsect != CATSECT_MAT
+                            && catsect != CATSECT_EXT_TIME
+                            && catsect != CATSECT_EXT_XFCN
+                            && catsect != CATSECT_EXT_BASE
+                            && catsect != CATSECT_EXT_PRGM
+                            && catsect != CATSECT_EXT_STK
+                            && catsect != CATSECT_EXT_MISC)) {
                     set_menu(MENULEVEL_COMMAND, MENU_ALPHA1);
                     redisplay();
                     return;
@@ -1883,7 +1976,7 @@ void keydown_normal_mode(int shift, int key) {
         if (deferred_print)
             print_command(CMD_NULL, NULL);
         cmdline_length = 0;
-        if (get_front_menu() != NULL)
+        if (get_front_menu() != MENU_NONE)
             cmdline_row = 0;
         else
             cmdline_row = 1;
@@ -1898,10 +1991,17 @@ void keydown_normal_mode(int shift, int key) {
                 display_prgm_line(0, -1);
         } else {
             if (!flags.f.stack_lift_disable) {
-                free_vartype(reg_t);
-                reg_t = reg_z;
-                reg_z = reg_y;
-                reg_y = dup_vartype(reg_x);
+                if (flags.f.big_stack) {
+                    if (!ensure_stack_capacity(1)) {
+                        display_error(ERR_INSUFFICIENT_MEMORY, false);
+                        return;
+                    }
+                    sp++;
+                } else {
+                    free_vartype(stack[REG_T]);
+                    memmove(stack, stack + 1, 3 * sizeof(vartype *));
+                }
+                stack[sp] = new_real(0);
             } else
                 flags.f.stack_lift_disable = 0;
             flags.f.numeric_data_input = 1;
@@ -1986,7 +2086,7 @@ void keydown_normal_mode(int shift, int key) {
                     if (flags.f.prgm_mode) {
                         pending_command = shift ? CMD_VIEW : CMD_STO;
                         store_command_after(&pc, pending_command,
-                                                        &pending_command_arg);
+                                                    &pending_command_arg, NULL);
                         prgm_highlight_row = 1;
                         pending_command = CMD_NONE;
                         redisplay();
@@ -2058,7 +2158,7 @@ void keydown_normal_mode(int shift, int key) {
                             pending_command_arg.val.lclbl = 'F' + menukey;
                         if (flags.f.prgm_mode) {
                             store_command_after(&pc, pending_command,
-                                                        &pending_command_arg);
+                                                    &pending_command_arg, NULL);
                             prgm_highlight_row = 1;
                             pending_command = CMD_NONE;
                             set_menu(MENULEVEL_COMMAND, MENU_NONE);
@@ -2098,7 +2198,7 @@ void keydown_normal_mode(int shift, int key) {
                                 return;
                             } else if (cmd == CMD_CLV || cmd == CMD_PRV) {
                                 if (!flags.f.prgm_mode && vars_count == 0) {
-                                    display_error(ERR_NO_VARIABLES, 0);
+                                    display_error(ERR_NO_VARIABLES, false);
                                     pending_command = CMD_NONE;
                                     redisplay();
                                     return;
@@ -2130,7 +2230,7 @@ void keydown_normal_mode(int shift, int key) {
                                 repeating_shift = 1;
                                 repeating_key = KEY_UP;
                                 return;
-                            } else if (cmdlist(cmd)->argtype == ARG_NONE) {
+                            } else if (cmd_array[cmd].argtype == ARG_NONE) {
                                 pending_command = cmd;
                                 pending_command_arg.type = ARGTYPE_NONE;
                             } else {
@@ -2157,31 +2257,31 @@ void keydown_normal_mode(int shift, int key) {
                             move_cat_row(0);
                             break;
                         case 2:
-                            if (vars_exist(1, 0, 0)) {
+                            if (vars_exist(CATSECT_REAL)) {
                                 set_cat_section(CATSECT_REAL);
                                 move_cat_row(0);
                             } else {
-                                display_error(ERR_NO_REAL_VARIABLES, 0);
+                                display_error(ERR_NO_REAL_VARIABLES, false);
                                 flush_display();
                                 return;
                             }
                             break;
                         case 3:
-                            if (vars_exist(0, 1, 0)) {
+                            if (vars_exist(CATSECT_CPX)) {
                                 set_cat_section(CATSECT_CPX);
                                 move_cat_row(0);
                             } else {
-                                display_error(ERR_NO_COMPLEX_VARIABLES, 0);
+                                display_error(ERR_NO_COMPLEX_VARIABLES, false);
                                 flush_display();
                                 return;
                             }
                             break;
                         case 4:
-                            if (vars_exist(0, 0, 1)) {
+                            if (vars_exist(CATSECT_MAT)) {
                                 set_cat_section(CATSECT_MAT);
                                 move_cat_row(0);
                             } else {
-                                display_error(ERR_NO_MATRIX_VARIABLES, 0);
+                                display_error(ERR_NO_MATRIX_VARIABLES, false);
                                 flush_display();
                                 return;
                             }
@@ -2194,6 +2294,43 @@ void keydown_normal_mode(int shift, int key) {
                     }
                     redisplay();
                     return;
+                } else if (catsect == CATSECT_EXT) {
+                    switch (menukey) {
+                        case 0:
+                            set_cat_section(CATSECT_EXT_TIME);
+                            move_cat_row(0);
+                            break;
+                        case 1:
+                            set_cat_section(CATSECT_EXT_XFCN);
+                            move_cat_row(0);
+                            break;
+                        case 2:
+                            set_cat_section(CATSECT_EXT_BASE);
+                            move_cat_row(0);
+                            break;
+                        case 3:
+                            set_cat_section(CATSECT_EXT_PRGM);
+                            move_cat_row(0);
+                            break;
+                        case 4:
+                            if (core_settings.allow_big_stack)
+                                set_cat_section(CATSECT_EXT_STK);
+                            else
+                                set_cat_section(CATSECT_EXT_MISC);
+                            move_cat_row(0);
+                            break;
+                        case 5:
+                            if (core_settings.allow_big_stack) {
+                                set_cat_section(CATSECT_EXT_MISC);
+                            } else {
+                                squeak();
+                                return;
+                            }
+                            move_cat_row(0);
+                            break;
+                    }
+                    redisplay();
+                    return;
                 } else if (catsect == CATSECT_PGM
                             || catsect == CATSECT_PGM_ONLY) {
                     int labelindex = get_cat_item(menukey);
@@ -2203,7 +2340,7 @@ void keydown_normal_mode(int shift, int key) {
                     }
                     if (flags.f.prgm_mode
                                     && labels[labelindex].length == 0) {
-                        display_error(ERR_RESTRICTED_OPERATION, 0);
+                        display_error(ERR_RESTRICTED_OPERATION, false);
                         flush_display();
                         pending_command = CMD_NONE;
                         return;
@@ -2225,7 +2362,8 @@ void keydown_normal_mode(int shift, int key) {
                         remove_program_catalog = 1;
                     }
                 } else if (catsect == CATSECT_PGM_SOLVE
-                        || catsect == CATSECT_PGM_INTEG) {
+                        || catsect == CATSECT_PGM_INTEG
+                        || catsect == CATSECT_PGM_MENU) {
                     int labelindex = get_cat_item(menukey);
                     int i;
                     if (labelindex == -1) {
@@ -2235,15 +2373,19 @@ void keydown_normal_mode(int shift, int key) {
                     if (catsect == CATSECT_PGM_SOLVE)
                         pending_command = flags.f.prgm_mode ? CMD_PGMSLV
                                                             : CMD_PGMSLVi;
-                    else
+                    else if (catsect == CATSECT_PGM_INTEG)
                         pending_command = flags.f.prgm_mode ? CMD_PGMINT
                                                             : CMD_PGMINTi;
+                    else
+                        /* PGMMENU */
+                        pending_command = CMD_PMEXEC;
                     pending_command_arg.type = ARGTYPE_STR;
                     pending_command_arg.length = labels[labelindex].length;
                     for (i = 0; i < pending_command_arg.length; i++)
                         pending_command_arg.val.text[i] =
                                                 labels[labelindex].name[i];
-                } else if (catsect == CATSECT_FCN) {
+                } else if (catsect == CATSECT_FCN
+                        || catsect >= CATSECT_EXT_TIME && catsect <= CATSECT_EXT_MISC) {
                     int cmd = get_cat_item(menukey);
                     if (cmd == -1)
                         if (flags.f.prgm_mode) {
@@ -2275,9 +2417,9 @@ void keydown_normal_mode(int shift, int key) {
                 }
                 send_it_off:
                 if (flags.f.prgm_mode &&
-                        (cmdlist(pending_command)->flags & FLAG_IMMED) == 0) {
+                        (cmd_array[pending_command].flags & FLAG_IMMED) == 0) {
                     store_command_after(&pc, pending_command,
-                                            &pending_command_arg);
+                                            &pending_command_arg, NULL);
                     if (pending_command == CMD_END)
                         /* current_prgm was already incremented by store_command() */
                         pc = 0;
@@ -2310,7 +2452,7 @@ void keydown_normal_mode(int shift, int key) {
                         if (flags.f.prgm_mode) {
                             pending_command = shift ? CMD_VIEW : CMD_STO;
                             store_command_after(&pc, pending_command,
-                                                    &pending_command_arg);
+                                                    &pending_command_arg, NULL);
                             prgm_highlight_row = 1;
                             pending_command = CMD_NONE;
                             redisplay();
@@ -2372,6 +2514,12 @@ void keydown_normal_mode(int shift, int key) {
                 set_menu(level, menu == MENU_CUSTOM1
                             ? MENU_CUSTOM2 : MENU_CUSTOM1);
                 redisplay();
+            } else if (!core_settings.allow_big_stack
+                    && (menu == MENU_MODES1 && key == KEY_UP
+                        || menu == MENU_MODES4 && key == KEY_DOWN)) {
+                set_menu(level, key == KEY_UP
+                            ? MENU_MODES4 : MENU_MODES1);
+                redisplay();
             } else {
                 const menu_spec *m = menus + menu;
                 int nextmenu = key == KEY_UP ? m->prev : m->next;
@@ -2392,6 +2540,9 @@ void keydown_normal_mode(int shift, int key) {
                         || catsect == CATSECT_CPX
                         || catsect == CATSECT_MAT)
                     set_cat_section(CATSECT_TOP);
+                else if (catsect >= CATSECT_EXT_TIME
+                        && catsect <= CATSECT_EXT_MISC)
+                    set_cat_section(CATSECT_EXT);
                 else
                     set_menu(level, MENU_NONE);
             } else {
@@ -2443,10 +2594,10 @@ void keydown_normal_mode(int shift, int key) {
             case KEY_SIN: command = CMD_SIN; break;
             case KEY_COS: command = CMD_COS; break;
             case KEY_TAN: command = CMD_TAN; break;
-            case KEY_ENTER: command = CMD_ENTER; break;
+            case KEY_ENTER: command = flags.f.big_stack ? CMD_DUP : CMD_ENTER; break;
             case KEY_SWAP: command = CMD_SWAP; break;
             case KEY_CHS: command = basekeys() ? CMD_BASECHS : CMD_CHS; break;
-            case KEY_BSP: command = CMD_CLX; break;
+            case KEY_BSP: command = flags.f.big_stack ? CMD_DROP : CMD_CLX; break;
             case KEY_DIV: command = basekeys() ? CMD_BASEDIV : CMD_DIV; break;
             case KEY_DOWN: command = CMD_SST; break;
             case KEY_MUL: command = basekeys() ? CMD_BASEMUL : CMD_MUL; break;
@@ -2477,8 +2628,8 @@ void keydown_normal_mode(int shift, int key) {
             case KEY_CHS: set_plainmenu(MENU_MODES1); return;
             case KEY_E: set_plainmenu(MENU_DISP); return;
             case KEY_BSP: set_plainmenu(MENU_CLEAR1); return;
-            case KEY_7: set_solve_integ(1); redisplay(); return;
-            case KEY_8: set_solve_integ(0); redisplay(); return;
+            case KEY_7: set_solve_integ(1); return;
+            case KEY_8: set_solve_integ(0); return;
             case KEY_9: set_menu(MENULEVEL_APP, MENU_MATRIX1);
                         redisplay();
                         return;

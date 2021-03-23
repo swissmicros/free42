@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2020  Thomas Okken
+ * Copyright (C) 2004-2021  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -18,7 +18,7 @@
 #import <UIKit/UIKit.h>
 
 
-@interface SelectProgramsView : UIView <UITableViewDataSource, UIAlertViewDelegate> {
+@interface SelectProgramsView : UIView <UITableViewDataSource> {
     NSMutableArray *programNames;
     UIBarButtonItem *doneButton;
     UIBarButtonItem *backButton;
@@ -35,6 +35,5 @@
 - (IBAction) back;
 - (UITableViewCell *) tableView:(UITableView *)table cellForRowAtIndexPath:(NSIndexPath*) indexPath;
 - (NSInteger) tableView:(UITableView *)table numberOfRowsInSection:(NSInteger)section;
-- (void) alertView:(UIAlertView *)alertView clickedButtonAtIndex:(NSInteger)buttonIndex;
 
 @end

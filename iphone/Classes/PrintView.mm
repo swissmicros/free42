@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2020  Thomas Okken
+ * Copyright (C) 2004-2021  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -319,29 +319,27 @@ static void tbnonewliner() {
 }
 
 - (IBAction) edit {
-    UIActionSheet *menu =
-    [[UIActionSheet alloc] initWithTitle:@"Edit Menu"
-                                delegate:self cancelButtonTitle:@"Cancel" destructiveButtonTitle:nil
-                       otherButtonTitles:@"Copy as Text", @"Copy as Image", @"Clear", nil];
-    [menu showInView:self];
-    [menu release];
-}
-
-- (void)actionSheet:(UIActionSheet *)actionSheet clickedButtonAtIndex:(NSInteger)buttonIndex {
-    switch (buttonIndex) {
-        case 0:
-            [self copyAsText];
-            break;
-        case 1:
-            [self copyAsImage];
-            break;
-        case 2:
-            [self clear];
-            break;
-        case 3:
-            // Cancel
-            break;
-    }
+    UIAlertController *ctrl = [UIAlertController
+            alertControllerWithTitle:@"Edit Menu"
+            message:nil
+            preferredStyle:UIAlertControllerStyleActionSheet];
+    [ctrl addAction:[UIAlertAction actionWithTitle:@"Copy as Text"
+                    style:UIAlertActionStyleDefault
+                    handler:^(UIAlertAction *action)
+                        { [self copyAsText]; }]];
+    [ctrl addAction:[UIAlertAction actionWithTitle:@"Copy as Image"
+                    style:UIAlertActionStyleDefault
+                    handler:^(UIAlertAction *action)
+                        { [self copyAsImage]; }]];
+    [ctrl addAction:[UIAlertAction actionWithTitle:@"Clear"
+                    style:UIAlertActionStyleDefault
+                    handler:^(UIAlertAction *action)
+                        { [self clear]; }]];
+    [ctrl addAction:[UIAlertAction actionWithTitle:@"Cancel"
+                    style:UIAlertActionStyleCancel
+                    handler:^(UIAlertAction *action)
+                        { return; }]];
+    [RootViewController presentViewController:ctrl animated:YES completion:nil];
 }
 
 - (IBAction) share {

@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2020  Thomas Okken
+ * Copyright (C) 2004-2021  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -32,34 +32,34 @@
 /* Skin description stuff */
 /**************************/
 
-typedef struct {
+struct SkinPoint {
     int x, y;
-} SkinPoint;
+};
 
-typedef struct {
+struct SkinRect {
     int x, y, width, height;
-} SkinRect;
+};
 
-typedef struct {
+struct SkinKey {
     int code, shifted_code;
     SkinRect sens_rect;
     SkinRect disp_rect;
     SkinPoint src;
-} SkinKey;
+};
 
 #define SKIN_MAX_MACRO_LENGTH 63
 
-typedef struct _SkinMacro {
+struct SkinMacro {
     int code;
     bool isName;
     unsigned char macro[SKIN_MAX_MACRO_LENGTH + 1];
-    struct _SkinMacro *next;
-} SkinMacro;
+    SkinMacro *next;
+};
 
-typedef struct {
+struct SkinAnnunciator {
     SkinRect disp_rect;
     SkinPoint src;
-} SkinAnnunciator;
+};
 
 static SkinRect skin;
 static SkinPoint display_loc;

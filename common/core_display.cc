@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2020  Thomas Okken
+ * Copyright (C) 2004-2021  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -35,12 +35,10 @@
 
 #if defined(WINDOWS) && !defined(__GNUC__)
 /* Disable warnings:
- *      'initializing' : truncation from 'const int ' to 'const char '
- *      'initializing' : truncation of constant value
+ * C4838: conversion from 'int' to 'const char' requires a narrowing conversion
  */
 #pragma warning(push)
-#pragma warning(disable: 4305)
-#pragma warning(disable: 4309)
+#pragma warning(disable:4838)
 #endif
 
 #include <string.h>
@@ -532,7 +530,7 @@ char* core_display_buffer() {
 }
 #endif
 
-static int is_dirty = 0;
+static bool is_dirty = false;
 static int dirty_top, dirty_left, dirty_bottom, dirty_right;
 
 static int catalogmenu_section[5];
@@ -544,7 +542,7 @@ static int custommenu_length[3][6];
 static char custommenu_label[3][6][7];
 
 static arg_struct progmenu_arg[9];
-static int progmenu_is_gto[9];
+static bool progmenu_is_gto[9];
 static int progmenu_length[6];
 static char progmenu_label[6][7];
 
@@ -578,7 +576,7 @@ bool persist_display() {
         if (!write_arg(progmenu_arg + i))
             return false;
     for (int i = 0; i < 9; i++)
-        if (!write_int(progmenu_is_gto[i])) return false;
+        if (!write_bool(progmenu_is_gto[i])) return false;
     for (int i = 0; i < 6; i++) {
         if (!write_int(progmenu_length[i])) return false;
         if (fwrite(progmenu_label[i], 1, 7, gfile) != 7) return false;
@@ -607,8 +605,16 @@ bool unpersist_display(int version) {
         for (int i = 0; i < 9; i++)
             if (!read_arg(progmenu_arg + i, false))
                 return false;
-        for (int i = 0; i < 9; i++)
-            if (!read_int(&progmenu_is_gto[i])) return false;
+        if (version < 35) {
+            int temp;
+            for (int i = 0; i < 9; i++) {
+                if (!read_int(&temp)) return false;
+                progmenu_is_gto[i] = temp != 0;
+            }
+        } else {
+            for (int i = 0; i < 9; i++)
+                if (!read_bool(&progmenu_is_gto[i])) return false;
+        }
         for (int i = 0; i < 6; i++) {
             if (!read_int(&progmenu_length[i])) return false;
             if (fread(progmenu_label[i], 1, 7, gfile) != 7) return false;
@@ -618,7 +624,7 @@ bool unpersist_display(int version) {
         if (!read_int(&appmenu_exitcallback)) return false;
     } else {
         int custommenu_cmd[3][6];
-        is_dirty = 0;
+        is_dirty = false;
         if (fread(catalogmenu_section, 1, 5 * sizeof(int), gfile)
                 != 5 * sizeof(int))
             return false;
@@ -664,7 +670,7 @@ bool unpersist_display(int version) {
                 for (pos = 0; pos < 6; pos++) {
                     int cmd = custommenu_cmd[row][pos];
                     if (cmd != CMD_NONE) {
-                        const command_spec *cs = cmdlist(cmd);
+                        const command_spec *cs = &cmd_array[cmd];
                         string_copy(custommenu_label[row][pos],
                                     &custommenu_length[row][pos],
                                     cs->name, cs->name_length);
@@ -675,9 +681,12 @@ bool unpersist_display(int version) {
         for (int i = 0; i < 9; i++)
             if (!read_arg(progmenu_arg + i, version < 9))
                 return false;
-        if (fread(progmenu_is_gto, 1, 9 * sizeof(int), gfile)
-                != 9 * sizeof(int))
-            return false;
+        for (int i = 0; i < 9; i++) {
+            int temp;
+            if (fread(&temp, 1, sizeof(int), gfile) != sizeof(int))
+                return false;
+            progmenu_is_gto[i] = temp != 0;
+        }
         if (fread(progmenu_length, 1, 6 * sizeof(int), gfile)
                 != 6 * sizeof(int))
             return false;
@@ -709,7 +718,7 @@ void flush_display() {
         return;
     shell_blitter(display, 17, dirty_left, dirty_top,
                     dirty_right - dirty_left, dirty_bottom - dirty_top);
-    is_dirty = 0;
+    is_dirty = false;
 }
 
 void repaint_display() {
@@ -871,7 +880,7 @@ static void mark_dirty(int top, int left, int bottom, int right) {
         dirty_left = left;
         dirty_bottom = bottom;
         dirty_right = right;
-        is_dirty = 1;
+        is_dirty = true;
     }
 }
 
@@ -1003,7 +1012,8 @@ void clear_row(int row) {
 }
 
 int prgmline2buf(char *buf, int len, int4 line, int highlight,
-                        int cmd, arg_struct *arg, bool shift_left = false,
+                        int cmd, arg_struct *arg, const char *orig_num,
+                        bool shift_left = false,
                         bool highlight_final_end = true) {
     int bufptr = 0;
     if (line != -1) {
@@ -1036,7 +1046,11 @@ int prgmline2buf(char *buf, int len, int4 line, int highlight,
                     && current_prgm == prgms_count - 1) {
         string2buf(buf, len, &bufptr, ".END.", 5);
     } else if (cmd == CMD_NUMBER) {
-        char *num = phloat2program(arg->val_d);
+        const char *num;
+        if (orig_num != NULL)
+            num = orig_num;
+        else
+            num = phloat2program(arg->val_d);
         int numlen = (int) strlen(num);
         if (bufptr + numlen <= len) {
             memcpy(buf + bufptr, num, numlen);
@@ -1109,12 +1123,13 @@ void tb_print_current_program(textbuf *tb) {
     char buf[100];
     char utf8buf[500];
     do {
+        const char *orig_num;
         if (line > 0) {
-            get_next_command(&pc, &cmd, &arg, 0);
+            get_next_command(&pc, &cmd, &arg, 0, &orig_num);
             if (cmd == CMD_END)
                 end = true;
         }
-        int len = prgmline2buf(buf, 100, line, cmd == CMD_LBL, cmd, &arg, false, false);
+        int len = prgmline2buf(buf, 100, line, cmd == CMD_LBL, cmd, &arg, orig_num, false, false);
         for (int i = 0; i < len; i++)
             if (buf[i] == 10)
                 buf[i] = 138;
@@ -1134,6 +1149,7 @@ void display_prgm_line(int row, int line_offset) {
     char buf[44];
     int bufptr;
     int len = 22;
+    const char *orig_num;
 
     if (row == -1)
         /* This means use both lines; used by SHOW */
@@ -1141,16 +1157,16 @@ void display_prgm_line(int row, int line_offset) {
 
     if (tmpline != 0) {
         if (line_offset == 0)
-            get_next_command(&tmppc, &cmd, &arg, 0);
+            get_next_command(&tmppc, &cmd, &arg, 0, &orig_num);
         else if (line_offset == 1) {
             tmppc += get_command_length(current_prgm, tmppc);
             tmpline++;
-            get_next_command(&tmppc, &cmd, &arg, 0);
+            get_next_command(&tmppc, &cmd, &arg, 0, &orig_num);
         } else /* line_offset == -1 */ {
             tmpline--;
             if (tmpline != 0) {
                 tmppc = line2pc(tmpline);
-                get_next_command(&tmppc, &cmd, &arg, 0);
+                get_next_command(&tmppc, &cmd, &arg, 0, &orig_num);
             }
         }
     } else {
@@ -1158,13 +1174,13 @@ void display_prgm_line(int row, int line_offset) {
             /* Nothing to do */
         } else if (line_offset == 1) {
             tmppc = 0;
-            get_next_command(&tmppc, &cmd, &arg, 0);
+            get_next_command(&tmppc, &cmd, &arg, 0, &orig_num);
             tmpline++;
         }
         /* Should not get offset == -1 when at line 0! */
     }
 
-    bufptr = prgmline2buf(buf, len, tmpline, line_offset == 0, cmd, &arg, row == -1);
+    bufptr = prgmline2buf(buf, len, tmpline, line_offset == 0, cmd, &arg, orig_num, row == -1);
 
     if (row == -1) {
         clear_display();
@@ -1185,6 +1201,7 @@ void display_x(int row) {
     int bufptr = 0;
 
     clear_row(row);
+    vartype *x = sp >= 0 ? stack[sp] : NULL;
     if (matedit_mode == 2 || matedit_mode == 3) {
         bufptr += int2string(matedit_i + 1, buf + bufptr, 22 - bufptr);
         char2buf(buf, 22, &bufptr, ':');
@@ -1193,10 +1210,13 @@ void display_x(int row) {
     } else if (input_length > 0) {
         string2buf(buf, 22, &bufptr, input_name, input_length);
         char2buf(buf, 22, &bufptr, '?');
+    } else if (flags.f.big_stack) {
+        string2buf(buf, 22, &bufptr, "1\200", 2);
     } else {
         string2buf(buf, 22, &bufptr, "x\200", 2);
     }
-    bufptr += vartype2string(reg_x, buf + bufptr, 22 - bufptr);
+    if (x != NULL)
+        bufptr += vartype2string(x, buf + bufptr, 22 - bufptr);
     draw_string(0, row, buf, bufptr);
 }
 
@@ -1204,19 +1224,25 @@ void display_y(int row) {
     char buf[20];
     int len;
     clear_row(row);
-    len = vartype2string(reg_y, buf, 20);
-    draw_string(0, row, "\201\200", 2);
-    if (len > 20) {
-        draw_string(2, row, buf, 19);
-        draw_char(21, row, 26);
-    } else
-        draw_string(2, row, buf, len);
+    vartype *y = sp >= 1 ? stack[sp - 1] : NULL;
+    if (flags.f.big_stack)
+        draw_string(0, row, "2\200", 2);
+    else
+        draw_string(0, row, "\201\200", 2);
+    if (y != NULL) {
+        len = vartype2string(y, buf, 20);
+        if (len > 20) {
+            draw_string(2, row, buf, 19);
+            draw_char(21, row, 26);
+        } else
+            draw_string(2, row, buf, len);
+    }
 }
 
 void display_incomplete_command(int row) {
     char buf[40];
     int bufptr = 0;
-    const command_spec *cmd = cmdlist(incomplete_command);
+    const command_spec *cmd = &cmd_array[incomplete_command];
 
     if (flags.f.prgm_mode && (cmd->flags & FLAG_IMMED) == 0) {
         int line = pc2line(pc);
@@ -1278,7 +1304,7 @@ void display_incomplete_command(int row) {
     }
 }
 
-void display_error(int error, int print) {
+void display_error(int error, bool print) {
     clear_row(0);
     draw_string(0, 0, errors[error].text, errors[error].length);
     flags.f.message = 1;
@@ -1291,14 +1317,13 @@ void display_error(int error, int print) {
 void display_command(int row) {
     char buf[22];
     int bufptr = 0;
-    const command_spec *cmd = cmdlist(pending_command);
-    int *the_menu;
+    const command_spec *cmd = &cmd_array[pending_command];
     int catsect;
     int hide = pending_command == CMD_VMEXEC
+            || pending_command == CMD_PMEXEC
             || (pending_command == CMD_XEQ
                 && xeq_invisible
-                && (the_menu = get_front_menu()) != NULL
-                && *the_menu == MENU_CATALOG
+                && get_front_menu() == MENU_CATALOG
                 && ((catsect = get_cat_section()) == CATSECT_PGM
                     || catsect == CATSECT_PGM_ONLY));
 
@@ -1424,7 +1449,7 @@ void draw_varmenu() {
     current_prgm = prgm;
     pc += get_command_length(prgm, pc);
     pc2 = pc;
-    while (get_next_command(&pc, &command, &arg, 0), command == CMD_MVAR)
+    while (get_next_command(&pc, &command, &arg, 0, NULL), command == CMD_MVAR)
         num_mvars++;
     if (num_mvars == 0) {
         current_prgm = saved_prgm;
@@ -1440,7 +1465,7 @@ void draw_varmenu() {
 
     row = 0;
     key = 0;
-    while (get_next_command(&pc2, &command, &arg, 0), command == CMD_MVAR) {
+    while (get_next_command(&pc2, &command, &arg, 0, NULL), command == CMD_MVAR) {
         if (row == varmenu_row) {
             varmenu_labellength[key] = arg.length;
             for (i = 0; i < arg.length; i++)
@@ -1504,41 +1529,65 @@ static int fcn_cat[] = {
     CMD_10_POW_X, CMD_ADD,       CMD_SUB,      CMD_MUL,        CMD_DIV,     CMD_CHS,
     CMD_SIGMAADD, CMD_SIGMASUB,  CMD_SIGMAREG, CMD_SIGMAREG_T, CMD_TO_DEC,  CMD_TO_DEG,
     CMD_TO_HMS,   CMD_TO_HR,     CMD_TO_OCT,   CMD_TO_POL,     CMD_TO_RAD,  CMD_TO_REC,
-    CMD_LEFT,     CMD_UP,        CMD_DOWN,     CMD_RIGHT,      CMD_PERCENT, CMD_PERCENT_CH
+    CMD_LEFT,     CMD_UP,        CMD_DOWN,     CMD_RIGHT,      CMD_PERCENT, CMD_PERCENT_CH,
+    CMD_FIND,     CMD_MAX,       CMD_MIN,      CMD_NULL,       CMD_NULL,    CMD_NULL
 };
 
-typedef struct {
-    int first_cmd;
-    int last_cmd;
-    bool *enable_flag;
-} extension_struct;
-
-static extension_struct extensions[] = {
-    { CMD_MAX,     CMD_FIND,    NULL                               },
-    { CMD_ACCEL,   CMD_ACCEL,   &core_settings.enable_ext_accel    },
-    { CMD_LOCAT,   CMD_LOCAT,   &core_settings.enable_ext_locat    },
-    { CMD_HEADING, CMD_HEADING, &core_settings.enable_ext_heading  },
-    { CMD_ADATE,   CMD_SWPT,    &core_settings.enable_ext_time     },
-    { CMD_FPTEST,  CMD_FPTEST,  &core_settings.enable_ext_fptest   },
-    { CMD_LSTO,    CMD_BRESET,  &core_settings.enable_ext_prog     },
-    { CMD_NULL,    CMD_NULL,    NULL                               }
+static int ext_time_cat[] = {
+    CMD_ADATE,     CMD_ATIME, CMD_ATIME24, CMD_CLK12, CMD_CLK24, CMD_DATE,
+    CMD_DATE_PLUS, CMD_DDAYS, CMD_DMY,     CMD_DOW,   CMD_MDY,   CMD_TIME,
+    CMD_YMD,       CMD_NULL,  CMD_NULL,    CMD_NULL,  CMD_NULL,  CMD_NULL
 };
 
-// This defines the order in which extension functions should appear in
-// the FCN catalog. We need this mapping so that that order isn't determined
-// by the order in which the functions were added to the commands list.
-// A command number of -1 defines a range, from the number before it in
-// the list until the number after it.
-static int ext_fcn_cat[] = {
-    CMD_FIND, CMD_MAX, CMD_MIN,
-    CMD_ADATE, -1, CMD_SWPT,
-    CMD_YMD,
-    CMD_BRESET, CMD_BSIGNED, CMD_BWRAP,
-    CMD_LSTO, -1, CMD_WSIZE_T,
-    CMD_ACCEL, CMD_LOCAT, CMD_HEADING,
-    CMD_FPTEST,
-    CMD_NULL
+static int ext_xfcn_cat[] = {
+    CMD_ANUM, CMD_RCLFLAG, CMD_STOFLAG, CMD_X_SWAP_F, CMD_NULL, CMD_NULL
 };
+
+static int ext_base_cat[] = {
+    CMD_BRESET, CMD_BSIGNED, CMD_BWRAP, CMD_WSIZE, CMD_WSIZE_T, CMD_NULL
+};
+
+static int ext_stk_cat[] = {
+    CMD_4STK,   CMD_DEPTH, CMD_DROP, CMD_DROPN, CMD_DUP,  CMD_DUPN,
+    CMD_L4STK,  CMD_LNSTK, CMD_NSTK, CMD_PICK,  CMD_RUPN, CMD_RDNN,
+    CMD_UNPICK, CMD_NULL,  CMD_NULL, CMD_NULL,  CMD_NULL, CMD_NULL
+};
+
+static int ext_prgm_cat[] = {
+    CMD_FUNC,    CMD_LASTO,   CMD_LSTO,    CMD_RTNERR,  CMD_RTNNO,   CMD_RTNYES,
+    CMD_X_EQ_NN, CMD_X_NE_NN, CMD_X_LT_NN, CMD_X_GT_NN, CMD_X_LE_NN, CMD_X_GE_NN,
+    CMD_0_EQ_NN, CMD_0_NE_NN, CMD_0_LT_NN, CMD_0_GT_NN, CMD_0_LE_NN, CMD_0_GE_NN,
+    CMD_SST_UP,  CMD_SST_RT,  CMD_NULL,    CMD_NULL,    CMD_NULL,    CMD_NULL
+};
+
+#if defined(ANDROID) || defined(IPHONE)
+#ifdef FREE42_FPTEST
+static int ext_misc_cat[] = {
+    CMD_FMA,   CMD_GETKEY1, CMD_NOP,     CMD_PGMMENU, CMD_PRMVAR, CMD_STRACE,
+    CMD_ACCEL, CMD_LOCAT,   CMD_HEADING, CMD_FPTEST,  CMD_NULL,   CMD_NULL
+};
+#define MISC_CAT_ROWS 2
+#else
+static int ext_misc_cat[] = {
+    CMD_FMA,   CMD_GETKEY1, CMD_NOP,     CMD_PGMMENU, CMD_PRMVAR, CMD_STRACE,
+    CMD_ACCEL, CMD_LOCAT,   CMD_HEADING, CMD_NULL,    CMD_NULL,   CMD_NULL
+};
+#define MISC_CAT_ROWS 2
+#endif
+#else
+#ifdef FREE42_FPTEST
+static int ext_misc_cat[] = {
+    CMD_FMA,    CMD_GETKEY1, CMD_NOP,  CMD_PGMMENU, CMD_PRMVAR, CMD_STRACE,
+    CMD_FPTEST, CMD_NULL,    CMD_NULL, CMD_NULL,    CMD_NULL,   CMD_NULL
+};
+#define MISC_CAT_ROWS 2
+#else
+static int ext_misc_cat[] = {
+    CMD_FMA, CMD_GETKEY1, CMD_NOP, CMD_PGMMENU, CMD_PRMVAR, CMD_STRACE
+};
+#define MISC_CAT_ROWS 1
+#endif
+#endif
 
 static void draw_catalog() {
     int catsect = get_cat_section();
@@ -1551,12 +1600,28 @@ static void draw_catalog() {
         draw_key(3, 0, 0, "CPX", 3);
         draw_key(4, 0, 0, "MAT", 3);
         draw_key(5, 0, 0, "MEM", 3);
-        mode_updown = false;
-        shell_annunciators(0, -1, -1, -1, -1, -1);
+        mode_updown = true;
+        shell_annunciators(1, -1, -1, -1, -1, -1);
+    } else if (catsect == CATSECT_EXT) {
+        draw_ext:
+        draw_key(0, 0, 0, "TIME", 4);
+        draw_key(1, 0, 0, "XFCN", 4);
+        draw_key(2, 0, 0, "BASE", 4);
+        draw_key(3, 0, 0, "PRGM", 4);
+        if (core_settings.allow_big_stack) {
+            draw_key(4, 0, 0, "STK", 3);
+            draw_key(5, 0, 0, "MISC", 4);
+        } else {
+            draw_key(4, 0, 0, "MISC", 4);
+            draw_key(5, 0, 0, "", 0);
+        }
+        mode_updown = true;
+        shell_annunciators(1, -1, -1, -1, -1, -1);
     } else if (catsect == CATSECT_PGM
             || catsect == CATSECT_PGM_ONLY
             || catsect == CATSECT_PGM_SOLVE
-            || catsect == CATSECT_PGM_INTEG) {
+            || catsect == CATSECT_PGM_INTEG
+            || catsect == CATSECT_PGM_MENU) {
         /* Show menu of alpha labels */
         int lcount = 0;
         int i, j, k = -1;
@@ -1567,7 +1632,7 @@ static void draw_catalog() {
                     lcount++;
                 lastprgm = labels[i].prgm;
             }
-        } else /* CATSECT_PGM_SOLVE, CATSECT_PGM_INTEG */ {
+        } else /* CATSECT_PGM_SOLVE, CATSECT_PGM_INTEG, CATSECT_PGM_MENU */ {
             for (i = 0; i < labels_count; i++)
                 if (label_has_mvar(i))
                     lcount++;
@@ -1608,110 +1673,61 @@ static void draw_catalog() {
         }
         mode_updown = catalogmenu_rows[catindex] > 1;
         shell_annunciators(mode_updown, -1, -1, -1, -1, -1);
-    } else if (catsect == CATSECT_FCN) {
-        int desired_row = catalogmenu_row[catindex];
-        if (desired_row < 42) {
-            standard_fcn:
-            for (int i = 0; i < 6; i++) {
-                int cmd = fcn_cat[desired_row * 6 + i];
-                catalogmenu_item[catindex][i] = cmd;
-                draw_key(i, 0, 1, cmdlist(cmd)->name,
-                                  cmdlist(cmd)->name_length);
-            }
-            // Setting number of rows to a ridiculously large value;
-            // this value only comes into play when the user presses "up"
-            // while on the first row of the FCN catalog, and the extension-handling
-            // code in the desired_row >= 42 case takes care of handling the
-            // ever-changing number of rows in this menu, and will clip the row
-            // number to the actual number of rows.
-            catalogmenu_rows[catindex] = 1000;
-        } else {
-            int curr_row = 41;
-            int curr_pos = 5;
-            bool menu_full = false;
-            int menu_length = 0;
-            bool no_extensions = true;
-            int ext_fcn_idx = 0;
-            int ext_fcn_until = CMD_NULL;
-            int ext_fcn;
-            while (true) {
-                if (ext_fcn_until == CMD_NULL) {
-                    ext_fcn = ext_fcn_cat[ext_fcn_idx++];
-                    if (ext_fcn == -1) {
-                        ext_fcn_until = ext_fcn_cat[ext_fcn_idx++];
-                        ext_fcn = ext_fcn_cat[ext_fcn_idx - 3] + 1;
-                    } else if (ext_fcn == CMD_NULL)
-                        break;
+    } else if (catsect == CATSECT_FCN
+            || catsect >= CATSECT_EXT_TIME && catsect <= CATSECT_EXT_MISC) {
+        int *subcat;
+        int subcat_rows;
+        switch (catsect) {
+            case CATSECT_FCN: subcat = fcn_cat; subcat_rows = 43; break;
+            case CATSECT_EXT_TIME: subcat = ext_time_cat; subcat_rows = 3; break;
+            case CATSECT_EXT_XFCN: subcat = ext_xfcn_cat; subcat_rows = 1; break;
+            case CATSECT_EXT_BASE: subcat = ext_base_cat; subcat_rows = 1; break;
+            case CATSECT_EXT_PRGM: subcat = ext_prgm_cat; subcat_rows = 4; break;
+            case CATSECT_EXT_STK:
+                if (!core_settings.allow_big_stack) {
+                    set_cat_section(CATSECT_EXT);
+                    goto draw_ext;
                 } else {
-                    ext_fcn++;
-                    if (ext_fcn == ext_fcn_until)
-                        ext_fcn_until = CMD_NULL;
+                    subcat = ext_stk_cat; subcat_rows = 3;
+                    break;
                 }
-                if ((cmdlist(ext_fcn)->flags & FLAG_HIDDEN) != 0)
-                    continue;
-                bool enabled = false;
-                for (int extno = 0; extensions[extno].first_cmd != CMD_NULL; extno++) {
-                    if (ext_fcn >= extensions[extno].first_cmd && ext_fcn <= extensions[extno].last_cmd) {
-                        enabled = extensions[extno].enable_flag == NULL || *extensions[extno].enable_flag;
-                        break;
-                    }
-                }
-                if (!enabled)
-                    continue;
-                no_extensions = false;
-                if (curr_pos == 5) {
-                    curr_pos = 0;
-                    curr_row++;
-                } else
-                    curr_pos++;
-                if (menu_full)
-                    goto done;
-                catalogmenu_item[catindex][curr_pos] = ext_fcn;
-                catalogmenu_row[catindex] = curr_row;
-                menu_length = curr_pos + 1;
-                if (curr_pos == 5 && curr_row == desired_row)
-                    menu_full = true;
-            }
-            if (no_extensions) {
-                desired_row = catalogmenu_row[catindex] = desired_row == 42 ? 0 : 41;
-                goto standard_fcn;
-            }
-            done:
-            catalogmenu_rows[catindex] = curr_row + 1;
-            for (int i = 0; i < 6; i++) {
-                if (i >= menu_length)
-                    catalogmenu_item[catindex][i] = -1;
-                int cmd = catalogmenu_item[catindex][i];
-                if (cmd == -1)
-                    draw_key(i, 0, 0, "", 0);
-                else
-                    draw_key(i, 0, 1, cmdlist(cmd)->name,
-                                      cmdlist(cmd)->name_length);
-            }
+            case CATSECT_EXT_MISC: subcat = ext_misc_cat; subcat_rows = MISC_CAT_ROWS; break;
         }
-        mode_updown = true;
-        shell_annunciators(1, -1, -1, -1, -1, -1);
+
+        int desired_row = catalogmenu_row[catindex];
+        if (desired_row >= subcat_rows)
+            desired_row = 0;
+        for (int i = 0; i < 6; i++) {
+            int cmd = subcat[desired_row * 6 + i];
+            catalogmenu_item[catindex][i] = cmd;
+            draw_key(i, 0, 1, cmd_array[cmd].name,
+                              cmd_array[cmd].name_length);
+        }
+        catalogmenu_rows[catindex] = subcat_rows;
+        mode_updown = subcat_rows > 1;
+        shell_annunciators(mode_updown ? 1 : 0, -1, -1, -1, -1, -1);
     } else {
         int vcount = 0;
         int i, j, k = -1;
         int show_real = 1;
         int show_cpx = 1;
         int show_mat = 1;
+        int show_list = 1;
 
         switch (catsect) {
             case CATSECT_REAL:
             case CATSECT_REAL_ONLY:
-                show_cpx = show_mat = 0; break;
+                show_cpx = show_mat = show_list = 0; break;
             case CATSECT_CPX:
-                show_real = show_mat = 0; break;
+                show_real = show_mat = show_list = 0; break;
             case CATSECT_MAT:
             case CATSECT_MAT_ONLY:
-                show_real = show_cpx = 0; break;
+                show_real = show_cpx = show_list = 0; break;
         }
 
         for (i = 0; i < vars_count; i++) {
             int type = vars[i].value->type;
-            if (vars[i].hidden)
+            if ((vars[i].flags & (VAR_HIDDEN | VAR_PRIVATE)) != 0)
                 continue;
             switch (type) {
                 case TYPE_REAL:
@@ -1724,6 +1740,9 @@ static void draw_catalog() {
                 case TYPE_REALMATRIX:
                 case TYPE_COMPLEXMATRIX:
                     if (show_mat) vcount++;
+                    break;
+                case TYPE_LIST:
+                    if (show_list) vcount++;
                     break;
             }
         }
@@ -1749,7 +1768,7 @@ static void draw_catalog() {
             catalogmenu_row[catindex] = catalogmenu_rows[catindex] - 1;
         j = -1;
         for (i = vars_count - 1; i >= 0; i--) {
-            if (vars[i].hidden)
+            if ((vars[i].flags & (VAR_HIDDEN | VAR_PRIVATE)) != 0)
                 continue;
             int type = vars[i].value->type;
             switch (type) {
@@ -1761,6 +1780,10 @@ static void draw_catalog() {
                 case TYPE_REALMATRIX:
                 case TYPE_COMPLEXMATRIX:
                     if (show_mat) break; else continue;
+                case TYPE_LIST:
+                    if (show_list) break; else continue;
+                default:
+                    continue;
             }
             j++;
             if (j / 6 == catalogmenu_row[catindex]) {
@@ -1862,15 +1885,24 @@ void show() {
     } else {
         char buf[45];
         int bufptr;
+        vartype *rx;
+        int x_type;
+        if (sp >= 0) {
+            rx = stack[sp];
+            x_type = rx->type;
+        } else {
+            x_type = TYPE_NULL;
+        }
         clear_display();
-        switch (reg_x->type) {
+        switch (x_type) {
             case TYPE_REAL: {
-                bufptr = phloat2string(((vartype_real *) reg_x)->x, buf, 45,
+                bufptr = phloat2string(((vartype_real *) rx)->x, buf, 45,
                                        2, 0, 3,
                                        flags.f.thousands_separators, MAX_MANT_DIGITS);
                 if (bufptr == 45)
-                    bufptr = phloat2string(((vartype_real *) reg_x)->x, buf,
+                    bufptr = phloat2string(((vartype_real *) rx)->x, buf,
                                            44, 2, 0, 3, 0, MAX_MANT_DIGITS);
+                show_one_or_two_lines:
                 if (bufptr <= 22)
                     draw_string(0, 0, buf, bufptr);
                 else {
@@ -1880,14 +1912,16 @@ void show() {
                 break;
             }
             case TYPE_STRING: {
-                vartype_string *s = (vartype_string *) reg_x;
-                draw_char(0, 0, '"');
-                draw_string(1, 0, s->text, s->length);
-                draw_char(s->length + 1, 0, '"');
-                break;
+                vartype_string *s = (vartype_string *) rx;
+                bufptr = 0;
+                char2buf(buf, 44, &bufptr, '"');
+                string2buf(buf, 44, &bufptr, s->txt(), s->length);
+                if (bufptr < 44)
+                    char2buf(buf, 44, &bufptr, '"');
+                goto show_one_or_two_lines;
             }
             case TYPE_COMPLEX: {
-                vartype_complex *c = (vartype_complex *) reg_x;
+                vartype_complex *c = (vartype_complex *) rx;
                 phloat x, y;
                 if (flags.f.polar) {
                     generic_r2p(c->re, c->im, &x, &y);
@@ -1915,27 +1949,32 @@ void show() {
                 break;
             }
             case TYPE_REALMATRIX: {
-                vartype_realmatrix *rm = (vartype_realmatrix *) reg_x;
+                vartype_realmatrix *rm = (vartype_realmatrix *) rx;
                 phloat *d = rm->array->data;
-                bufptr = vartype2string(reg_x, buf, 22);
+                bufptr = vartype2string(rx, buf, 22);
                 draw_string(0, 0, buf, bufptr);
                 draw_string(0, 1, "1:1=", 4);
-                if (rm->array->is_string[0]) {
-                    draw_char(4, 1, '"');
-                    draw_string(5, 1, phloat_text(*d), phloat_length(*d));
-                    draw_char(5 + phloat_length(*d), 1, '"');
+                bufptr = 0;
+                if (rm->array->is_string[0] != 0) {
+                    char *text;
+                    int4 len;
+                    get_matrix_string(rm, 0, &text, &len);
+                    char2buf(buf, 18, &bufptr, '"');
+                    string2buf(buf, 18, &bufptr, text, len);
+                    if (bufptr < 18)
+                        char2buf(buf, 18, &bufptr, '"');
                 } else {
                     bufptr = phloat2string(*d, buf, 18,
                                            0, 0, 3,
                                            flags.f.thousands_separators);
-                    draw_string(4, 1, buf, bufptr);
                 }
+                draw_string(4, 1, buf, bufptr);
                 break;
             }
             case TYPE_COMPLEXMATRIX: {
-                vartype_complexmatrix *cm = (vartype_complexmatrix *) reg_x;
+                vartype_complexmatrix *cm = (vartype_complexmatrix *) rx;
                 vartype_complex c;
-                bufptr = vartype2string(reg_x, buf, 22);
+                bufptr = vartype2string(rx, buf, 22);
                 draw_string(0, 0, buf, bufptr);
                 draw_string(0, 1, "1:1=", 4);
                 c.type = TYPE_COMPLEX;
@@ -2032,6 +2071,8 @@ void redisplay() {
             draw_key(i, 0, 0, progmenu_label[i], progmenu_length[i]);
         avail_rows = 1;
     } else if (menu_id != MENU_NONE) {
+        if (!core_settings.allow_big_stack && menu_id == MENU_MODES5)
+            menu_id = mode_plainmenu = MENU_MODES1;
         const menu_spec *m = menus + menu_id;
         for (i = 0; i < 6; i++) {
             const menu_item_spec *mi = m->child + i;
@@ -2039,7 +2080,7 @@ void redisplay() {
                 draw_key(i, 0, 0, mi->title, mi->title_length);
             else {
                 int cmd_id = mi->menuid & 0xfff;
-                const command_spec *cmd = cmdlist(cmd_id);
+                const command_spec *cmd = &cmd_array[cmd_id];
                 int is_flag = (mi->menuid & 0x2000) != 0;
                 if (is_flag) {
                     /* Take a closer look at the command ID and highlight
@@ -2073,10 +2114,10 @@ void redisplay() {
                             is_flag = !flags.f.rad && !flags.f.grad;
                             break;
                         case CMD_RAD:
-                            is_flag = flags.f.rad && !flags.f.grad;
+                            is_flag = flags.f.rad;
                             break;
                         case CMD_GRAD:
-                            is_flag = flags.f.grad;
+                            is_flag = !flags.f.rad && flags.f.grad;
                             break;
                         case CMD_POLAR:
                             is_flag = flags.f.polar;
@@ -2105,6 +2146,27 @@ void redisplay() {
                         case CMD_BWRAP:
                             is_flag = flags.f.base_wrap;
                             break;
+                        case CMD_MDY:
+                            is_flag = !flags.f.ymd && !flags.f.dmy;
+                            break;
+                        case CMD_DMY:
+                            is_flag = !flags.f.ymd && flags.f.dmy;
+                            break;
+                        case CMD_YMD:
+                            is_flag = flags.f.ymd;
+                            break;
+                        case CMD_CLK12:
+                            is_flag = !mode_time_clk24;
+                            break;
+                        case CMD_CLK24:
+                            is_flag = mode_time_clk24;
+                            break;
+                        case CMD_4STK:
+                            is_flag = !flags.f.big_stack;
+                            break;
+                        case CMD_NSTK:
+                            is_flag = flags.f.big_stack;
+                            break;
                         case CMD_PON:
                             is_flag = flags.f.printer_exists;
                             break;
@@ -2120,7 +2182,12 @@ void redisplay() {
                                         && flags.f.normal_print;
                             break;
                         case CMD_TRACE:
-                            is_flag = flags.f.trace_print;
+                            is_flag = flags.f.trace_print
+                                        && !flags.f.normal_print;
+                            break;
+                        case CMD_STRACE:
+                            is_flag = flags.f.trace_print
+                                        && flags.f.normal_print;
                             break;
                         case CMD_ALLSIGMA:
                             is_flag = flags.f.all_sigma;
@@ -2244,7 +2311,7 @@ void print_display() {
     shell_print(NULL, 0, display, 17, 0, 0, 131, 16);
 }
 
-typedef struct {
+struct prp_data_struct {
     char buf[100];
     int len;
     int saved_prgm;
@@ -2257,10 +2324,10 @@ typedef struct {
     int first;
     int trace;
     int normal;
-} prp_data_struct;
+};
 
 static prp_data_struct *prp_data;
-static int print_program_worker(int interrupted);
+static int print_program_worker(bool interrupted);
 
 int print_program(int prgm_index, int4 pc, int4 lines, int normal) {
     prp_data_struct *dat = (prp_data_struct *) malloc(sizeof(prp_data_struct));
@@ -2292,7 +2359,7 @@ int print_program(int prgm_index, int4 pc, int4 lines, int normal) {
          * we don't do the 'interruptible' thing in this case.
          */
         int err;
-        while ((err = print_program_worker(0)) == ERR_INTERRUPTIBLE);
+        while ((err = print_program_worker(false)) == ERR_INTERRUPTIBLE);
         return err;
     } else {
         print_text(NULL, 0, 1);
@@ -2302,7 +2369,7 @@ int print_program(int prgm_index, int4 pc, int4 lines, int normal) {
     }
 }
 
-static int print_program_worker(int interrupted) {
+static int print_program_worker(bool interrupted) {
     prp_data_struct *dat = prp_data;
     int printed = 0;
 
@@ -2310,10 +2377,11 @@ static int print_program_worker(int interrupted) {
         goto done;
 
     do {
+        const char *orig_num;
         if (dat->line == 0)
             dat->pc = 0;
         else
-            get_next_command(&dat->pc, &dat->cmd, &dat->arg, 0);
+            get_next_command(&dat->pc, &dat->cmd, &dat->arg, 0, &orig_num);
 
         if (dat->trace) {
             if (dat->cmd == CMD_LBL || dat->first) {
@@ -2327,7 +2395,7 @@ static int print_program_worker(int interrupted) {
                 dat->buf[0] = ' ';
                 dat->len = 1 + prgmline2buf(dat->buf + 1, 100 - 1, dat->line,
                                             dat->cmd == CMD_LBL, dat->cmd,
-                                            &dat->arg);
+                                            &dat->arg, orig_num);
                 if (dat->cmd == CMD_LBL || dat->cmd == CMD_END
                         || dat->lines == 1) {
                     print_lines(dat->buf, dat->len, 1);
@@ -2341,7 +2409,7 @@ static int print_program_worker(int interrupted) {
                     dat->buf[dat->len++] = ' ';
                 }
                 len2 = prgmline2buf(dat->buf + dat->len, 100 - dat->len, -1, 0,
-                                                        dat->cmd, &dat->arg);
+                                                        dat->cmd, &dat->arg, orig_num);
                 if (dat->len > 0 && dat->len + len2 > dat->width) {
                     /* Break line before current instruction */
                     print_lines(dat->buf, dat->len - 2, 1);
@@ -2365,7 +2433,7 @@ static int print_program_worker(int interrupted) {
             }
         } else {
             dat->len = prgmline2buf(dat->buf, 100, dat->line,
-                                    dat->cmd == CMD_LBL, dat->cmd, &dat->arg);
+                                    dat->cmd == CMD_LBL, dat->cmd, &dat->arg, orig_num);
             if (dat->normal) {
                 /* In normal mode, programs are printed right-justified;
                  * we pad the instuctions to a minimum of 8 characters so
@@ -2409,19 +2477,13 @@ int command2buf(char *buf, int len, int cmd, const arg_struct *arg) {
     int bufptr = 0;
 
     int4 xrom_arg;
-    if (!core_settings.enable_ext_accel && cmd == CMD_ACCEL
-            || !core_settings.enable_ext_locat && cmd == CMD_LOCAT
-            || !core_settings.enable_ext_heading && cmd == CMD_HEADING
-            || !core_settings.enable_ext_time && cmd >= CMD_ADATE && cmd <= CMD_SWPT
-            || !core_settings.enable_ext_fptest && cmd == CMD_FPTEST
-            || !core_settings.enable_ext_prog && cmd >= CMD_LSTO && cmd <= CMD_YMD
-            || (cmdlist(cmd)->hp42s_code & 0xfffff800) == 0x0000a000 && (cmdlist(cmd)->flags & FLAG_HIDDEN) != 0) {
-        xrom_arg = cmdlist(cmd)->hp42s_code;
+    if ((cmd_array[cmd].code1 & 0xf8) == 0xa0 && (cmd_array[cmd].flags & FLAG_HIDDEN) != 0) {
+        xrom_arg = (cmd_array[cmd].code1 << 8) | cmd_array[cmd].code2;
         cmd = CMD_XROM;
     } else if (cmd == CMD_XROM)
         xrom_arg = arg->val.num;
 
-    const command_spec *cmdspec = cmdlist(cmd);
+    const command_spec *cmdspec = &cmd_array[cmd];
     if (cmd >= CMD_ASGN01 && cmd <= CMD_ASGN18)
         string2buf(buf, len, &bufptr, "ASSIGN ", 7);
     else
@@ -2490,7 +2552,7 @@ int command2buf(char *buf, int len, int cmd, const arg_struct *arg) {
                 char2buf(buf, len, &bufptr, '"');
             }
         } else /* ARGTYPE_COMMAND; for backward compatibility only */ {
-            const command_spec *cs = cmdlist(arg->val.cmd);
+            const command_spec *cs = &cmd_array[arg->val.cmd];
             char2buf(buf, len, &bufptr, '"');
             string2buf(buf, len, &bufptr, cs->name, cs->name_length);
             char2buf(buf, len, &bufptr, '"');
@@ -2524,13 +2586,12 @@ static int get_cat_index() {
 void set_menu(int level, int menuid) {
     int err = set_menu_return_err(level, menuid, false);
     if (err != ERR_NONE) {
-        display_error(err, 1);
+        display_error(err, true);
         flush_display();
     }
 }
 
 int set_menu_return_err(int level, int menuid, bool exitall) {
-    int *newmenu;
     int err;
 
     switch (level) {
@@ -2557,12 +2618,12 @@ int set_menu_return_err(int level, int menuid, bool exitall) {
     lbl_02: mode_commandmenu = MENU_NONE;
     lbl_03:
 
-    newmenu = get_front_menu();
-    if (newmenu != NULL) {
-        if (*newmenu == MENU_CATALOG) {
+    int newmenu = get_front_menu();
+    if (newmenu != MENU_NONE) {
+        if (newmenu == MENU_CATALOG) {
             int index = get_cat_index();
             mode_updown = index != -1 && catalogmenu_rows[index] > 1;
-        } else if (*newmenu == MENU_PROGRAMMABLE) {
+        } else if (newmenu == MENU_PROGRAMMABLE) {
             /* The programmable menu's up/down annunciator is on if the UP
              * and/or DOWN keys have been assigned to.
              * This is something the original HP-42S doesn't do, but I couldn't
@@ -2579,9 +2640,9 @@ int set_menu_return_err(int level, int menuid, bool exitall) {
             /* The up/down annunciator for catalogs depends on how many
              * items they contain; this is handled in draw_catalog().
              */
-            mode_updown = *newmenu == MENU_VARMENU
+            mode_updown = newmenu == MENU_VARMENU
                                 ? varmenu_rows > 1
-                                : menus[*newmenu].next != MENU_NONE;
+                                : menus[newmenu].next != MENU_NONE;
         }
     } else
         mode_updown = false;
@@ -2644,7 +2705,8 @@ void set_plainmenu(int menuid) {
                 set_cat_section(CATSECT_TOP);
             redisplay();
         }
-        mode_updown = mode_plainmenu != MENU_NONE
+        mode_updown = mode_plainmenu == MENU_CATALOG
+                || mode_plainmenu != MENU_NONE
                         && menus[mode_plainmenu].next != MENU_NONE;
         shell_annunciators(mode_updown, -1, -1, -1, -1, -1);
     }
@@ -2659,45 +2721,51 @@ void set_catalog_menu(int section) {
         case CATSECT_FCN:
         case CATSECT_PGM:
         case CATSECT_PGM_ONLY:
+        case CATSECT_EXT:
+        case CATSECT_EXT_TIME:
+        case CATSECT_EXT_XFCN:
+        case CATSECT_EXT_BASE:
+        case CATSECT_EXT_PRGM:
+        case CATSECT_EXT_STK:
+        case CATSECT_EXT_MISC:
             return;
         case CATSECT_REAL:
         case CATSECT_REAL_ONLY:
-            if (!vars_exist(1, 0, 0))
+            if (!vars_exist(CATSECT_REAL))
                 mode_commandmenu = MENU_NONE;
             return;
         case CATSECT_CPX:
-            if (!vars_exist(0, 1, 0))
+            if (!vars_exist(CATSECT_CPX))
                 mode_commandmenu = MENU_NONE;
             return;
         case CATSECT_MAT:
         case CATSECT_MAT_ONLY:
-            if (!vars_exist(0, 0, 1))
+            if (!vars_exist(CATSECT_MAT))
                 mode_commandmenu = MENU_NONE;
             return;
         case CATSECT_VARS_ONLY:
-            if (!vars_exist(1, 1, 1))
+            if (!vars_exist(-1))
                 mode_commandmenu = MENU_NONE;
             return;
         case CATSECT_PGM_SOLVE:
         case CATSECT_PGM_INTEG:
+        case CATSECT_PGM_MENU:
         default:
             mode_commandmenu = MENU_NONE;
             return;
     }
 }
 
-int *get_front_menu() {
+int get_front_menu() {
     if (mode_commandmenu != MENU_NONE)
-        return &mode_commandmenu;
+        return mode_commandmenu;
     if (mode_alphamenu != MENU_NONE)
-        return &mode_alphamenu;
+        return mode_alphamenu;
     if (mode_transientmenu != MENU_NONE)
-        return &mode_transientmenu;
+        return mode_transientmenu;
     if (mode_plainmenu != MENU_NONE)
-        return &mode_plainmenu;
-    if (mode_appmenu != MENU_NONE)
-        return &mode_appmenu;
-    return NULL;
+        return mode_plainmenu;
+    return mode_appmenu;
 }
 
 void set_cat_section(int section) {
@@ -2773,38 +2841,45 @@ void update_catalog() {
     switch (get_cat_section()) {
         case CATSECT_TOP:
         case CATSECT_FCN:
+        case CATSECT_EXT:
+        case CATSECT_EXT_TIME:
+        case CATSECT_EXT_XFCN:
+        case CATSECT_EXT_BASE:
+        case CATSECT_EXT_PRGM:
+        case CATSECT_EXT_STK:
+        case CATSECT_EXT_MISC:
             return;
         case CATSECT_PGM:
         case CATSECT_PGM_ONLY:
             break;
         case CATSECT_REAL:
-            if (!vars_exist(1, 0, 0))
+            if (!vars_exist(CATSECT_REAL))
                 set_cat_section(CATSECT_TOP);
             break;
         case CATSECT_CPX:
-            if (!vars_exist(0, 1, 0))
+            if (!vars_exist(CATSECT_CPX))
                 set_cat_section(CATSECT_TOP);
             break;
         case CATSECT_MAT:
-            if (!vars_exist(0, 0, 1))
+            if (!vars_exist(CATSECT_MAT))
                 set_cat_section(CATSECT_TOP);
             break;
         case CATSECT_REAL_ONLY:
-            if (!vars_exist(1, 0, 0)) {
+            if (!vars_exist(CATSECT_REAL)) {
                 *the_menu = MENU_NONE;
                 redisplay();
                 return;
             }
             break;
         case CATSECT_MAT_ONLY:
-            if (!vars_exist(0, 0, 1)) {
+            if (!vars_exist(CATSECT_MAT)) {
                 *the_menu = MENU_NONE;
                 redisplay();
                 return;
             }
             break;
         case CATSECT_VARS_ONLY:
-            if (!vars_exist(1, 1, 1)) {
+            if (!vars_exist(-1)) {
                 *the_menu = MENU_NONE;
                 redisplay();
                 return;
@@ -2812,9 +2887,10 @@ void update_catalog() {
             break;
         case CATSECT_PGM_SOLVE:
         case CATSECT_PGM_INTEG:
+        case CATSECT_PGM_MENU:
             if (!mvar_prgms_exist()) {
                 *the_menu = MENU_NONE;
-                display_error(ERR_NO_MENU_VARIABLES, 0);
+                display_error(ERR_NO_MENU_VARIABLES, false);
                 redisplay();
                 return;
             }
@@ -2854,7 +2930,7 @@ void clear_prgm_menu() {
         progmenu_length[i] = 0;
 }
 
-void assign_prgm_key(int keynum, int is_gto, const arg_struct *arg) {
+void assign_prgm_key(int keynum, bool is_gto, const arg_struct *arg) {
     int length, i;
     keynum--;
     progmenu_arg[keynum] = (arg_struct) *arg;
@@ -2892,7 +2968,7 @@ void do_prgm_menu_key(int keynum) {
     err = docmd_gto(&progmenu_arg[keynum]);
     if (err != ERR_NONE) {
         set_running(false);
-        display_error(err, 1);
+        display_error(err, true);
         flush_display();
         return;
     }
@@ -2902,7 +2978,7 @@ void do_prgm_menu_key(int keynum) {
             current_prgm = oldprgm;
             pc = oldpc;
             set_running(false);
-            display_error(err, 1);
+            display_error(err, true);
             flush_display();
             return;
         }

@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2020  Thomas Okken
+ * Copyright (C) 2004-2021  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -45,10 +45,10 @@ static bool loadSkinsWindowMapped = false;
 state_type state;
 char free42dirname[FILENAMELEN];
 
-static int quit_flag = 0;
-static int enqueued;
-static int keep_running = 0;
-static int we_want_cpu = 0;
+static bool quit_flag = false;
+static bool enqueued;
+static bool keep_running = false;
+static bool we_want_cpu = false;
 
 static char statefilename[FILENAMELEN];
 static char printfilename[FILENAMELEN];
@@ -60,7 +60,7 @@ static unsigned char *macro;
 static bool macro_is_name;
 static int mouse_key;
 static unsigned short active_keycode = -1;
-static int just_pressed_shift = 0;
+static bool just_pressed_shift = false;
 static int keymap_length = 0;
 static keymap_entry *keymap = NULL;
 
@@ -118,6 +118,7 @@ static bool is_file(const char *name);
 @synthesize prefsSingularMatrix;
 @synthesize prefsMatrixOutOfRange;
 @synthesize prefsAutoRepeat;
+@synthesize prefsAllowBigStack;
 @synthesize prefsPrintText;
 @synthesize prefsPrintTextFile;
 @synthesize prefsPrintTextRaw;
@@ -148,7 +149,8 @@ static struct timeval runner_end_time;
         runner_end_time.tv_usec -= 1000000;
         runner_end_time.tv_sec++;
     }
-    int dummy1, dummy2;
+    bool dummy1;
+    int dummy2;
     keep_running = core_keydown(0, &dummy1, &dummy2);
     if (quit_flag)
         [self quit];
@@ -457,12 +459,15 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
         [NSApp stopModal];
         if (window == preferencesWindow)
             [instance getPreferences];
-    } else if (window == mainWindow)
+    } else if (window == mainWindow) {
         [NSApp terminate:nil];
-    else if (window == printWindow)
+    } else if (window == printWindow) {
         state.printWindowMapped = 0;
-    else if (window == loadSkinsWindow)
+    } else if (window == loadSkinsWindow) {
         loadSkinsWindowMapped = false;
+        [task[0] cancel];
+        [task[1] cancel];
+    }
 }
 
 - (void)windowDidBecomeKey:(NSNotification *)notification {
@@ -482,7 +487,7 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
 - (IBAction) showAbout:(id)sender {
     const char *version = [Free42AppDelegate getVersion];
     [aboutVersion setStringValue:[NSString stringWithFormat:@"Free42 %s", version]];
-    [aboutCopyright setStringValue:@"© 2004-2020 Thomas Okken"];
+    [aboutCopyright setStringValue:@"© 2004-2021 Thomas Okken"];
     [NSApp runModalForWindow:aboutWindow];
 }
 
@@ -490,6 +495,7 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
     [prefsSingularMatrix setState:core_settings.matrix_singularmatrix];
     [prefsMatrixOutOfRange setState:core_settings.matrix_outofrange];
     [prefsAutoRepeat setState:core_settings.auto_repeat];
+    [prefsAllowBigStack setState:core_settings.allow_big_stack];
     [prefsPrintText setState:state.printerToTxtFile];
     [prefsPrintTextFile setStringValue:[NSString stringWithUTF8String:state.printerTxtFileName]];
     [prefsPrintGIF setState:state.printerToGifFile];
@@ -502,6 +508,10 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
     core_settings.matrix_singularmatrix = [prefsSingularMatrix state];
     core_settings.matrix_outofrange = [prefsMatrixOutOfRange state];
     core_settings.auto_repeat = [prefsAutoRepeat state];
+    bool oldBigStack = core_settings.allow_big_stack;
+    core_settings.allow_big_stack = [prefsAllowBigStack state];
+    if (oldBigStack != core_settings.allow_big_stack)
+        core_update_allow_big_stack();
     state.printerToTxtFile = [prefsPrintText state];
     char buf[FILENAMELEN];
     [[prefsPrintTextFile stringValue] getCString:buf maxLength:FILENAMELEN encoding:NSUTF8StringEncoding];
@@ -613,8 +623,12 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
         NSRange range = [name rangeOfString:@"\"" options:0 range:NSMakeRange(1, [name length] - 1)];
         if (range.location == NSNotFound)
             name = @"Untitled";
-        else
+        else {
             name = [name substringWithRange:NSMakeRange(1, range.location - 1)];
+            name = [name stringByReplacingOccurrencesOfString:@"\n" withString:@"_"];
+            name = [name stringByReplacingOccurrencesOfString:@"/" withString:@"_"];
+            name = [name stringByReplacingOccurrencesOfString:@":" withString:@"_"];
+        }
     }
     FileSavePanel *saveDlg = [FileSavePanel panelWithTitle:@"Export Programs" types:@"Program Files;raw;All Files;*" path:name];
     if ([saveDlg runModal] == NSOKButton) {
@@ -631,7 +645,7 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
     }
 }
 
-- (IBAction) doCopy:(id)sender {
+- (IBAction) copy:(id)sender {
     NSPasteboard *pb = [NSPasteboard generalPasteboard];
     NSArray *types = [NSArray arrayWithObjects: NSStringPboardType, nil];
     [pb declareTypes:types owner:self];
@@ -646,7 +660,7 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
     [pb setString:txt forType:NSStringPboardType];
 }
 
-- (IBAction) doPaste:(id)sender {
+- (IBAction) paste:(id)sender {
     NSPasteboard *pb = [NSPasteboard generalPasteboard];
     NSArray *types = [NSArray arrayWithObjects: NSStringPboardType, nil];
     NSString *bestType = [pb availableTypeFromArray:types];
@@ -829,17 +843,6 @@ static void tbnonewliner() {
     [loadSkinButton setEnabled:[Free42AppDelegate skinUrlPair:url] != nil];
 }
 
-- (BOOL) tryLoad:(NSString *)url asFile:(NSString *)name {
-    NSURLRequest *req = [NSURLRequest requestWithURL:[NSURL URLWithString:url] cachePolicy:NSURLRequestReloadIgnoringCacheData timeoutInterval:60];
-    NSURLResponse *resp;
-    NSError *err;
-    NSData *data = [NSURLConnection sendSynchronousRequest:req returningResponse:&resp error:&err];
-    if (data == nil)
-        return NO;
-    NSString *fname = [NSString stringWithFormat:@"%s/%@", free42dirname, name];
-    return [data writeToFile:fname atomically:NO];
-}
-
 - (IBAction) loadSkinsLoad:(id)sender {
     NSString *url = [loadSkinsURL stringValue];
     NSArray *urls = [Free42AppDelegate skinUrlPair:url];
@@ -847,24 +850,52 @@ static void tbnonewliner() {
         show_message("Error", "Invalid Skin URL");
         return;
     }
-    if ([self tryLoad:[urls objectAtIndex:0] asFile:@"_temp_gif_"]
-        && [self tryLoad:[urls objectAtIndex:1] asFile:@"_temp_layout_"]) {
+    [loadSkinButton setEnabled:NO];
+    skinName = [urls[2] retain];
+    if (session == nil) {
+        NSURLSessionConfiguration *conf = [NSURLSessionConfiguration ephemeralSessionConfiguration];
+        session = [[NSURLSession sessionWithConfiguration:conf] retain];
+    }
+    for (int t = 0; t < 2; t++) {
+        task[t] = [session dataTaskWithURL:[NSURL URLWithString:urls[t]] completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+            taskSuccess[t] = error == nil;
+            if (taskSuccess[t]) {
+                NSString *name = t == 0 ? @"_temp_gif_" : @"_temp_layout_";
+                NSString *fname = [NSString stringWithFormat:@"%s/%@", free42dirname, name];
+                [data writeToFile:fname atomically:NO];
+            }
+            task[t] = nil;
+            [self performSelectorOnMainThread:@selector(finishTask) withObject:nil waitUntilDone:NO];
+        }];
+    }
+    [task[0] resume];
+    [task[1] resume];
+}
+
+- (void) finishTask {
+    if (task[0] != nil || task[1] != nil)
+        return;
+    if (taskSuccess[0] && taskSuccess[1]) {
         char buf1[FILENAMELEN], buf2[FILENAMELEN];
         snprintf(buf1, FILENAMELEN, "%s/_temp_gif_", free42dirname);
-        snprintf(buf2, FILENAMELEN, "%s/%s.gif", free42dirname, [[urls objectAtIndex:2] UTF8String]);
+        snprintf(buf2, FILENAMELEN, "%s/%s.gif", free42dirname, [skinName UTF8String]);
         rename(buf1, buf2);
         snprintf(buf1, FILENAMELEN, "%s/_temp_layout_", free42dirname);
-        snprintf(buf2, FILENAMELEN, "%s/%s.layout", free42dirname, [[urls objectAtIndex:2] UTF8String]);
+        snprintf(buf2, FILENAMELEN, "%s/%s.layout", free42dirname, [skinName UTF8String]);
         rename(buf1, buf2);
-        show_message("Message", "Skin Loaded");
+        if (loadSkinsWindowMapped)
+            show_message("Message", "Skin Loaded");
     } else {
         char buf[FILENAMELEN];
         snprintf(buf, FILENAMELEN, "%s/_temp_gif_", free42dirname);
         remove(buf);
         snprintf(buf, FILENAMELEN, "%s/_temp_layout_", free42dirname);
         remove(buf);
-        show_message("Error", "Loading Skin Failed");
+        if (loadSkinsWindowMapped)
+            show_message("Error", "Loading Skin Failed");
     }
+    [skinName release];
+    [loadSkinButton setEnabled:YES];
 }
 
 + (NSArray *)skinUrlPair:(NSString *)url {
@@ -1027,7 +1058,7 @@ static char version[32] = "";
 
 - (void) timeout3_callback {
     timeout3_active = false;
-    keep_running = core_timeout3(1);
+    keep_running = core_timeout3(true);
     if (keep_running)
         [self startRunner];
 }
@@ -1082,7 +1113,7 @@ static void shell_keydown() {
     skin_set_pressed_key(skey);
     if (timeout3_active && (macro != NULL || ckey != 28 /* KEY_SHIFT */)) {
         [instance cancelTimeout3];
-        core_timeout3(0);
+        core_timeout3(false);
     }
     
     // We temporarily set we_want_cpu to 'true', to force the calls
@@ -1094,9 +1125,9 @@ static void shell_keydown() {
     
     if (macro != NULL) {
         if (macro_is_name) {
-            we_want_cpu = 1;
+            we_want_cpu = true;
             keep_running = core_keydown_command((const char *) macro, &enqueued, &repeat);
-            we_want_cpu = 0;
+            we_want_cpu = false;
         } else {
             if (*macro == 0) {
                 squeak();
@@ -1107,9 +1138,9 @@ static void shell_keydown() {
                 skin_display_set_enabled(false);
             }
             while (*macro != 0) {
-                we_want_cpu = 1;
+                we_want_cpu = true;
                 keep_running = core_keydown(*macro++, &enqueued, &repeat);
-                we_want_cpu = 0;
+                we_want_cpu = false;
                 if (*macro != 0 && !enqueued)
                     core_keyup();
             }
@@ -1129,9 +1160,9 @@ static void shell_keydown() {
             }
         }
     } else {
-        we_want_cpu = 1;
+        we_want_cpu = true;
         keep_running = core_keydown(ckey, &enqueued, &repeat);
-        we_want_cpu = 0;
+        we_want_cpu = false;
     }
     
     if (quit_flag)
@@ -1191,7 +1222,7 @@ void calc_keydown(NSString *characters, NSUInteger flags, unsigned short keycode
     unsigned short c = [characters characterAtIndex:0];
     
     bool printable = len == 1 && c >= 32 && c <= 126;
-    just_pressed_shift = 0;
+    just_pressed_shift = false;
     
     bool ctrl = (flags & NSControlKeyMask) != 0;
     bool alt = (flags & NSAlternateKeyMask) != 0;
@@ -1322,7 +1353,7 @@ void calc_keymodifierschanged(NSUInteger flags) {
     shift_was_down = shift_is_down;
     if (shift_is_down) {
         // Shift pressed
-        just_pressed_shift = 1;
+        just_pressed_shift = true;
     } else {
         // Shift released
         if (ckey == 0 && just_pressed_shift) {
@@ -1370,13 +1401,13 @@ void shell_beeper(int frequency, int duration) {
     shell_delay(125);
 }
 
-int shell_low_battery() {
+bool shell_low_battery() {
     int lowbat = IOPSGetBatteryWarningLevel() != kIOPSLowBatteryWarningNone;
     if (ann_battery != lowbat) {
         ann_battery = lowbat;
         skin_update_annunciator(5, ann_battery);
      }
-    return lowbat;
+    return lowbat != 0;
 }
 
 uint4 shell_milliseconds() {
@@ -1385,10 +1416,30 @@ uint4 shell_milliseconds() {
     return (uint4) (tv.tv_sec * 1000L + tv.tv_usec / 1000);
 }
 
-int shell_decimal_point() {
+bool shell_decimal_point() {
     NSLocale *loc = [NSLocale currentLocale];
     NSString *dec = [loc objectForKey:NSLocaleDecimalSeparator];
-    return [dec isEqualToString:@","] ? 0 : 1;
+    return ![dec isEqualToString:@","];
+}
+
+int shell_date_format() {
+    NSLocale *loc = [NSLocale currentLocale];
+    NSString *dateFormat = [NSDateFormatter dateFormatFromTemplate:@"yyyy MM dd" options:0 locale:loc];
+    NSUInteger y = [dateFormat rangeOfString:@"y"].location;
+    NSUInteger m = [dateFormat rangeOfString:@"M"].location;
+    NSUInteger d = [dateFormat rangeOfString:@"d"].location;
+    if (d < m && m < y)
+        return 1;
+    else if (y < m && m < d)
+        return 2;
+    else
+        return 0;
+}
+
+bool shell_clk24() {
+    NSLocale *loc = [NSLocale currentLocale];
+    NSString *timeFormat = [NSDateFormatter dateFormatFromTemplate:@"j" options:0 locale:loc];
+    return [timeFormat rangeOfString:@"a"].location == NSNotFound;
 }
 
 void shell_get_time_date(uint4 *time, uint4 *date, int *weekday) {
@@ -1412,8 +1463,16 @@ void shell_delay(int duration) {
 }
 
 uint4 shell_get_mem() {
-    // TODO!
-    return 42;
+    uint8 bytes = 0;
+    mach_msg_type_number_t count = HOST_VM_INFO_COUNT;
+    vm_statistics_data_t vmstat;
+    if (host_statistics(mach_host_self(), HOST_VM_INFO, (host_info_t) &vmstat, &count) == KERN_SUCCESS) {
+        bytes = vmstat.free_count;
+        bytes *= getpagesize();
+    }
+    if (bytes > 4294967295)
+        bytes = 4294967295;
+    return (uint4) bytes;
 }
 
 void shell_blitter(const char *bits, int bytesperline, int x, int y, int width, int height) {
@@ -1447,8 +1506,8 @@ void shell_annunciators(int updn, int shf, int prt, int run, int g, int rad) {
 }
 
 void shell_powerdown() {
-    quit_flag = 1;
-    we_want_cpu = 1;
+    quit_flag = true;
+    we_want_cpu = true;
 }
 
 void shell_print(const char *text, int length,
@@ -1616,7 +1675,7 @@ void shell_log(const char *message) {
     NSLog(@"%s", message);
 }
 
-int shell_wants_cpu() {
+bool shell_wants_cpu() {
     if (we_want_cpu)
         return true;
     struct timeval now;
@@ -1685,8 +1744,12 @@ static void init_shell_state(int4 version) {
             core_settings.matrix_singularmatrix = false;
             core_settings.matrix_outofrange = false;
             core_settings.auto_repeat = true;
+            /* fall through */
         case 2:
-            /* current version (SHELL_VERSION = 2),
+            core_settings.allow_big_stack = false;
+            /* fall through */
+        case 3:
+            /* current version (SHELL_VERSION = 3),
              * so nothing to do here since everything
              * was initialized from the state file.
              */
@@ -1731,6 +1794,9 @@ static int read_shell_state(int4 *ver) {
         core_settings.matrix_outofrange = state.matrix_outofrange;
         core_settings.auto_repeat = state.auto_repeat;
     }
+
+    if (state_version >= 3)
+        core_settings.allow_big_stack = state.allow_big_stack;
     
     init_shell_state(state_version);
     *ver = version;
@@ -1754,6 +1820,7 @@ static int write_shell_state() {
     state.matrix_singularmatrix = core_settings.matrix_singularmatrix;
     state.matrix_outofrange = core_settings.matrix_outofrange;
     state.auto_repeat = core_settings.auto_repeat;
+    state.allow_big_stack = core_settings.allow_big_stack;
     if (fwrite(&state, 1, sizeof(state_type), statefile) != sizeof(state_type))
         return 0;
     

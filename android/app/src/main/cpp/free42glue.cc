@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2020  Thomas Okken
+ * Copyright (C) 2004-2021  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -164,7 +164,8 @@ Java_com_thomasokken_free42_Free42Activity_core_1keydown(JNIEnv *env, jobject th
             keydown_end_time.tv_sec++;
         }
     }
-    int enq, rep;
+    bool enq;
+    int rep;
     jboolean ret = core_keydown(key, &enq, &rep);
     if (enqueued != NULL) {
         jclass klass = env->GetObjectClass(enqueued);
@@ -191,7 +192,8 @@ Java_com_thomasokken_free42_Free42Activity_core_1keydown_1command(JNIEnv *env, j
             keydown_end_time.tv_sec++;
         }
     }
-    int enq, rep;
+    bool enq;
+    int rep;
     const char *buf = env->GetStringUTFChars(cmd, NULL);
     jboolean ret = core_keydown_command(buf, &enq, &rep);
     env->ReleaseStringUTFChars(cmd, buf);
@@ -228,7 +230,7 @@ Java_com_thomasokken_free42_Free42Activity_core_1keytimeout2(JNIEnv *env, jobjec
 }
 
 extern "C" jboolean
-Java_com_thomasokken_free42_Free42Activity_core_1timeout3(JNIEnv *env, jobject thiz, jint repaint) {
+Java_com_thomasokken_free42_Free42Activity_core_1timeout3(JNIEnv *env, jobject thiz, jboolean repaint) {
     Tracer T("core_timeout3");
     return core_timeout3(repaint);
 }
@@ -318,16 +320,8 @@ Java_com_thomasokken_free42_Free42Activity_getCoreSettings(JNIEnv *env, jobject 
     env->SetBooleanField(settings, fid, core_settings.matrix_outofrange);
     fid = env->GetFieldID(klass, "auto_repeat", "Z");
     env->SetBooleanField(settings, fid, core_settings.auto_repeat);
-    fid = env->GetFieldID(klass, "enable_ext_accel", "Z");
-    env->SetBooleanField(settings, fid, core_settings.enable_ext_accel);
-    fid = env->GetFieldID(klass, "enable_ext_locat", "Z");
-    env->SetBooleanField(settings, fid, core_settings.enable_ext_locat);
-    fid = env->GetFieldID(klass, "enable_ext_heading", "Z");
-    env->SetBooleanField(settings, fid, core_settings.enable_ext_heading);
-    fid = env->GetFieldID(klass, "enable_ext_time", "Z");
-    env->SetBooleanField(settings, fid, core_settings.enable_ext_time);
-    fid = env->GetFieldID(klass, "enable_ext_fptest", "Z");
-    env->SetBooleanField(settings, fid, core_settings.enable_ext_fptest);
+    fid = env->GetFieldID(klass, "allow_big_stack", "Z");
+    env->SetBooleanField(settings, fid, core_settings.allow_big_stack);
 }
 
 extern "C" void
@@ -340,16 +334,14 @@ Java_com_thomasokken_free42_Free42Activity_putCoreSettings(JNIEnv *env, jobject 
     core_settings.matrix_outofrange = env->GetBooleanField(settings, fid);
     fid = env->GetFieldID(klass, "auto_repeat", "Z");
     core_settings.auto_repeat = env->GetBooleanField(settings, fid);
-    fid = env->GetFieldID(klass, "enable_ext_accel", "Z");
-    core_settings.enable_ext_accel = env->GetBooleanField(settings, fid);
-    fid = env->GetFieldID(klass, "enable_ext_locat", "Z");
-    core_settings.enable_ext_locat = env->GetBooleanField(settings, fid);
-    fid = env->GetFieldID(klass, "enable_ext_heading", "Z");
-    core_settings.enable_ext_heading = env->GetBooleanField(settings, fid);
-    fid = env->GetFieldID(klass, "enable_ext_time", "Z");
-    core_settings.enable_ext_time = env->GetBooleanField(settings, fid);
-    fid = env->GetFieldID(klass, "enable_ext_fptest", "Z");
-    core_settings.enable_ext_fptest = env->GetBooleanField(settings, fid);
+    fid = env->GetFieldID(klass, "allow_big_stack", "Z");
+    core_settings.allow_big_stack = env->GetBooleanField(settings, fid);
+}
+
+extern "C" void
+Java_com_thomasokken_free42_Free42Activity_core_1update_1allow_1big_1stack(JNIEnv *env, jobject thiz) {
+    Tracer T("core_update_allow_big_stack");
+    core_update_allow_big_stack();
 }
 
 extern "C" void
@@ -434,7 +426,7 @@ void shell_annunciators(int updn, int shf, int prt, int run, int g, int rad) {
     env->DeleteLocalRef(klass);
 }
 
-int shell_wants_cpu() {
+bool shell_wants_cpu() {
     Tracer T("shell_wants_cpu");
     struct timeval now;
     gettimeofday(&now, NULL);
@@ -471,12 +463,12 @@ unsigned int shell_get_mem() {
     return ret;
 }
 
-int shell_low_battery() {
+bool shell_low_battery() {
     Tracer T("shell_low_battery");
     JNIEnv *env = getJniEnv();
     jclass klass = env->GetObjectClass(g_activity);
-    jmethodID mid = env->GetMethodID(klass, "shell_low_battery", "()I");
-    int ret = env->CallIntMethod(g_activity, mid);
+    jmethodID mid = env->GetMethodID(klass, "shell_low_battery", "()Z");
+    bool ret = env->CallBooleanMethod(g_activity, mid);
     // Delete local references
     env->DeleteLocalRef(klass);
     return ret;
@@ -492,12 +484,12 @@ void shell_powerdown() {
     env->DeleteLocalRef(klass);
 }
 
-int shell_always_on(int always_on) {
+bool shell_always_on(int always_on) {
     Tracer T("shell_always_on");
     JNIEnv *env = getJniEnv();
     jclass klass = env->GetObjectClass(g_activity);
-    jmethodID mid = env->GetMethodID(klass, "shell_always_on", "(I)I");
-    int ret = env->CallIntMethod(g_activity, mid, always_on);
+    jmethodID mid = env->GetMethodID(klass, "shell_always_on", "(I)Z");
+    bool ret = env->CallBooleanMethod(g_activity, mid, always_on);
     // Delete local references
     env->DeleteLocalRef(klass);
     return ret;
@@ -528,12 +520,34 @@ uint4 shell_milliseconds() {
     return (uint4) (tv.tv_sec * 1000L + tv.tv_usec / 1000);
 }
 
-int shell_decimal_point() {
+bool shell_decimal_point() {
     Tracer T("shell_decimal_point");
     JNIEnv *env = getJniEnv();
     jclass klass = env->GetObjectClass(g_activity);
-    jmethodID mid = env->GetMethodID(klass, "shell_decimal_point", "()I");
-    unsigned int ret = env->CallIntMethod(g_activity, mid);
+    jmethodID mid = env->GetMethodID(klass, "shell_decimal_point", "()Z");
+    bool ret = env->CallBooleanMethod(g_activity, mid);
+    // Delete local references
+    env->DeleteLocalRef(klass);
+    return ret;
+}
+
+int shell_date_format() {
+    Tracer T("shell_date_format");
+    JNIEnv *env = getJniEnv();
+    jclass klass = env->GetObjectClass(g_activity);
+    jmethodID mid = env->GetMethodID(klass, "shell_date_format", "()I");
+    int ret = env->CallIntMethod(g_activity, mid);
+    // Delete local references
+    env->DeleteLocalRef(klass);
+    return ret;
+}
+
+bool shell_clk24() {
+    Tracer T("shell_clk24");
+    JNIEnv *env = getJniEnv();
+    jclass klass = env->GetObjectClass(g_activity);
+    jmethodID mid = env->GetMethodID(klass, "shell_clk24", "()Z");
+    bool ret = env->CallBooleanMethod(g_activity, mid);
     // Delete local references
     env->DeleteLocalRef(klass);
     return ret;
@@ -562,7 +576,7 @@ void shell_print(const char *text, int length,
     env->DeleteLocalRef(bits2);
 }
 
-int shell_get_acceleration(double *x, double *y, double *z) {
+bool shell_get_acceleration(double *x, double *y, double *z) {
     Tracer T("shell_get_acceleration");
     JNIEnv *env = getJniEnv();
     jclass klass1 = env->FindClass("com/thomasokken/free42/DoubleHolder");
@@ -571,8 +585,8 @@ int shell_get_acceleration(double *x, double *y, double *z) {
     jobject y_h = env->NewObject(klass1, mid);
     jobject z_h = env->NewObject(klass1, mid);
     jclass klass2 = env->GetObjectClass(g_activity);
-    mid = env->GetMethodID(klass2, "shell_get_acceleration", "(Lcom/thomasokken/free42/DoubleHolder;Lcom/thomasokken/free42/DoubleHolder;Lcom/thomasokken/free42/DoubleHolder;)I");
-    int ret = env->CallIntMethod(g_activity, mid, x_h, y_h, z_h);
+    mid = env->GetMethodID(klass2, "shell_get_acceleration", "(Lcom/thomasokken/free42/DoubleHolder;Lcom/thomasokken/free42/DoubleHolder;Lcom/thomasokken/free42/DoubleHolder;)Z");
+    bool ret = env->CallBooleanMethod(g_activity, mid, x_h, y_h, z_h);
     jfieldID fid = env->GetFieldID(klass1, "value", "D");
     *x = env->GetDoubleField(x_h, fid);
     *y = env->GetDoubleField(y_h, fid);
@@ -585,7 +599,7 @@ int shell_get_acceleration(double *x, double *y, double *z) {
     return ret;
 }
 
-int shell_get_location(double *lat, double *lon, double *lat_lon_acc,
+bool shell_get_location(double *lat, double *lon, double *lat_lon_acc,
                                             double *elev, double *elev_acc) {
     Tracer T("shell_get_location");
     JNIEnv *env = getJniEnv();
@@ -597,8 +611,8 @@ int shell_get_location(double *lat, double *lon, double *lat_lon_acc,
     jobject elev_h = env->NewObject(klass1, mid);
     jobject elev_acc_h = env->NewObject(klass1, mid);
     jclass klass2 = env->GetObjectClass(g_activity);
-    mid = env->GetMethodID(klass2, "shell_get_location", "(Lcom/thomasokken/free42/DoubleHolder;Lcom/thomasokken/free42/DoubleHolder;Lcom/thomasokken/free42/DoubleHolder;Lcom/thomasokken/free42/DoubleHolder;Lcom/thomasokken/free42/DoubleHolder;)I");
-    int ret = env->CallIntMethod(g_activity, mid, lat_h, lon_h, lat_lon_acc_h, elev_h, elev_acc_h);
+    mid = env->GetMethodID(klass2, "shell_get_location", "(Lcom/thomasokken/free42/DoubleHolder;Lcom/thomasokken/free42/DoubleHolder;Lcom/thomasokken/free42/DoubleHolder;Lcom/thomasokken/free42/DoubleHolder;Lcom/thomasokken/free42/DoubleHolder;)Z");
+    bool ret = env->CallBooleanMethod(g_activity, mid, lat_h, lon_h, lat_lon_acc_h, elev_h, elev_acc_h);
     jfieldID fid = env->GetFieldID(klass1, "value", "D");
     *lat = env->GetDoubleField(lat_h, fid);
     *lon = env->GetDoubleField(lon_h, fid);
@@ -615,7 +629,7 @@ int shell_get_location(double *lat, double *lon, double *lat_lon_acc,
     return ret;
 }
 
-int shell_get_heading(double *mag_heading, double *true_heading, double *acc,
+bool shell_get_heading(double *mag_heading, double *true_heading, double *acc,
                                             double *x, double *y, double *z) {
     Tracer T("shell_get_heading");
     JNIEnv *env = getJniEnv();
@@ -628,8 +642,8 @@ int shell_get_heading(double *mag_heading, double *true_heading, double *acc,
     jobject y_h = env->NewObject(klass1, mid);
     jobject z_h = env->NewObject(klass1, mid);
     jclass klass2 = env->GetObjectClass(g_activity);
-    mid = env->GetMethodID(klass2, "shell_get_heading", "(Lcom/thomasokken/free42/DoubleHolder;Lcom/thomasokken/free42/DoubleHolder;Lcom/thomasokken/free42/DoubleHolder;Lcom/thomasokken/free42/DoubleHolder;Lcom/thomasokken/free42/DoubleHolder;Lcom/thomasokken/free42/DoubleHolder;)I");
-    int ret = env->CallIntMethod(g_activity, mid, mag_heading_h, true_heading_h, acc_h, x_h, y_h, z_h);
+    mid = env->GetMethodID(klass2, "shell_get_heading", "(Lcom/thomasokken/free42/DoubleHolder;Lcom/thomasokken/free42/DoubleHolder;Lcom/thomasokken/free42/DoubleHolder;Lcom/thomasokken/free42/DoubleHolder;Lcom/thomasokken/free42/DoubleHolder;Lcom/thomasokken/free42/DoubleHolder;)Z");
+    bool ret = env->CallBooleanMethod(g_activity, mid, mag_heading_h, true_heading_h, acc_h, x_h, y_h, z_h);
     jfieldID fid = env->GetFieldID(klass1, "value", "D");
     *mag_heading = env->GetDoubleField(mag_heading_h, fid);
     *true_heading = env->GetDoubleField(true_heading_h, fid);

@@ -70,6 +70,7 @@
 		E9E059D622FEF1E6009DDC40 /* StatesWindow.h in Sources */ = {isa = PBXBuildFile; fileRef = E9E059D522FEF1E6009DDC40 /* StatesWindow.h */; };
 		E9E059D822FEF866009DDC40 /* StateListDataSource.mm in Sources */ = {isa = PBXBuildFile; fileRef = E9E059D722FEF866009DDC40 /* StateListDataSource.mm */; };
 		E9E335DE0FF67A1D006A40AD /* keymap.txt in Resources */ = {isa = PBXBuildFile; fileRef = E9E335DD0FF67A1D006A40AD /* keymap.txt */; };
+		E9E394C525A953050001FDC9 /* DisabledMenuItem.mm in Sources */ = {isa = PBXBuildFile; fileRef = E9E394C325A953050001FDC9 /* DisabledMenuItem.mm */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -181,6 +182,8 @@
 		E9E059D722FEF866009DDC40 /* StateListDataSource.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = StateListDataSource.mm; path = Classes/StateListDataSource.mm; sourceTree = "<group>"; };
 		E9E059D922FEF91B009DDC40 /* StateListDataSource.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = StateListDataSource.h; path = Classes/StateListDataSource.h; sourceTree = "<group>"; };
 		E9E335DD0FF67A1D006A40AD /* keymap.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = keymap.txt; sourceTree = "<group>"; };
+		E9E394C325A953050001FDC9 /* DisabledMenuItem.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = DisabledMenuItem.mm; path = Classes/DisabledMenuItem.mm; sourceTree = "<group>"; };
+		E9E394C425A953050001FDC9 /* DisabledMenuItem.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = DisabledMenuItem.h; path = Classes/DisabledMenuItem.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -204,6 +207,8 @@
 			children = (
 				E9B649320FED513800EC9B91 /* CalcView.h */,
 				E97925421698893000598A02 /* CalcView.mm */,
+				E9E394C425A953050001FDC9 /* DisabledMenuItem.h */,
+				E9E394C325A953050001FDC9 /* DisabledMenuItem.mm */,
 				E9BF15C02222E725009F559F /* FileOpenPanel.h */,
 				E9BF15BF2222E725009F559F /* FileOpenPanel.mm */,
 				E9BF15C22222E725009F559F /* FileSavePanel.h */,
@@ -475,7 +480,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [ -f gcc111libbid.a ]; then exit 0; fi\ntar xvfz ../inteldecimal/IntelRDFPMathLib20U1.tar.gz\ncd IntelRDFPMathLib20U1\npatch -p0 <../intel-lib-mac-64bit.patch\ncd LIBRARY\nmake CC=gcc CALL_BY_REF=1 GLOBAL_RND=1 GLOBAL_FLAGS=1 UNCHANGED_BINARY_FLAGS=0\nmv libbid.a ../../gcc111libbid.a\ncd ../..\n( echo '#ifdef FREE42_FPTEST'; echo 'const char *readtest_lines[] = {'; tr -d '\\r' < IntelRDFPMathLib20U1/TESTS/readtest.in | sed 's/^\\(.*\\)$/\"\\1\",/'; echo '0 };'; echo '#endif' ) > readtest_lines.cc\n";
+			shellScript = "if [ -f gcc111libbid.a ]; then exit 0; fi\nARCHS=(arm64 x86_64)\nLIBNAMES=\nfor ARCH in ${ARCHS[@]}; do\n  rm -rf IntelRDFPMathLib20U1\n  tar xvfz ../inteldecimal/IntelRDFPMathLib20U1.tar.gz\n  cd IntelRDFPMathLib20U1\n  patch -p0 <../intel-lib-mac-$ARCH.patch\n  cd LIBRARY\n  make CC=gcc CALL_BY_REF=1 GLOBAL_RND=1 GLOBAL_FLAGS=1 UNCHANGED_BINARY_FLAGS=0\n  mv libbid.a ../../gcc111libbid-$ARCH.a\n  LIBNAMES=\"$LIBNAMES gcc111libbid-$ARCH.a\"\n  cd ../..\ndone\nlipo -create $LIBNAMES -output gcc111libbid.a\n( echo '#ifdef FREE42_FPTEST'; echo 'const char *readtest_lines[] = {'; tr -d '\\r' < IntelRDFPMathLib20U1/TESTS/readtest.in | sed 's/^\\(.*\\)$/\"\\1\",/'; echo '0 };'; echo '#endif' ) > readtest_lines.cc\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -498,6 +503,7 @@
 				E959D4380FEC0A44007C56A4 /* core_keydown.cc in Sources */,
 				E959D4390FEC0A44007C56A4 /* core_linalg1.cc in Sources */,
 				E959D43A0FEC0A44007C56A4 /* core_linalg2.cc in Sources */,
+				E9E394C525A953050001FDC9 /* DisabledMenuItem.mm in Sources */,
 				E959D43B0FEC0A44007C56A4 /* core_main.cc in Sources */,
 				E959D43C0FEC0A44007C56A4 /* core_math1.cc in Sources */,
 				E907929922AD943A00DA7F7E /* SkinListDataSource.mm in Sources */,
@@ -551,7 +557,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ARCHS = "$(ARCHS_STANDARD_64_BIT)";
+				ARCHS = "$(ARCHS_STANDARD)";
 				CLANG_CXX_LIBRARY = "libc++";
 				CODE_SIGN_IDENTITY = "Mac Developer";
 				COMBINE_HIDPI_IMAGES = YES;
@@ -568,12 +574,11 @@
 					"$(inherited)",
 					"\"$(SRCROOT)\"",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 10.7;
+				MACOSX_DEPLOYMENT_TARGET = 10.9;
 				"OTHER_CFLAGS[arch=*]" = "-DFREE42_FPTEST";
 				PRODUCT_BUNDLE_IDENTIFIER = com.thomasokken.Free42;
 				PRODUCT_NAME = Free42;
 				PROVISIONING_PROFILE = "";
-				VALID_ARCHS = x86_64;
 			};
 			name = "Debug Binary";
 		};
@@ -581,7 +586,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ARCHS = "$(ARCHS_STANDARD_64_BIT)";
+				ARCHS = "$(ARCHS_STANDARD)";
 				CLANG_CXX_LIBRARY = "libc++";
 				CODE_SIGN_ENTITLEMENTS = "Free42Release Binary.entitlements";
 				CODE_SIGN_IDENTITY = "Mac Developer";
@@ -598,18 +603,17 @@
 					"$(inherited)",
 					"\"$(SRCROOT)\"",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 10.7;
+				MACOSX_DEPLOYMENT_TARGET = 10.9;
 				PRODUCT_BUNDLE_IDENTIFIER = com.thomasokken.Free42;
 				PRODUCT_NAME = Free42;
 				PROVISIONING_PROFILE = "";
-				VALID_ARCHS = x86_64;
 			};
 			name = "Release Binary";
 		};
 		C01FCF4F08A954540054247B /* Debug Binary */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ARCHS = "$(ARCHS_STANDARD_32_BIT)";
+				ARCHS = "$(ARCHS_STANDARD)";
 				GCC_C_LANGUAGE_STANDARD = c99;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PREPROCESSOR_DEFINITIONS = (
@@ -623,18 +627,16 @@
 				GCC_WARN_ABOUT_RETURN_TYPE = YES;
 				GCC_WARN_MISSING_PARENTHESES = NO;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 10.7;
-				"New Setting" = "";
+				MACOSX_DEPLOYMENT_TARGET = 10.9;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = "";
-				VALID_ARCHS = i386;
 			};
 			name = "Debug Binary";
 		};
 		C01FCF5008A954540054247B /* Release Binary */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ARCHS = "$(ARCHS_STANDARD_32_BIT)";
+				ARCHS = "$(ARCHS_STANDARD)";
 				GCC_C_LANGUAGE_STANDARD = c99;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"DECIMAL_CALL_BY_REFERENCE=1",
@@ -647,17 +649,15 @@
 				GCC_WARN_ABOUT_RETURN_TYPE = YES;
 				GCC_WARN_MISSING_PARENTHESES = NO;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 10.7;
-				"New Setting" = "";
+				MACOSX_DEPLOYMENT_TARGET = 10.9;
 				SDKROOT = "";
-				VALID_ARCHS = i386;
 			};
 			name = "Release Binary";
 		};
 		E9937380102DE5B300B94F08 /* Debug Decimal */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ARCHS = "$(ARCHS_STANDARD_32_BIT)";
+				ARCHS = "$(ARCHS_STANDARD)";
 				GCC_C_LANGUAGE_STANDARD = c99;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PREPROCESSOR_DEFINITIONS = (
@@ -672,11 +672,9 @@
 				GCC_WARN_ABOUT_RETURN_TYPE = YES;
 				GCC_WARN_MISSING_PARENTHESES = NO;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 10.7;
-				"New Setting" = "";
+				MACOSX_DEPLOYMENT_TARGET = 10.9;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = "";
-				VALID_ARCHS = i386;
 			};
 			name = "Debug Decimal";
 		};
@@ -684,7 +682,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ARCHS = "$(ARCHS_STANDARD_64_BIT)";
+				ARCHS = "$(ARCHS_STANDARD)";
 				CLANG_CXX_LIBRARY = "libc++";
 				CODE_SIGN_IDENTITY = "Mac Developer";
 				COMBINE_HIDPI_IMAGES = YES;
@@ -701,19 +699,18 @@
 					"$(inherited)",
 					"\"$(SRCROOT)\"",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 10.7;
+				MACOSX_DEPLOYMENT_TARGET = 10.9;
 				"OTHER_CFLAGS[arch=*]" = "-DFREE42_FPTEST";
 				PRODUCT_BUNDLE_IDENTIFIER = com.thomasokken.Free42;
 				PRODUCT_NAME = Free42;
 				PROVISIONING_PROFILE = "";
-				VALID_ARCHS = x86_64;
 			};
 			name = "Debug Decimal";
 		};
 		E9937382102DE5D900B94F08 /* Release Decimal */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ARCHS = "$(ARCHS_STANDARD_32_BIT)";
+				ARCHS = "$(ARCHS_STANDARD)";
 				GCC_C_LANGUAGE_STANDARD = c99;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					BCD_MATH,
@@ -727,10 +724,8 @@
 				GCC_WARN_ABOUT_RETURN_TYPE = YES;
 				GCC_WARN_MISSING_PARENTHESES = NO;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 10.7;
-				"New Setting" = "";
+				MACOSX_DEPLOYMENT_TARGET = 10.9;
 				SDKROOT = "";
-				VALID_ARCHS = i386;
 			};
 			name = "Release Decimal";
 		};
@@ -738,7 +733,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ARCHS = "$(ARCHS_STANDARD_64_BIT)";
+				ARCHS = "$(ARCHS_STANDARD)";
 				CLANG_CXX_LIBRARY = "libc++";
 				CODE_SIGN_ENTITLEMENTS = "Free42Release Decimal.entitlements";
 				CODE_SIGN_IDENTITY = "Mac Developer";
@@ -755,11 +750,10 @@
 					"$(inherited)",
 					"\"$(SRCROOT)\"",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 10.7;
+				MACOSX_DEPLOYMENT_TARGET = 10.9;
 				PRODUCT_BUNDLE_IDENTIFIER = com.thomasokken.Free42;
 				PRODUCT_NAME = Free42;
 				PROVISIONING_PROFILE = "";
-				VALID_ARCHS = x86_64;
 			};
 			name = "Release Decimal";
 		};

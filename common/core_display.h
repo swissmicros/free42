@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2020  Thomas Okken
+ * Copyright (C) 2004-2021  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -42,7 +42,7 @@ void display_prgm_line(int row, int line_offset);
 void display_x(int row);
 void display_y(int row);
 void display_incomplete_command(int row);
-void display_error(int error, int print);
+void display_error(int error, bool print);
 void display_command(int row);
 void draw_varmenu();
 void display_mem();
@@ -54,12 +54,12 @@ int print_program(int prgm_index, int4 pc, int4 lines, int normal);
 void print_program_line(int prgm_index, int4 pc);
 int command2buf(char *buf, int len, int cmd, const arg_struct *arg);
 
-typedef struct {
+struct textbuf {
     char *buf;
     size_t size;
     size_t capacity;
     bool fail;
-} textbuf;
+};
 
 void tb_write(textbuf *tb, const char *data, size_t size);
 void tb_write_null(textbuf *tb);
@@ -82,7 +82,7 @@ int set_menu_return_err(int level, int menuid, bool exitall);
 void set_appmenu_exitcallback(int callback_id);
 void set_plainmenu(int menuid);
 void set_catalog_menu(int direction);
-int *get_front_menu();
+int get_front_menu();
 void set_cat_section(int section);
 int get_cat_section();
 void move_cat_row(int direction);
@@ -96,7 +96,7 @@ void assign_custom_key(int keynum, const char *name, int length);
 void get_custom_key(int keynum, char *name, int *length);
 
 void clear_prgm_menu();
-void assign_prgm_key(int keynum, int is_gto, const arg_struct *arg);
+void assign_prgm_key(int keynum, bool is_gto, const arg_struct *arg);
 void do_prgm_menu_key(int keynum);
 
 #endif

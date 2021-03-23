@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2020  Thomas Okken
+ * Copyright (C) 2004-2021  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -39,7 +39,7 @@
 @property (nonatomic, retain) IBOutlet UIScrollView *scrollView;
 @property (nonatomic, retain) IBOutlet UIView *contentView;
 
-+ (void) raiseWithTitle:(NSString *)wt selectTitle:(NSString *)st types:(NSString *)t selectDir:(BOOL)sd callbackObject:(id)cb_id callbackSelector:(SEL)cb_sel;
++ (void) raiseWithTitle:(NSString *)wt selectTitle:(NSString *)st types:(NSString *)t initialFile:(NSString *)path selectDir:(BOOL)sd callbackObject:(id)cb_id callbackSelector:(SEL)cb_sel;
 - (void) raised;
 - (void) textFieldDidBeginEditing:(UITextField *)textField;
 - (void) textFieldDidEndEditing:(UITextField *)textField;

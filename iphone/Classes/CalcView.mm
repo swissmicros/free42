@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2020  Thomas Okken
+ * Copyright (C) 2004-2021  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -71,10 +71,10 @@ static int write_shell_state();
 state_type state;
 FILE* statefile;
 
-static int quit_flag = 0;
-static int enqueued;
-static int keep_running = 0;
-static int we_want_cpu = 0;
+static bool quit_flag = false;
+static bool enqueued;
+static bool keep_running = false;
+static bool we_want_cpu = false;
 
 static int ckey = 0;
 static int skey;
@@ -175,91 +175,79 @@ static CalcView *calcView = nil;
 }
 
 - (void) showMainMenu {
-    UIActionSheet *menu =
-    [[UIActionSheet alloc] initWithTitle:@"Main Menu"
-                                delegate:self cancelButtonTitle:@"Cancel" destructiveButtonTitle:nil
-                       otherButtonTitles:@"Show Print-Out", @"Program Import & Export", @"States", @"Preferences", @"Select Skin", @"Copy", @"Paste", @"About Free42", nil];
-    
-    [menu showInView:self];
-    [menu release];
+    UIAlertController *ctrl = [UIAlertController
+            alertControllerWithTitle:@"Main Menu"
+            message:nil
+            preferredStyle:UIAlertControllerStyleActionSheet];
+    [ctrl addAction:[UIAlertAction actionWithTitle:@"Show Print-Out"
+                    style:UIAlertActionStyleDefault
+                    handler:^(UIAlertAction *action)
+                        { [RootViewController showPrintOut]; }]];
+    [ctrl addAction:[UIAlertAction actionWithTitle:@"Program Import & Export"
+                    style:UIAlertActionStyleDefault
+                    handler:^(UIAlertAction *action)
+                        { [self showImportExportMenu]; }]];
+    [ctrl addAction:[UIAlertAction actionWithTitle:@"States"
+                    style:UIAlertActionStyleDefault
+                    handler:^(UIAlertAction *action)
+                        { [RootViewController showStates:nil]; }]];
+    [ctrl addAction:[UIAlertAction actionWithTitle:@"Preferences"
+                    style:UIAlertActionStyleDefault
+                    handler:^(UIAlertAction *action)
+                        { [RootViewController showPreferences]; }]];
+    [ctrl addAction:[UIAlertAction actionWithTitle:@"Select Skin"
+                    style:UIAlertActionStyleDefault
+                    handler:^(UIAlertAction *action)
+                        { [RootViewController showSelectSkin]; }]];
+    [ctrl addAction:[UIAlertAction actionWithTitle:@"Copy"
+                    style:UIAlertActionStyleDefault
+                    handler:^(UIAlertAction *action)
+                        { [self doCopy]; }]];
+    [ctrl addAction:[UIAlertAction actionWithTitle:@"Paste"
+                    style:UIAlertActionStyleDefault
+                    handler:^(UIAlertAction *action)
+                        { [self doPaste]; }]];
+    [ctrl addAction:[UIAlertAction actionWithTitle:@"About Free42"
+                    style:UIAlertActionStyleDefault
+                    handler:^(UIAlertAction *action)
+                        { [RootViewController showAbout]; }]];
+    [ctrl addAction:[UIAlertAction actionWithTitle:@"Cancel"
+                    style:UIAlertActionStyleCancel
+                    handler:^(UIAlertAction *action)
+                        { return; }]];
+    [RootViewController presentViewController:ctrl animated:YES completion:nil];
 }
 
 - (void) showImportExportMenu {
-    UIActionSheet *menu =
-    [[UIActionSheet alloc] initWithTitle:@"Import & Export Menu"
-                                delegate:self cancelButtonTitle:@"Cancel" destructiveButtonTitle:nil
-                       otherButtonTitles:@"HTTP Server", @"Import Programs", @"Export Programs", @"Share Programs", @"Back", nil];
-    
-    [menu showInView:self];
-    [menu release];
-}
-
-- (void)actionSheet:(UIActionSheet *)actionSheet clickedButtonAtIndex:(NSInteger)buttonIndex {
-    if ([[actionSheet title] isEqualToString:@"Main Menu"]) {
-        switch (buttonIndex) {
-            case 0:
-                // Show Print-Out
-                [RootViewController showPrintOut];
-                break;
-            case 1:
-                // Program Import & Export
-                [self showImportExportMenu];
-                break;
-            case 2:
-                // States
-                [RootViewController showStates:nil];
-                break;
-            case 3:
-                // Preferences
-                [RootViewController showPreferences];
-                break;
-            case 4:
-                // Select Skin
-                [RootViewController showSelectSkin];
-                break;
-            case 5:
-                // Copy
-                [self doCopy];
-                break;
-            case 6:
-                // Paste
-                [self doPaste];
-                break;
-            case 7:
-                // About Free42
-                [RootViewController showAbout];
-                break;
-            case 8:
-                // Cancel
-                break;
-        }
-    } else {
-        switch (buttonIndex) {
-            case 0:
-                // HTTP Server
-                [RootViewController showHttpServer];
-                break;
-            case 1:
-                // Import Programs
-                [RootViewController doImport];
-                break;
-            case 2:
-                // Export Programs
-                [RootViewController doExport:NO];
-                break;
-            case 3:
-                // Share Programs
-                [RootViewController doExport:YES];
-                break;
-            case 4:
-                // Back
-                [self showMainMenu];
-                break;
-            case 5:
-                // Cancel
-                break;
-        }
-    }
+    UIAlertController *ctrl = [UIAlertController
+            alertControllerWithTitle:@"Import & Export Menu"
+            message:nil
+            preferredStyle:UIAlertControllerStyleActionSheet];
+    [ctrl addAction:[UIAlertAction actionWithTitle:@"HTTP Server"
+                    style:UIAlertActionStyleDefault
+                    handler:^(UIAlertAction *action)
+                        { [RootViewController showHttpServer]; }]];
+    [ctrl addAction:[UIAlertAction actionWithTitle:@"Import Programs"
+                    style:UIAlertActionStyleDefault
+                    handler:^(UIAlertAction *action)
+                        { [RootViewController doImport]; }]];
+    [ctrl addAction:[UIAlertAction actionWithTitle:@"Export Programs"
+                    style:UIAlertActionStyleDefault
+                    handler:^(UIAlertAction *action)
+                        { [RootViewController doExport:NO]; }]];
+    [ctrl addAction:[UIAlertAction actionWithTitle:@"Share Programs"
+                    style:UIAlertActionStyleDefault
+                    handler:^(UIAlertAction *action)
+                        { [RootViewController doExport:YES]; }]];
+    [ctrl addAction:[UIAlertAction actionWithTitle:@"Back"
+                    style:UIAlertActionStyleDefault
+                    handler:^(UIAlertAction *action)
+                        { [self showMainMenu]; }]];
+    [ctrl addAction:[UIAlertAction actionWithTitle:@"Cancel"
+                    style:UIAlertActionStyleCancel
+                    handler:^(UIAlertAction *action)
+                        { return; }]];
+    [RootViewController presentViewController:ctrl animated:YES completion:nil];
 }
 
 - (void) drawRect:(CGRect)rect {
@@ -424,7 +412,8 @@ static struct timeval runner_end_time;
         runner_end_time.tv_usec -= 1000000;
         runner_end_time.tv_sec++;
     }
-    int dummy1, dummy2;
+    bool dummy1;
+    int dummy2;
     keep_running = core_keydown(0, &dummy1, &dummy2);
     if (quit_flag)
         [self quitB];
@@ -583,7 +572,7 @@ static struct timeval runner_end_time;
 - (void) timeout3_callback {
     TRACE("timeout3_callback");
     timeout3_active = false;
-    keep_running = core_timeout3(1);
+    keep_running = core_timeout3(true);
     if (keep_running)
         [self startRunner];
 }
@@ -732,6 +721,8 @@ static int read_shell_state(int *ver) {
         core_settings.matrix_outofrange = state.matrix_outofrange;
         core_settings.auto_repeat = state.auto_repeat;
     }
+    if (state_version >= 9)
+        core_settings.allow_big_stack = state.allow_big_stack;
     
     init_shell_state(state_version);
     *ver = version;
@@ -778,7 +769,10 @@ static void init_shell_state(int version) {
             core_settings.auto_repeat = true;
             /* fall through */
         case 8:
-            /* current version (SHELL_VERSION = 8),
+            core_settings.allow_big_stack = false;
+            /* fall through */
+        case 9:
+            /* current version (SHELL_VERSION = 9),
              * so nothing to do here since everything
              * was initialized from the state file.
              */
@@ -825,7 +819,7 @@ static void shell_keydown() {
     skin_set_pressed_key(skey, calcView);
     if (timeout3_active && (macro != NULL || ckey != 28 /* KEY_SHIFT */)) {
         [calcView cancelTimeout3];
-        core_timeout3(0);
+        core_timeout3(false);
     }
     
     // We temporarily set we_want_cpu to 'true', to force the calls
@@ -837,9 +831,9 @@ static void shell_keydown() {
         
     if (macro != NULL) {
         if (macro_is_name) {
-            we_want_cpu = 1;
+            we_want_cpu = true;
             keep_running = core_keydown_command((const char *) macro, &enqueued, &repeat);
-            we_want_cpu = 0;
+            we_want_cpu = false;
         } else {
             if (*macro == 0) {
                 squeak();
@@ -850,9 +844,9 @@ static void shell_keydown() {
                 skin_display_set_enabled(false);
             }
             while (*macro != 0) {
-                we_want_cpu = 1;
+                we_want_cpu = true;
                 keep_running = core_keydown(*macro++, &enqueued, &repeat);
-                we_want_cpu = 0;
+                we_want_cpu = false;
                 if (*macro != 0 && !enqueued)
                     core_keyup();
             }
@@ -872,9 +866,9 @@ static void shell_keydown() {
             }
         }
     } else {
-        we_want_cpu = 1;
+        we_want_cpu = true;
         keep_running = core_keydown(ckey, &enqueued, &repeat);
-        we_want_cpu = 0;
+        we_want_cpu = false;
     }
     
     if (quit_flag)
@@ -932,6 +926,7 @@ static int write_shell_state() {
     state.matrix_singularmatrix = core_settings.matrix_singularmatrix;
     state.matrix_outofrange = core_settings.matrix_outofrange;
     state.auto_repeat = core_settings.auto_repeat;
+    state.allow_big_stack = core_settings.allow_big_stack;
     if (fwrite(&state, 1, sizeof(state), statefile) != sizeof(state))
         return 0;
     
@@ -993,8 +988,8 @@ void shell_annunciators(int updn, int shf, int prt, int run, int g, int rad) {
     }
 }
 
-int shell_always_on(int ao) {
-    int ret = state.alwaysOn;
+bool shell_always_on(int ao) {
+    bool ret = state.alwaysOn;
     if (ao != -1) {
         state.alwaysOn = ao != 0;
         [UIApplication sharedApplication].idleTimerDisabled = state.alwaysOn ? YES : NO;
@@ -1006,7 +1001,7 @@ void shell_log(const char *message) {
     NSLog(@"%s", message);
 }
 
-int shell_wants_cpu() {
+bool shell_wants_cpu() {
     TRACE("shell_wants_cpu");
     if (we_want_cpu)
         return true;
@@ -1047,8 +1042,8 @@ unsigned int shell_get_mem() {
 
 void shell_powerdown() {
     TRACE("shell_powerdown");
-    quit_flag = 1;
-    we_want_cpu = 1;
+    quit_flag = true;
+    we_want_cpu = true;
 }
 
 int8 shell_random_seed() {
@@ -1065,10 +1060,30 @@ unsigned int shell_milliseconds() {
     return (unsigned int) (tv.tv_sec * 1000L + tv.tv_usec / 1000);
 }
 
-int shell_decimal_point() {
+bool shell_decimal_point() {
     NSLocale *loc = [NSLocale currentLocale];
     NSString *dec = [loc objectForKey:NSLocaleDecimalSeparator];
-    return [dec isEqualToString:@","] ? 0 : 1;
+    return ![dec isEqualToString:@","];
+}
+
+int shell_date_format() {
+    NSLocale *loc = [NSLocale currentLocale];
+    NSString *dateFormat = [NSDateFormatter dateFormatFromTemplate:@"yyyy MM dd" options:0 locale:loc];
+    NSUInteger y = [dateFormat rangeOfString:@"y"].location;
+    NSUInteger m = [dateFormat rangeOfString:@"M"].location;
+    NSUInteger d = [dateFormat rangeOfString:@"d"].location;
+    if (d < m && m < y)
+        return 1;
+    else if (y < m && m < d)
+        return 2;
+    else
+        return 0;
+}
+
+bool shell_clk24() {
+    NSLocale *loc = [NSLocale currentLocale];
+    NSString *timeFormat = [NSDateFormatter dateFormatFromTemplate:@"j" options:0 locale:loc];
+    return [timeFormat rangeOfString:@"a"].location == NSNotFound;
 }
 
 void shell_get_time_date(uint4 *time, uint4 *date, int *weekday) {
@@ -1242,7 +1257,7 @@ void shell_print(const char *text, int length,
 /////   Accelerometer, Location Services, and Compass support    /////
 //////////////////////////////////////////////////////////////////////
 
-int shell_get_acceleration(double *x, double *y, double *z) {
+bool shell_get_acceleration(double *x, double *y, double *z) {
     static bool accelerometer_active = false;
     if (!accelerometer_active) {
         accelerometer_active = true;
@@ -1256,10 +1271,10 @@ int shell_get_acceleration(double *x, double *y, double *z) {
         *y = cmd.acceleration.y;
         *z = cmd.acceleration.z;
     }
-    return 1;
+    return true;
 }
 
-int shell_get_location(double *lat, double *lon, double *lat_lon_acc, double *elev, double *elev_acc) {
+bool shell_get_location(double *lat, double *lon, double *lat_lon_acc, double *elev, double *elev_acc) {
     static bool location_active = false;
     if (!location_active) {
         location_active = true;
@@ -1270,10 +1285,10 @@ int shell_get_location(double *lat, double *lon, double *lat_lon_acc, double *el
     *lat_lon_acc = loc_lat_lon_acc;
     *elev = loc_elev;
     *elev_acc = loc_elev_acc;
-    return 1;
+    return true;
 }
 
-int shell_get_heading(double *mag_heading, double *true_heading, double *acc, double *x, double *y, double *z) {
+bool shell_get_heading(double *mag_heading, double *true_heading, double *acc, double *x, double *y, double *z) {
     static bool heading_active = false;
     if (!heading_active) {
         heading_active = true;
@@ -1285,7 +1300,7 @@ int shell_get_heading(double *mag_heading, double *true_heading, double *acc, do
     *x = hdg_x;
     *y = hdg_y;
     *z = hdg_z;
-    return 1;
+    return true;
 }
 
 //////////////////////////////////////////////////////////////////////

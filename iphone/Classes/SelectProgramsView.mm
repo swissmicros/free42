@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2020  Thomas Okken
+ * Copyright (C) 2004-2021  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -73,8 +73,26 @@
         return;
     if (share)
         [self doExport2];
-    else
-        [SelectFileView raiseWithTitle:@"Select Program File Name" selectTitle:@"OK" types:@"raw,*" selectDir:NO callbackObject:self callbackSelector:@selector(doExport:)];
+    else {
+        NSIndexPath *index = (NSIndexPath *) [selection objectAtIndex:0];
+        int idx = (int) [index indexAtPosition:1];
+        NSString *prog = [programNames objectAtIndex:idx];
+        if (![[prog substringToIndex:1] isEqualToString:@"\""]) {
+            prog = @"Untitled.raw";
+        } else {
+            NSRange r = [prog rangeOfString:@"\"" options:0 range:NSMakeRange(1, [prog length] - 1)];
+            if (r.location == NSNotFound) {
+                prog = @"Untitled.raw";
+            } else {
+                prog = [prog substringWithRange:NSMakeRange(1, r.location - 1)];
+                prog = [prog stringByReplacingOccurrencesOfString:@"\n" withString:@"_"];
+                prog = [prog stringByReplacingOccurrencesOfString:@"/" withString:@"_"];
+                prog = [prog stringByReplacingOccurrencesOfString:@":" withString:@"_"];
+                prog = [prog stringByAppendingString:@".raw"];
+            }
+        }
+        [SelectFileView raiseWithTitle:@"Select Program File Name" selectTitle:@"OK" types:@"raw,*" initialFile:prog selectDir:NO callbackObject:self callbackSelector:@selector(doExport:)];
+    }
 }
 
 static NSString *export_path = nil;
@@ -87,20 +105,21 @@ static NSString *export_path = nil;
     const char *cpath = [path UTF8String];
     struct stat st;
     if (stat(cpath, &st) == 0) {
-        UIAlertView *errorAlert = [[UIAlertView alloc] initWithTitle:@"File Exists"
-                                                             message:@"File exists; overwrite?"
-                                                            delegate:self
-                                                   cancelButtonTitle:@"Cancel"
-                                                   otherButtonTitles:@"OK", nil];
-        [errorAlert show];
-        [errorAlert release];
-        return;
+        UIAlertController *ctrl = [UIAlertController
+                alertControllerWithTitle:@"File Exists"
+                message:@"File exists; overwrite?"
+                preferredStyle:UIAlertControllerStyleAlert];
+        [ctrl addAction:[UIAlertAction
+                         actionWithTitle:@"OK"
+                         style:UIAlertActionStyleDefault
+                         handler:^(UIAlertAction *action)
+                            { [self doExport2]; }]];
+        [ctrl addAction:[UIAlertAction
+                         actionWithTitle:@"Cancel"
+                         style:UIAlertActionStyleCancel
+                         handler:nil]];
+        [RootViewController presentViewController:ctrl animated:YES completion:nil];
     } else
-        [self doExport2];
-}
-
-- (void)alertView:(UIAlertView *)alertView clickedButtonAtIndex:(NSInteger)buttonIndex {
-    if (buttonIndex == 1)
         [self doExport2];
 }
 

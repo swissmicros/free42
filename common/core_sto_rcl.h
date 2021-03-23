@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2020  Thomas Okken
+ * Copyright (C) 2004-2021  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -50,10 +50,11 @@ typedef int (*mappable_cc)(phloat xre, phloat xim, phloat yre, phloat yim,
 /* of +, -, *, /, STO+, STO-, etc...                            */
 /****************************************************************/
 
+int assert_numeric(const vartype *v);
 int generic_div(const vartype *x, const vartype *y,
-                            void (*completion)(int, vartype *));
+                            int (*completion)(int, vartype *));
 int generic_mul(const vartype *x, const vartype *y,
-                            void (*completion)(int, vartype *));
+                            int (*completion)(int, vartype *));
 int generic_sub(const vartype *x, const vartype *y, vartype **res);
 int generic_add(const vartype *x, const vartype *y, vartype **res);
 int generic_rcl(arg_struct *arg, vartype **dst);

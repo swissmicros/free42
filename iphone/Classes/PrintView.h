@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2020  Thomas Okken
+ * Copyright (C) 2004-2021  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -40,7 +40,7 @@ extern int print_text_pixel_height;
 
 @class PrintTileView;
 
-@interface PrintView : UIView <UIActionSheetDelegate, UIScrollViewDelegate> {
+@interface PrintView : UIView <UIScrollViewDelegate> {
     UIScrollView *scrollView;
     PrintTileView *tile1;
     PrintTileView *tile2;
@@ -55,7 +55,6 @@ extern int print_text_pixel_height;
 - (void) awakeFromNib;
 - (IBAction) advance;
 - (IBAction) edit;
-- (void) actionSheet:(UIActionSheet *) actionSheet clickedButtonAtIndex:(NSInteger) buttonIndex;
 - (IBAction) share;
 - (IBAction) done;
 - (void) updatePrintout:(update_params *) params;

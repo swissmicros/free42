@@ -15,11 +15,16 @@
 
 #include "shell.h"
 
-
+/*
 int prgmline2buf(char *buf, int len, int4 line, int highlight,
-                        int cmd, arg_struct *arg, bool shift_left = false,
+                        int cmd, arg_struct *arg,
+                        bool shift_left = false,
                         bool highlight_final_end = true);
-
+*/
+int prgmline2buf(char *buf, int len, int4 line, int highlight,
+                        int cmd, arg_struct *arg, const char *orig_num,
+                        bool shift_left = false,
+                        bool highlight_final_end = true);
 
 
 
@@ -256,20 +261,37 @@ void core_redisplay() {
 }
 
 
+#define reg_x  stack[sp]
+#define reg_y  stack[sp-1]
+#define reg_z  stack[sp-2]
+#define reg_t  stack[sp-3]
+#define reg_lastx lastx
+
+
 int reg2str(char *buf, int buflen, reg_id_t reg_id) {
   vartype *reg;
   int len;
 
-  switch(reg_id) {
-    default: // tame compiler
-    case REG_X:  reg = reg_x; break;
-    case REG_Y:  reg = reg_y; break;
-    case REG_Z:  reg = reg_z; break;
-    case REG_T:  reg = reg_t; break;
-    case REG_LX: reg = reg_lastx; break;
+  if (reg_id < 0) {
+    reg = stack[sp + reg_id];
+  } else {
+    switch(reg_id) {
+      default: // tame compiler
+      case AUX_REG_X:
+        if (get_dynstack_size() == 0) {
+          buf[0] = 0;
+          return 0;
+        }
+        reg = reg_x;
+        break;
+      case AUX_REG_Y:  reg = reg_y; break;
+      case AUX_REG_Z:  reg = reg_z; break;
+      case AUX_REG_T:  reg = reg_t; break;
+      case AUX_REG_LX: reg = reg_lastx; break;
+    }
   }
 
-  if ( reg_id == REG_A ) {
+  if ( reg_id == AUX_REG_A ) {
     len = reg_alpha_length;
     if ( len > buflen-1 ) {
       len = buflen-2;
@@ -322,11 +344,15 @@ int get_pgm_line(pgm_line_t * p, int line) {
   int len = 0;
   while (!p->is_end && p->line < line) {
     if (p->line >= 0) {
-      get_next_command(&p->pc, &cmd, &pgm_arg, 0);
+      //get_next_command(&p->pc, &cmd, &pgm_arg, 0);
+      get_next_command(&p->pc, &cmd, &pgm_arg, 0,
+        NULL); // New arg const char **num_str, resolve
       p->is_end = cmd == CMD_END;
     }
     p->line++;
-    len = prgmline2buf(p->buf, p->buflen, p->line, false, cmd, &pgm_arg, false, true);
+    len = prgmline2buf(p->buf, p->buflen, p->line, false, cmd, &pgm_arg,
+      NULL, // TODO: New arg - orig_num - resolve
+      false, true);
   }
   return len;
 }
@@ -339,7 +365,7 @@ int is_mode_pause() {
 
 extern int no_menu_key_this_time;
 
-int core_keydown_ex(int key, int *enqueued, int *repeat, int no_menu_key) {
+bool core_keydown_ex(int key, bool *enqueued, int *repeat, int no_menu_key) {
   no_menu_key_this_time = no_menu_key;
   int ret = core_keydown(key,enqueued,repeat);
   no_menu_key_this_time = 0;
@@ -377,6 +403,15 @@ void set_reflcd_mask(int reflcd) {
 #ifdef ARM
   vvars[VV_RefLCD].val = reflcd;
 #endif
+}
+
+
+int is_dynstack() {
+  return flags.f.big_stack;
+}
+
+int get_dynstack_size() {
+  return sp+1;
 }
 
 

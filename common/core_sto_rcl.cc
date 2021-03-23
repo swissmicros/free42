@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2020  Thomas Okken
+ * Copyright (C) 2004-2021  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -16,73 +16,79 @@
  *****************************************************************************/
 
 #include <stdlib.h>
+#include <string.h>
 
+#include "core_commands2.h"
 #include "core_helpers.h"
 #include "core_linalg1.h"
 #include "core_sto_rcl.h"
 #include "core_variables.h"
 
 
-static int apply_sto_operation(char operation, vartype *oldval);
-static void generic_sto_completion(int error, vartype *res);
+static int apply_sto_operation(char operation, vartype *oldval, bool trace_stk);
+static int generic_sto_completion(int error, vartype *res);
 
 static bool preserve_ij;
+static bool trace_stack;
 
 
-static int apply_sto_operation(char operation, vartype *oldval) {
+static int apply_sto_operation(char operation, vartype *oldval, bool trace_stk) {
+    int error = assert_numeric(oldval);
+    if (error != ERR_NONE)
+        return error;
     if (!ensure_var_space(1))
         return ERR_INSUFFICIENT_MEMORY;
     vartype *newval;
-    int error;
+    trace_stack = trace_stk;
     switch (operation) {
         case '/':
             preserve_ij = true;
-            return generic_div(reg_x, oldval, generic_sto_completion);
+            return generic_div(stack[sp], oldval, generic_sto_completion);
         case '*':
             preserve_ij = false;
-            return generic_mul(reg_x, oldval, generic_sto_completion);
+            return generic_mul(stack[sp], oldval, generic_sto_completion);
         case '-':
             preserve_ij = true;
-            error = generic_sub(reg_x, oldval, &newval);
-            generic_sto_completion(error, newval);
-            return error;
+            error = generic_sub(stack[sp], oldval, &newval);
+            return generic_sto_completion(error, newval);
         case '+':
             preserve_ij = true;
-            error = generic_add(reg_x, oldval, &newval);
-            generic_sto_completion(error, newval);
-            return error;
+            error = generic_add(stack[sp], oldval, &newval);
+            return generic_sto_completion(error, newval);
         default:
             return ERR_INTERNAL_ERROR;
     }
 }
 
-int generic_div(const vartype *px, const vartype *py, void (*completion)(int, vartype *)) {
-    if (px->type == TYPE_STRING || py->type == TYPE_STRING) {
-        completion(ERR_ALPHA_DATA_IS_INVALID, NULL);
+int assert_numeric(const vartype *v) {
+    if (v->type == TYPE_REAL || v->type == TYPE_COMPLEX
+            || v->type == TYPE_REALMATRIX || v->type == TYPE_COMPLEXMATRIX)
+        return ERR_NONE;
+    else if (v->type == TYPE_STRING)
         return ERR_ALPHA_DATA_IS_INVALID;
-    } else if ((px->type == TYPE_REALMATRIX || px->type == TYPE_COMPLEXMATRIX)
+    else
+        return ERR_INVALID_TYPE;
+}
+
+int generic_div(const vartype *px, const vartype *py, int (*completion)(int, vartype *)) {
+    if ((px->type == TYPE_REALMATRIX || px->type == TYPE_COMPLEXMATRIX)
             && (py->type == TYPE_REALMATRIX || py->type == TYPE_COMPLEXMATRIX)){
         return linalg_div(py, px, completion);
     } else {
         vartype *dst;
         int error = map_binary(px, py, &dst, div_rr, div_rc, div_cr, div_cc);
-        completion(error, dst);
-        return error;
+        return completion(error, dst);
     }
 }
 
-int generic_mul(const vartype *px, const vartype *py, void (*completion)(int, vartype *)) {
-    if (px->type == TYPE_STRING || py->type == TYPE_STRING) {
-        completion(ERR_ALPHA_DATA_IS_INVALID, NULL);
-        return ERR_ALPHA_DATA_IS_INVALID;
-    } else if ((px->type == TYPE_REALMATRIX || px->type == TYPE_COMPLEXMATRIX)
+int generic_mul(const vartype *px, const vartype *py, int (*completion)(int, vartype *)) {
+    if ((px->type == TYPE_REALMATRIX || px->type == TYPE_COMPLEXMATRIX)
             && (py->type == TYPE_REALMATRIX || py->type == TYPE_COMPLEXMATRIX)){
         return linalg_mul(py, px, completion);
     } else {
         vartype *dst;
         int error = map_binary(px, py, &dst, mul_rr, mul_rc, mul_cr, mul_cc);
-        completion(error, dst);
-        return error;
+        return completion(error, dst);
     }
 }
 
@@ -162,9 +168,7 @@ int generic_sub(const vartype *px, const vartype *py, vartype **dst) {
             return ERR_INSUFFICIENT_MEMORY;
         else
             return ERR_NONE;
-    } else if (px->type == TYPE_STRING || py->type == TYPE_STRING)
-        return ERR_ALPHA_DATA_IS_INVALID;
-    else
+    } else
         return map_binary(px, py, dst, sub_rr, sub_rc, sub_cr, sub_cc);
 }
 
@@ -243,9 +247,7 @@ int generic_add(const vartype *px, const vartype *py, vartype **dst) {
             return ERR_INSUFFICIENT_MEMORY;
         else
             return ERR_NONE;
-    } else if (px->type == TYPE_STRING || py->type == TYPE_STRING)
-        return ERR_ALPHA_DATA_IS_INVALID;
-    else
+    } else
         return map_binary(px, py, dst, add_rr, add_rc, add_cr, add_cc);
 }
 
@@ -267,14 +269,16 @@ int generic_rcl(arg_struct *arg, vartype **dst) {
                 vartype_realmatrix *rm = (vartype_realmatrix *) regs;
                 int4 size = rm->rows * rm->columns;
                 int4 index = arg->val.num;
-                phloat ds;
                 if (index >= size)
                     return ERR_SIZE_ERROR;
-                ds = rm->array->data[index];
-                if (rm->array->is_string[index])
-                    *dst = new_string(phloat_text(ds), phloat_length(ds));
-                else
-                    *dst = new_real(ds);
+                if (rm->array->is_string[index] == 0) {
+                    *dst = new_real(rm->array->data[index]);
+                } else {
+                    char *text;
+                    int4 len;
+                    get_matrix_string(rm, index, &text, &len);
+                    *dst = new_string(text, len);
+                }
                 if (*dst == NULL)
                     return ERR_INSUFFICIENT_MEMORY;
                 return ERR_NONE;
@@ -297,14 +301,21 @@ int generic_rcl(arg_struct *arg, vartype **dst) {
             }
         }
         case ARGTYPE_STK: {
+            int idx;
             switch (arg->val.stk) {
-                case 'X': *dst = reg_x; break;
-                case 'Y': *dst = reg_y; break;
-                case 'Z': *dst = reg_z; break;
-                case 'T': *dst = reg_t; break;
-                case 'L': *dst = reg_lastx; break;
+                case 'X': idx = 0; break;
+                case 'Y': idx = 1; break;
+                case 'Z': idx = 2; break;
+                case 'T': idx = 3; break;
+                case 'L': idx = -1; break;
             }
-            *dst = dup_vartype(*dst);
+            if (idx == -1) {
+                *dst = dup_vartype(lastx);
+            } else {
+                if (idx > sp)
+                    return ERR_NONEXISTENT;
+                *dst = dup_vartype(stack[sp - idx]);
+            }
             if (*dst == NULL)
                 return ERR_INSUFFICIENT_MEMORY;
             return ERR_NONE;
@@ -325,32 +336,27 @@ int generic_rcl(arg_struct *arg, vartype **dst) {
 
 static arg_struct temp_arg;
 
-static void generic_sto_completion(int error, vartype *res) {
+static int generic_sto_completion(int error, vartype *res) {
     if (error != ERR_NONE)
-        return;
+        return error;
     if (temp_arg.type == ARGTYPE_STK) {
+        // Note: at this point, it has already been verified
+        // that the destination stack level exists.
+        int idx;
         switch (temp_arg.val.stk) {
-            case 'X':
-                free_vartype(reg_x);
-                reg_x = res;
-                break;
-            case 'Y':
-                free_vartype(reg_y);
-                reg_y = res;
-                break;
-            case 'Z':
-                free_vartype(reg_z);
-                reg_z = res;
-                break;
-            case 'T':
-                free_vartype(reg_t);
-                reg_t = res;
-                break;
-            case 'L':
-                free_vartype(reg_lastx);
-                reg_lastx = res;
-                break;
+            case 'X': idx = 0; break;
+            case 'Y': idx = 1; break;
+            case 'Z': idx = 2; break;
+            case 'T': idx = 3; break;
+            case 'L': idx = -1; break;
         }
+        vartype **dst;
+        if (idx == -1)
+            dst = &lastx;
+        else
+            dst = &stack[sp - idx];
+        free_vartype(*dst);
+        *dst = res;
     } else /* temp_arg.type == ARGTYPE_STR */ {
         // If the destination of store_var() is the indexed matrix, it sets I
         // and J to 1. This is *not* the desired behavior for STO+, STO-, and
@@ -364,6 +370,9 @@ static void generic_sto_completion(int error, vartype *res) {
             matedit_j = j;
         }
     }
+    if (trace_stack)
+        docmd_prstk(NULL);
+    return ERR_NONE;
 }
 
 int generic_sto(arg_struct *arg, char operation) {
@@ -375,7 +384,7 @@ int generic_sto(arg_struct *arg, char operation) {
             return err;
     }
 
-    if (operation != 0 && reg_x->type == TYPE_STRING)
+    if (operation != 0 && stack[sp]->type == TYPE_STRING)
         return ERR_ALPHA_DATA_IS_INVALID;
 
     switch (arg->type) {
@@ -389,30 +398,27 @@ int generic_sto(arg_struct *arg, char operation) {
                 int4 num = arg->val.num;
                 if (num >= size)
                     return ERR_SIZE_ERROR;
-                if (reg_x->type == TYPE_STRING) {
+                if (stack[sp]->type == TYPE_STRING) {
                     if (!disentangle((vartype *) rm))
                         return ERR_INSUFFICIENT_MEMORY;
-                    vartype_string *vs = (vartype_string *) reg_x;
-                    phloat *ds = rm->array->data + num;
-                    int len, i;
-                    len = vs->length;
-                    phloat_length(*ds) = len;
-                    for (i = 0; i < len; i++)
-                        phloat_text(*ds)[i] = vs->text[i];
-                    rm->array->is_string[num] = 1;
+                    vartype_string *vs = (vartype_string *) stack[sp];
+                    if (!put_matrix_string(rm, num, vs->txt(), vs->length))
+                        return ERR_INSUFFICIENT_MEMORY;
                     return ERR_NONE;
-                } else if (reg_x->type == TYPE_REAL) {
+                } else if (stack[sp]->type == TYPE_REAL) {
                     if (!disentangle((vartype *) rm))
                         return ERR_INSUFFICIENT_MEMORY;
                     if (operation == 0) {
-                        rm->array->data[num] = ((vartype_real *) reg_x)->x;
+                        if (rm->array->is_string[num] == 2)
+                            free(*(void **) &rm->array->data[num]);
+                        rm->array->data[num] = ((vartype_real *) stack[sp])->x;
                         rm->array->is_string[num] = 0;
                     } else {
                         phloat x, n;
                         int inf;
-                        if (rm->array->is_string[num])
+                        if (rm->array->is_string[num] != 0)
                             return ERR_ALPHA_DATA_IS_INVALID;
-                        x = ((vartype_real *) reg_x)->x;
+                        x = ((vartype_real *) stack[sp])->x;
                         n = rm->array->data[num];
                         switch (operation) {
                             case '/': if (x == 0) return ERR_DIVIDE_BY_0;
@@ -441,20 +447,20 @@ int generic_sto(arg_struct *arg, char operation) {
                 phloat re, im;
                 if (num >= size)
                     return ERR_SIZE_ERROR;
-                if (reg_x->type == TYPE_STRING)
+                if (stack[sp]->type == TYPE_STRING)
                     return ERR_ALPHA_DATA_IS_INVALID;
-                else if (reg_x->type != TYPE_REAL
-                        && reg_x->type != TYPE_COMPLEX)
+                else if (stack[sp]->type != TYPE_REAL
+                        && stack[sp]->type != TYPE_COMPLEX)
                     return ERR_INVALID_TYPE;
                 if (!disentangle((vartype *) cm))
                     return ERR_INSUFFICIENT_MEMORY;
                 if (operation == 0) {
-                    if (reg_x->type == TYPE_REAL) {
-                        re = ((vartype_real *) reg_x)->x;
+                    if (stack[sp]->type == TYPE_REAL) {
+                        re = ((vartype_real *) stack[sp])->x;
                         im = 0;
                     } else {
-                        re = ((vartype_complex *) reg_x)->re;
-                        im = ((vartype_complex *) reg_x)->im;
+                        re = ((vartype_complex *) stack[sp])->re;
+                        im = ((vartype_complex *) stack[sp])->im;
                     }
                     cm->array->data[num * 2] = re;
                     cm->array->data[num * 2 + 1] = im;
@@ -462,9 +468,9 @@ int generic_sto(arg_struct *arg, char operation) {
                     phloat nre = cm->array->data[num * 2];
                     phloat nim = cm->array->data[num * 2 + 1];
                     int inf;
-                    if (reg_x->type == TYPE_REAL) {
+                    if (stack[sp]->type == TYPE_REAL) {
                         phloat x;
-                        x = ((vartype_real *) reg_x)->x;
+                        x = ((vartype_real *) stack[sp])->x;
                         switch (operation) {
                             case '/': if (x == 0) return ERR_DIVIDE_BY_0;
                                       nre /= x; nim /= x; break;
@@ -474,8 +480,8 @@ int generic_sto(arg_struct *arg, char operation) {
                         }
                     } else {
                         phloat xre, xim, h, tmp;
-                        xre = ((vartype_complex *) reg_x)->re;
-                        xim = ((vartype_complex *) reg_x)->im;
+                        xre = ((vartype_complex *) stack[sp])->re;
+                        xim = ((vartype_complex *) stack[sp])->im;
                         h = xre * xre + xim * xim;
                         /* TODO: handle overflows in intermediate results */
                         switch (operation) {
@@ -531,44 +537,66 @@ int generic_sto(arg_struct *arg, char operation) {
         }
         case ARGTYPE_STK: {
             vartype *newval;
+            bool trace_stk = arg->val.stk != 'L' && flags.f.trace_print && flags.f.normal_print && flags.f.printer_exists;
             if (operation == 0) {
                 if (arg->val.stk == 'X') {
                     /* STO ST X : no-op! */
                     return ERR_NONE;
                 }
-                newval = dup_vartype(reg_x);
+                newval = dup_vartype(stack[sp]);
                 if (newval == NULL)
                     return ERR_INSUFFICIENT_MEMORY;
+                int idx;
                 switch (arg->val.stk) {
-                    case 'Y':
-                        free_vartype(reg_y);
-                        reg_y = newval;
-                        break;
-                    case 'Z':
-                        free_vartype(reg_z);
-                        reg_z = newval;
-                        break;
-                    case 'T':
-                        free_vartype(reg_t);
-                        reg_t = newval;
-                        break;
-                    case 'L':
-                        free_vartype(reg_lastx);
-                        reg_lastx = newval;
-                        break;
+                    case 'Y': idx = 1; break;
+                    case 'Z': idx = 2; break;
+                    case 'T': idx = 3; break;
+                    case 'L': idx = -1; break;
                 }
+                if (idx > sp) {
+                    // Target stack level does not exist yet
+                    int off = idx - sp;
+                    if (!ensure_stack_capacity(off)) {
+                        free_vartype(newval);
+                        return ERR_INSUFFICIENT_MEMORY;
+                    }
+                    memmove(stack + off, stack, (sp + 1) * sizeof(vartype *));
+                    for (int i = 0; i < off; i++) {
+                        stack[i] = new_real(0);
+                        if (stack[i] == NULL) {
+                            for (int j = 0; j < i; j++)
+                                free_vartype(stack[j]);
+                            memmove(stack, stack + off, (sp + 1) * sizeof(vartype *));
+                            free_vartype(newval);
+                            return ERR_INSUFFICIENT_MEMORY;
+                        }
+                    }
+                    sp += off;
+                }
+                vartype **dst;
+                if (idx == -1)
+                    dst = &lastx;
+                else
+                    dst = &stack[sp - idx];
+                free_vartype(*dst);
+                *dst = newval;
+                if (trace_stk)
+                    docmd_prstk(NULL);
                 return ERR_NONE;
             } else {
-                vartype *oldval;
+                int idx;
                 switch (arg->val.stk) {
-                    case 'X': oldval = reg_x; break;
-                    case 'Y': oldval = reg_y; break;
-                    case 'Z': oldval = reg_z; break;
-                    case 'T': oldval = reg_t; break;
-                    case 'L': oldval = reg_lastx; break;
+                    case 'X': idx = 0; break;
+                    case 'Y': idx = 1; break;
+                    case 'Z': idx = 2; break;
+                    case 'T': idx = 3; break;
+                    case 'L': idx = -1; break;
                 }
+                if (idx > sp)
+                    return ERR_NONEXISTENT;
+                vartype *oldval = idx == -1 ? lastx : stack[sp - idx];
                 temp_arg = *arg;
-                return apply_sto_operation(operation, oldval);
+                return apply_sto_operation(operation, oldval, trace_stk);
             }
         }
         case ARGTYPE_STR: {
@@ -576,15 +604,15 @@ int generic_sto(arg_struct *arg, char operation) {
                 vartype *newval;
                 /* Only allow matrices to be stored in "REGS" */
                 if (string_equals(arg->val.text, arg->length, "REGS", 4)
-                        && reg_x->type != TYPE_REALMATRIX
-                        && reg_x->type != TYPE_COMPLEXMATRIX)
+                        && stack[sp]->type != TYPE_REALMATRIX
+                        && stack[sp]->type != TYPE_COMPLEXMATRIX)
                     return ERR_RESTRICTED_OPERATION;
                 /* When EDITN is active, don't allow the matrix being
                  * edited to be overwritten. */
                 if (matedit_mode == 3 && string_equals(arg->val.text,
                             arg->length, matedit_name, matedit_length))
                         return ERR_RESTRICTED_OPERATION;
-                newval = dup_vartype(reg_x);
+                newval = dup_vartype(stack[sp]);
                 if (newval == NULL)
                     return ERR_INSUFFICIENT_MEMORY;
                 int err = store_var(arg->val.text, arg->length, newval);
@@ -598,8 +626,8 @@ int generic_sto(arg_struct *arg, char operation) {
                  * applied even if the target's dimensions would not, in fact,
                  * change. */
                 if (operation == '*'
-                        && (reg_x->type == TYPE_REALMATRIX
-                            || reg_x->type == TYPE_COMPLEXMATRIX)
+                        && (stack[sp]->type == TYPE_REALMATRIX
+                            || stack[sp]->type == TYPE_COMPLEXMATRIX)
                         && matedit_mode == 3
                         && string_equals(arg->val.text,
                                 arg->length, matedit_name, matedit_length))
@@ -608,7 +636,7 @@ int generic_sto(arg_struct *arg, char operation) {
                 if (oldval == NULL)
                     return ERR_NONEXISTENT;
                 temp_arg = *arg;
-                return apply_sto_operation(operation, oldval);
+                return apply_sto_operation(operation, oldval, false);
             }
         }
         default:
@@ -643,20 +671,16 @@ int map_unary(const vartype *src, vartype **dst, mappable_r mr, mappable_c mc) {
         case TYPE_REALMATRIX: {
             vartype_realmatrix *sm = (vartype_realmatrix *) src;
             vartype_realmatrix *dm;
-            int4 size, i;
-            int error;
             dm = (vartype_realmatrix *) new_realmatrix(sm->rows, sm->columns);
             if (dm == NULL)
                 return ERR_INSUFFICIENT_MEMORY;
-            size = sm->rows * sm->columns;
-            for (i = 0; i < size; i++) {
-                if (sm->array->is_string[i]) {
-                    free_vartype((vartype *) dm);
-                    return ERR_ALPHA_DATA_IS_INVALID;
-                }
+            if (contains_strings(sm)) {
+                free_vartype((vartype *) dm);
+                return ERR_ALPHA_DATA_IS_INVALID;
             }
-            for (i = 0; i < size; i++) {
-                error = mr(sm->array->data[i], &dm->array->data[i]);
+            int4 size = sm->rows * sm->columns;
+            for (int4 i = 0; i < size; i++) {
+                int error = mr(sm->array->data[i], &dm->array->data[i]);
                 if (error != ERR_NONE) {
                     free_vartype((vartype *) dm);
                     return error;
@@ -671,13 +695,11 @@ int map_unary(const vartype *src, vartype **dst, mappable_r mr, mappable_c mc) {
             int4 rows = sm->rows;
             int4 columns = sm->columns;
             int4 size = 2 * rows * columns;
-            int4 i;
-            int error;
             dm = (vartype_complexmatrix *) new_complexmatrix(rows, columns);
             if (dm == NULL)
                 return ERR_INSUFFICIENT_MEMORY;
-            for (i = 0; i < size; i += 2) {
-                error = mc(sm->array->data[i], sm->array->data[i + 1],
+            for (int4 i = 0; i < size; i += 2) {
+                int error = mc(sm->array->data[i], sm->array->data[i + 1],
                            &dm->array->data[i], &dm->array->data[i + 1]);
                 if (error != ERR_NONE) {
                     free_vartype((vartype *) dm);
@@ -725,20 +747,17 @@ int map_binary(const vartype *src1, const vartype *src2, vartype **dst,
                 case TYPE_REALMATRIX: {
                     vartype_realmatrix *sm = (vartype_realmatrix *) src2;
                     vartype_realmatrix *dm;
-                    int4 size, i;
-                    int error;
                     dm = (vartype_realmatrix *)
                                         new_realmatrix(sm->rows, sm->columns);
                     if (dm == NULL)
                         return ERR_INSUFFICIENT_MEMORY;
-                    size = sm->rows * sm->columns;
-                    for (i = 0; i < size; i++)
-                        if (sm->array->is_string[i]) {
-                            free_vartype((vartype *) dm);
-                            return ERR_ALPHA_DATA_IS_INVALID;
-                        }
-                    for (i = 0; i < size; i++) {
-                        error = mrr(((vartype_real *) src1)->x,
+                    if (contains_strings(sm)) {
+                        free_vartype((vartype *) dm);
+                        return ERR_ALPHA_DATA_IS_INVALID;
+                    }
+                    int4 size = sm->rows * sm->columns;
+                    for (int4 i = 0; i < size; i++) {
+                        int error = mrr(((vartype_real *) src1)->x,
                                     sm->array->data[i],
                                     &dm->array->data[i]);
                         if (error != ERR_NONE) {
@@ -752,19 +771,17 @@ int map_binary(const vartype *src1, const vartype *src2, vartype **dst,
                 case TYPE_COMPLEXMATRIX: {
                     vartype_complexmatrix *sm = (vartype_complexmatrix *) src2;
                     vartype_complexmatrix *dm;
-                    int4 size, i;
-                    int error;
                     dm = (vartype_complexmatrix *)
                                     new_complexmatrix(sm->rows, sm->columns);
                     if (dm == NULL)
                         return ERR_INSUFFICIENT_MEMORY;
-                    size = 2 * sm->rows * sm->columns;
-                    for (i = 0; i < size; i += 2) {
-                        error = mrc(((vartype_real *) src1)->x,
-                                    sm->array->data[i],
-                                    sm->array->data[i + 1],
-                                    &dm->array->data[i],
-                                    &dm->array->data[i + 1]);
+                    int4 size = 2 * sm->rows * sm->columns;
+                    for (int4 i = 0; i < size; i += 2) {
+                        int error = mrc(((vartype_real *) src1)->x,
+                                        sm->array->data[i],
+                                        sm->array->data[i + 1],
+                                        &dm->array->data[i],
+                                        &dm->array->data[i + 1]);
                         if (error != ERR_NONE) {
                             free_vartype((vartype *) dm);
                             return error;
@@ -808,20 +825,17 @@ int map_binary(const vartype *src1, const vartype *src2, vartype **dst,
                 case TYPE_REALMATRIX: {
                     vartype_realmatrix *sm = (vartype_realmatrix *) src2;
                     vartype_complexmatrix *dm;
-                    int4 size, i;
-                    int error;
                     dm = (vartype_complexmatrix *)
                                     new_complexmatrix(sm->rows, sm->columns);
                     if (dm == NULL)
                         return ERR_INSUFFICIENT_MEMORY;
-                    size = sm->rows * sm->columns;
-                    for (i = 0; i < size; i++)
-                        if (sm->array->is_string[i]) {
-                            free_vartype((vartype *) dm);
-                            return ERR_ALPHA_DATA_IS_INVALID;
-                        }
-                    for (i = 0; i < size; i++) {
-                        error = mcr(((vartype_complex *) src1)->re,
+                    if (contains_strings(sm)) {
+                        free_vartype((vartype *) dm);
+                        return ERR_ALPHA_DATA_IS_INVALID;
+                    }
+                    int4 size = sm->rows * sm->columns;
+                    for (int4 i = 0; i < size; i++) {
+                        int error = mcr(((vartype_complex *) src1)->re,
                                     ((vartype_complex *) src1)->im,
                                     sm->array->data[i],
                                     &dm->array->data[i * 2],
@@ -837,20 +851,18 @@ int map_binary(const vartype *src1, const vartype *src2, vartype **dst,
                 case TYPE_COMPLEXMATRIX: {
                     vartype_complexmatrix *sm = (vartype_complexmatrix *) src2;
                     vartype_complexmatrix *dm;
-                    int4 size, i;
-                    int error;
                     dm = (vartype_complexmatrix *)
                                     new_complexmatrix(sm->rows, sm->columns);
                     if (dm == NULL)
                         return ERR_INSUFFICIENT_MEMORY;
-                    size = 2 * sm->rows * sm->columns;
-                    for (i = 0; i < size; i += 2) {
-                        error = mcc(((vartype_complex *) src1)->re,
-                                    ((vartype_complex *) src1)->im,
-                                    sm->array->data[i],
-                                    sm->array->data[i + 1],
-                                    &dm->array->data[i],
-                                    &dm->array->data[i + 1]);
+                    int4 size = 2 * sm->rows * sm->columns;
+                    for (int4 i = 0; i < size; i += 2) {
+                        int error = mcc(((vartype_complex *) src1)->re,
+                                        ((vartype_complex *) src1)->im,
+                                        sm->array->data[i],
+                                        sm->array->data[i + 1],
+                                        &dm->array->data[i],
+                                        &dm->array->data[i + 1]);
                         if (error != ERR_NONE) {
                             free_vartype((vartype *) dm);
                             return error;
@@ -867,20 +879,17 @@ int map_binary(const vartype *src1, const vartype *src2, vartype **dst,
                 case TYPE_REAL: {
                     vartype_realmatrix *sm = (vartype_realmatrix *) src1;
                     vartype_realmatrix *dm;
-                    int4 size, i;
-                    int error;
                     dm = (vartype_realmatrix *)
                                         new_realmatrix(sm->rows, sm->columns);
                     if (dm == NULL)
                         return ERR_INSUFFICIENT_MEMORY;
-                    size = sm->rows * sm->columns;
-                    for (i = 0; i < size; i++)
-                        if (sm->array->is_string[i]) {
-                            free_vartype((vartype *) dm);
-                            return ERR_ALPHA_DATA_IS_INVALID;
-                        }
-                    for (i = 0; i < size; i++) {
-                        error = mrr(sm->array->data[i],
+                    if (contains_strings(sm)) {
+                        free_vartype((vartype *) dm);
+                        return ERR_ALPHA_DATA_IS_INVALID;
+                    }
+                    int4 size = sm->rows * sm->columns;
+                    for (int4 i = 0; i < size; i++) {
+                        int error = mrr(sm->array->data[i],
                                     ((vartype_real *) src2)->x,
                                     &dm->array->data[i]);
                         if (error != ERR_NONE) {
@@ -894,20 +903,17 @@ int map_binary(const vartype *src1, const vartype *src2, vartype **dst,
                 case TYPE_COMPLEX: {
                     vartype_realmatrix *sm = (vartype_realmatrix *) src1;
                     vartype_complexmatrix *dm;
-                    int4 size, i;
-                    int error;
                     dm = (vartype_complexmatrix *)
                                     new_complexmatrix(sm->rows, sm->columns);
                     if (dm == NULL)
                         return ERR_INSUFFICIENT_MEMORY;
-                    size = sm->rows * sm->columns;
-                    for (i = 0; i < size; i++)
-                        if (sm->array->is_string[i]) {
-                            free_vartype((vartype *) dm);
-                            return ERR_ALPHA_DATA_IS_INVALID;
-                        }
-                    for (i = 0; i < size; i++) {
-                        error = mrc(sm->array->data[i],
+                    if (contains_strings(sm)) {
+                        free_vartype((vartype *) dm);
+                        return ERR_ALPHA_DATA_IS_INVALID;
+                    }
+                    int4 size = sm->rows * sm->columns;
+                    for (int4 i = 0; i < size; i++) {
+                        int error = mrc(sm->array->data[i],
                                     ((vartype_complex *) src2)->re,
                                     ((vartype_complex *) src2)->im,
                                     &dm->array->data[i * 2],
@@ -924,25 +930,21 @@ int map_binary(const vartype *src1, const vartype *src2, vartype **dst,
                     vartype_realmatrix *sm1 = (vartype_realmatrix *) src1;
                     vartype_realmatrix *sm2 = (vartype_realmatrix *) src2;
                     vartype_realmatrix *dm;
-                    int4 size, i;
-                    int error;
                     if (sm1->rows != sm2->rows || sm1->columns != sm2->columns)
                         return ERR_DIMENSION_ERROR;
                     dm = (vartype_realmatrix *)
                                     new_realmatrix(sm1->rows, sm1->columns);
                     if (dm == NULL)
                         return ERR_INSUFFICIENT_MEMORY;
-                    size = sm1->rows * sm1->columns;
-                    for (i = 0; i < size; i++)
-                        if (sm1->array->is_string[i]
-                                    || sm2->array->is_string[i]) {
-                            free_vartype((vartype *) dm);
-                            return ERR_ALPHA_DATA_IS_INVALID;
-                        }
-                    for (i = 0; i < size; i++) {
-                        error = mrr(sm1->array->data[i],
-                                    sm2->array->data[i],
-                                    &dm->array->data[i]);
+                    if (contains_strings(sm1) || contains_strings(sm2)) {
+                        free_vartype((vartype *) dm);
+                        return ERR_ALPHA_DATA_IS_INVALID;
+                    }
+                    int4 size = sm1->rows * sm1->columns;
+                    for (int4 i = 0; i < size; i++) {
+                        int error = mrr(sm1->array->data[i],
+                                        sm2->array->data[i],
+                                        &dm->array->data[i]);
                         if (error != ERR_NONE) {
                             free_vartype((vartype *) dm);
                             return error;
@@ -955,26 +957,23 @@ int map_binary(const vartype *src1, const vartype *src2, vartype **dst,
                     vartype_realmatrix *sm1 = (vartype_realmatrix *) src1;
                     vartype_complexmatrix *sm2 = (vartype_complexmatrix *) src2;
                     vartype_complexmatrix *dm;
-                    int4 size, i;
-                    int error;
                     if (sm1->rows != sm2->rows || sm1->columns != sm2->columns)
                         return ERR_DIMENSION_ERROR;
                     dm = (vartype_complexmatrix *)
                                     new_complexmatrix(sm1->rows, sm1->columns);
                     if (dm == NULL)
                         return ERR_INSUFFICIENT_MEMORY;
-                    size = sm1->rows * sm1->columns;
-                    for (i = 0; i < size; i++)
-                        if (sm1->array->is_string[i]) {
-                            free_vartype((vartype *) dm);
-                            return ERR_ALPHA_DATA_IS_INVALID;
-                        }
-                    for (i = 0; i < size; i++) {
-                        error = mrc(sm1->array->data[i],
-                                    sm2->array->data[i * 2],
-                                    sm2->array->data[i * 2 + 1],
-                                    &dm->array->data[i * 2],
-                                    &dm->array->data[i * 2 + 1]);
+                    if (contains_strings(sm1)) {
+                        free_vartype((vartype *) dm);
+                        return ERR_ALPHA_DATA_IS_INVALID;
+                    }
+                    int4 size = sm1->rows * sm1->columns;
+                    for (int4 i = 0; i < size; i++) {
+                        int error = mrc(sm1->array->data[i],
+                                        sm2->array->data[i * 2],
+                                        sm2->array->data[i * 2 + 1],
+                                        &dm->array->data[i * 2],
+                                        &dm->array->data[i * 2 + 1]);
                         if (error != ERR_NONE) {
                             free_vartype((vartype *) dm);
                             return error;
@@ -991,19 +990,17 @@ int map_binary(const vartype *src1, const vartype *src2, vartype **dst,
                 case TYPE_REAL: {
                     vartype_complexmatrix *sm = (vartype_complexmatrix *) src1;
                     vartype_complexmatrix *dm;
-                    int4 size, i;
-                    int error;
                     dm = (vartype_complexmatrix *)
                                     new_complexmatrix(sm->rows, sm->columns);
                     if (dm == NULL)
                         return ERR_INSUFFICIENT_MEMORY;
-                    size = 2 * sm->rows * sm->columns;
-                    for (i = 0; i < size; i += 2) {
-                        error = mcr(sm->array->data[i],
-                                    sm->array->data[i + 1],
-                                    ((vartype_real *) src2)->x,
-                                    &dm->array->data[i],
-                                    &dm->array->data[i + 1]);
+                    int4 size = 2 * sm->rows * sm->columns;
+                    for (int4 i = 0; i < size; i += 2) {
+                        int error = mcr(sm->array->data[i],
+                                        sm->array->data[i + 1],
+                                        ((vartype_real *) src2)->x,
+                                        &dm->array->data[i],
+                                        &dm->array->data[i + 1]);
                         if (error != ERR_NONE) {
                             free_vartype((vartype *) dm);
                             return error;
@@ -1015,20 +1012,18 @@ int map_binary(const vartype *src1, const vartype *src2, vartype **dst,
                 case TYPE_COMPLEX: {
                     vartype_complexmatrix *sm = (vartype_complexmatrix *) src1;
                     vartype_complexmatrix *dm;
-                    int4 size, i;
-                    int error;
                     dm = (vartype_complexmatrix *)
                                     new_complexmatrix(sm->rows, sm->columns);
                     if (dm == NULL)
                         return ERR_INSUFFICIENT_MEMORY;
-                    size = 2 * sm->rows * sm->columns;
-                    for (i = 0; i < size; i += 2) {
-                        error = mcc(sm->array->data[i],
-                                    sm->array->data[i + 1],
-                                    ((vartype_complex *) src2)->re,
-                                    ((vartype_complex *) src2)->im,
-                                    &dm->array->data[i],
-                                    &dm->array->data[i + 1]);
+                    int4 size = 2 * sm->rows * sm->columns;
+                    for (int4 i = 0; i < size; i += 2) {
+                        int error = mcc(sm->array->data[i],
+                                        sm->array->data[i + 1],
+                                        ((vartype_complex *) src2)->re,
+                                        ((vartype_complex *) src2)->im,
+                                        &dm->array->data[i],
+                                        &dm->array->data[i + 1]);
                         if (error != ERR_NONE) {
                             free_vartype((vartype *) dm);
                             return error;
@@ -1041,26 +1036,23 @@ int map_binary(const vartype *src1, const vartype *src2, vartype **dst,
                     vartype_complexmatrix *sm1 = (vartype_complexmatrix *) src1;
                     vartype_realmatrix *sm2 = (vartype_realmatrix *) src2;
                     vartype_complexmatrix *dm;
-                    int4 size, i;
-                    int error;
                     if (sm1->rows != sm2->rows || sm1->columns != sm2->columns)
                         return ERR_DIMENSION_ERROR;
                     dm = (vartype_complexmatrix *)
                                     new_complexmatrix(sm1->rows, sm1->columns);
                     if (dm == NULL)
                         return ERR_INSUFFICIENT_MEMORY;
-                    size = sm1->rows * sm1->columns;
-                    for (i = 0; i < size; i++)
-                        if (sm2->array->is_string[i]) {
-                            free_vartype((vartype *) dm);
-                            return ERR_ALPHA_DATA_IS_INVALID;
-                        }
-                    for (i = 0; i < size; i++) {
-                        error = mcr(sm1->array->data[i * 2],
-                                    sm1->array->data[i * 2 + 1],
-                                    sm2->array->data[i],
-                                    &dm->array->data[i * 2],
-                                    &dm->array->data[i * 2 + 1]);
+                    if (contains_strings(sm2)) {
+                        free_vartype((vartype *) dm);
+                        return ERR_ALPHA_DATA_IS_INVALID;
+                    }
+                    int4 size = sm1->rows * sm1->columns;
+                    for (int4 i = 0; i < size; i++) {
+                        int error = mcr(sm1->array->data[i * 2],
+                                        sm1->array->data[i * 2 + 1],
+                                        sm2->array->data[i],
+                                        &dm->array->data[i * 2],
+                                        &dm->array->data[i * 2 + 1]);
                         if (error != ERR_NONE) {
                             free_vartype((vartype *) dm);
                             return error;
@@ -1073,22 +1065,20 @@ int map_binary(const vartype *src1, const vartype *src2, vartype **dst,
                     vartype_complexmatrix *sm1 = (vartype_complexmatrix *) src1;
                     vartype_complexmatrix *sm2 = (vartype_complexmatrix *) src2;
                     vartype_complexmatrix *dm;
-                    int4 size, i;
-                    int error;
                     if (sm1->rows != sm2->rows || sm1->columns != sm2->columns)
                         return ERR_DIMENSION_ERROR;
                     dm = (vartype_complexmatrix *)
                                     new_complexmatrix(sm1->rows, sm1->columns);
                     if (dm == NULL)
                         return ERR_INSUFFICIENT_MEMORY;
-                    size = 2 * sm1->rows * sm1->columns;
-                    for (i = 0; i < size; i += 2) {
-                        error = mcc(sm1->array->data[i],
-                                    sm1->array->data[i + 1],
-                                    sm2->array->data[i],
-                                    sm2->array->data[i + 1],
-                                    &dm->array->data[i],
-                                    &dm->array->data[i + 1]);
+                    int4 size = 2 * sm1->rows * sm1->columns;
+                    for (int4 i = 0; i < size; i += 2) {
+                        int error = mcc(sm1->array->data[i],
+                                        sm1->array->data[i + 1],
+                                        sm2->array->data[i],
+                                        sm2->array->data[i + 1],
+                                        &dm->array->data[i],
+                                        &dm->array->data[i + 1]);
                         if (error != ERR_NONE) {
                             free_vartype((vartype *) dm);
                             return error;
@@ -1148,14 +1138,37 @@ int div_rc(phloat x, phloat yre, phloat yim, phloat *zre, phloat *zim) {
     return ERR_NONE;
 }
 
+/*
+ * div_cr() and div_cc() algorithms based on this Scilab paper:
+ * http://forge.scilab.org/index.php/p/compdiv/source/tree/21/doc/improved_cdiv.pdf
+ */
+
 int div_cr(phloat xre, phloat xim, phloat y, phloat *zre, phloat *zim) {
-    phloat rre, rim, h;
+    phloat r, t, rre, rim;
     int inf;
-    /* TODO: overflows in intermediate results */
-    h = xre * xre + xim * xim;
-    if (h == 0)
+    if (xre == 0 && xim == 0)
         return ERR_DIVIDE_BY_0;
-    rre = y * xre / h;
+    if (fabs(xim) <= fabs(xre)) {
+        r = xim / xre;
+        t = 1 / (xre + xim * r);
+        if (r == 0) {
+            rre = y * t;
+            rim = -xim * (y / xre) * t;
+        } else {
+            rre = y * t;
+            rim = -y * r * t;
+        }
+    } else {
+        r = xre / xim;
+        t = 1 / (xre * r + xim);
+        if (r == 0) {
+            rre = xre * (y / xim) * t;
+            rim = -y * t;
+        } else {
+            rre = y * r * t;
+            rim = -y * t;
+        }
+    }
     inf = p_isinf(rre);
     if (inf != 0) {
         if (flags.f.range_error_ignore)
@@ -1163,7 +1176,6 @@ int div_cr(phloat xre, phloat xim, phloat y, phloat *zre, phloat *zim) {
         else
             return ERR_OUT_OF_RANGE;
     }
-    rim = -y * xim / h;
     inf = p_isinf(rim);
     if (inf != 0) {
         if (flags.f.range_error_ignore)
@@ -1178,13 +1190,31 @@ int div_cr(phloat xre, phloat xim, phloat y, phloat *zre, phloat *zim) {
 
 int div_cc(phloat xre, phloat xim, phloat yre, phloat yim,
                                                     phloat *zre, phloat *zim) {
-    phloat rre, rim, h;
+    phloat r, t, rre, rim;
     int inf;
-    /* TODO: overflows in intermediate results */
-    h = xre * xre + xim * xim;
-    if (h == 0)
+    if (xre == 0 && xim == 0)
         return ERR_DIVIDE_BY_0;
-    rre = (xre * yre + xim * yim) / h;
+    if (fabs(xim) <= fabs(xre)) {
+        r = xim / xre;
+        t = 1 / (xre + xim * r);
+        if (r == 0) {
+            rre = (yre + xim * (yim / xre)) * t;
+            rim = (yim - xim * (yre / xre)) * t;
+        } else {
+            rre = (yre + yim * r) * t;
+            rim = (yim - yre * r) * t;
+        }
+    } else {
+        r = xre / xim;
+        t = 1 / (xre * r + xim);
+        if (r == 0) {
+            rre = (xre * (yre / xim) + yim) * t;
+            rim = (xre * (yim / xim) - yre) * t;
+        } else {
+            rre = (yre * r + yim) * t;
+            rim = (yim * r - yre) * t;
+        }
+    }
     inf = p_isinf(rre);
     if (inf != 0) {
         if (flags.f.range_error_ignore)
@@ -1192,7 +1222,6 @@ int div_cc(phloat xre, phloat xim, phloat yre, phloat yim,
         else
             return ERR_OUT_OF_RANGE;
     }
-    rim = (xre * yim - yre * xim) / h;
     inf = p_isinf(rim);
     if (inf != 0) {
         if (flags.f.range_error_ignore)

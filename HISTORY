@@ -1,3 +1,118 @@
+2021-03-04: release 3.0.1
+
+* Implemented a work-around for a bug in the decimal floating-point library
+  that could cause inaccurate results for several complex functions.
+* Implemented PRMVAR function. This prints all the variables associated with
+  the given LBL through MVAR declarations.
+* Implemented new comparison functions, for comparing arbitrary arguments to X
+  or to zero: X=?, X<?, 0=?, etc.
+* Added error number 8 to RTNERR, to allow user-defined functions to raise the
+  Too Few Arguments error condition.
+* RTN from the keyboard, and other actions that cause the RTN stack to be
+  cleared, now restore the stack mode if it had been changed locally using
+  LNSTK or L4STK.
+* Windows version: Fixed a bug that could cause programs with many ALPHA labels
+  to show up as blank lines in the Export Programs dialog.
+
+2021-02-22: release 3.0
+
+* Added dynamic stack option. See the Free42 web site for details.
+* Added the date and time format options to the MODES menu.
+* Changed the RTNERR function to take the error number from a parameter, rather
+  than from the X register. To prevent existing programs using the old
+  parameter-less RTNERR from breaking, those RTNERRs are converted to the
+  equivalent new instruction, RTNERR IND ST X.
+* Added PGMMENU function. This shows a menu of ALPHA labels with MVAR
+  instructions, like the top-level menu presented by SOLVER and ∫f(x). It is
+  meant to be used by programs that aim to implement a similar behavior as
+  those built-in menus.
+* On cold start, now setting the date and time format accordig to the host
+  operating system's locale settings.
+* The Free42 extensions to the HP-42S instruction set are now shown in separate
+  sections in CATALOG, rather than at the end of the FCN catalog.
+* Added STRACE option to PRINT menu. This is the "Stack trace" option, i.e.
+  TRACE mode where the entire stack gets printed, not just X. The option itself
+  is not new, it was implemented in 2.5.21, but the STRACE function, that
+  allows you to set that mode without having to twiddle flags, is new.
+
+2021-02-02: release 2.5.25
+
+* Fixed pasting of zero. This was broken in 2.5.21.
+
+2021-01-17: release 2.5.24a (Android only)
+
+* Fixed screen rotation issue with Android 11.
+
+2021-01-13: release 2.5.24
+
+* Improved user-defined function support. The changes are rather substantial;
+  please check the Free42 web site for details.
+* The previous release introduced a bug when pasting a program without line
+  numbers, causing numbers to be mangled. Fixed.
+
+2021-01-06: release 2.5.23
+
+* Implemented support for user-defined function semantics: stack preservation,
+  RTN with skip, RTN with error. See the Free42 web site for details.
+* Better handling of number lines: the visual difference between equivalent
+  representations of a number is now preserved, so 1000 stays 1000 and is not
+  turned into 1E3, and numbers that are out of range for the current platform
+  now cause an error message instead of being silently turned into the maximum
+  representable number or zero.
+* Implemented FMA (Fused Multiply-Add). This simply exposes the underlying FMA
+  function provided by the floating-point hardware or libraries.
+* In programs, now handles pasting FIX/SCI/ENG with 1-digit argument, for HP-41
+  compatibility.
+
+2020-11-24: release 2.5.22a (Android only)
+
+* The previous release was crashing on a lot of devices; apparently the NDK
+  version I used to build it, r21b, is incompatible with certain older devices.
+  Going back to r19c for now.
+
+2020-11-23: release 2.5.22
+
+* Minor UI fixes and improvements: 'Close' menu item (Mac), Copy and Paste in
+  dialogs (Mac), Unicode support in file names (Windows), and pre-populating
+  file names in file selection dialogs (all versions).
+* Implemented LASTO. This is related to LSTO like ASTO is related to STO.
+* Implemented No-Operation (NOP) function. This function does nothing, as its
+  name suggests, and can be useful when using ISG for counting without an upper
+  bound, for instance. The function is encoded using the 0xF0 opcode, which is
+  sometimes used on the HP-41 for the same purpose.
+* On the real HP-42S, GETKEY halts program execution when R/S, EXIT, or Shift-
+  EXIT are pressed. In Free42, however, Shift-EXIT did not cause program
+  execution to halt. Fixed.
+* Implemented GETKEY1 function. This works like the regular GETKEY, except it
+  only halts on R/S, allowing programs to implement custom behaviors for EXIT
+  and Shift-EXIT.
+* STOFLAG didn't update the G and RAD annunciators when flags 42 or 43 were
+  changed. Fixed.
+* Implemented range option for STOFLAG: with the flags in Y and a number bb.ee
+  in X, only flags bb through ee are restored, while the others are untouched.
+  If ee is zero, only flag bb is restored. This mode of operation exists in the
+  HP-41 Extended Functions module and in the HP-41CX, but was missing in the
+  Free42 implementation.
+* Binary version: Changed maximum WSIZE from 52 to 53.
+* MacOS version: Building universal binary now, with Intel and ARM (Apple
+  Silicon) support.
+* iOS version: Fixed crash when saving print-out using Share -> Save Image.
+
+2020-10-24: release 2.5.21
+
+* Implemented ANUM, X<>F, RCLFLAG, and STOFLAG functions. See the Free42 web
+  site for details.
+* Implemented "stack trace" mode: when flags 15 and 16 are both set, the
+  printer prints in a variation of TRACE mode, printing not just X after every
+  instruction, but the entire stack.
+* Pasting long numbers could return incorrect results if many leading zeroes
+  were present. Fixed.
+* Real/complex and complex/complex division could return Not a Number for
+  certain inputs, e.g. 1e3200 ENTER COMPLEX ENTER /. Fixed. Also applied a
+  similar fix to complex 1/X.
+* Complex matrix division, INVRT, and DET would return incorrect results for
+  large matrices (20x20 or greater). Fixed.
+
 2020-09-20: release 2.5.20
 
 * Fixed INTEG behavior when integrand returns non-real. It used to treat such
@@ -330,8 +445,8 @@
 * Adding -mfpu=vfp to compilation flags when building the Intel library for
   armv7. Apparently, with NDK r19c, Neon is enabled by default, but Neon is not
   supported on all armv7 Android devices, so this setting is causing 2.3.1 to
-  crash on certain phones. (2.2.1b and earlier were built with an earlier NDK,
-  which did not have this problem.)
+  crash on certain phones. (2.2.1b and earlier were built with r4b, which did
+  not have this problem.)
 
 2019-06-25: release 2.3.1
 

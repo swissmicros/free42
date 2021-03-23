@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2020  Thomas Okken
+ * Copyright (C) 2004-2021  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -19,7 +19,7 @@
 #import <WebKit/WebKit.h>
 
 #define FILENAMELEN 256
-#define SHELL_VERSION 2
+#define SHELL_VERSION 3
 
 struct state_type {
     int printerToTxtFile;
@@ -35,6 +35,7 @@ struct state_type {
     bool matrix_singularmatrix;
     bool matrix_outofrange;
     bool auto_repeat;
+    bool allow_big_stack;
 };
 
 extern state_type state;
@@ -72,6 +73,7 @@ void calc_keymodifierschanged(NSUInteger flags);
     NSButton *prefsSingularMatrix;
     NSButton *prefsMatrixOutOfRange;
     NSButton *prefsAutoRepeat;
+    NSButton *prefsAllowBigStack;
     NSButton *prefsPrintText;
     NSTextField *prefsPrintTextFile;
     NSButton *prefsPrintTextRaw;
@@ -96,6 +98,12 @@ void calc_keymodifierschanged(NSUInteger flags);
     SkinListDataSource *skinListDataSource;
     
     StatesWindow *statesWindow;
+    
+    // Skin loading stuff
+    NSURLSession *session;
+    NSURLSessionDataTask *task[2];
+    BOOL taskSuccess[2];
+    NSString *skinName;
 }
 
 @property (nonatomic, retain) IBOutlet NSWindow *mainWindow;
@@ -106,6 +114,7 @@ void calc_keymodifierschanged(NSUInteger flags);
 @property (nonatomic, retain) IBOutlet NSButton *prefsSingularMatrix;
 @property (nonatomic, retain) IBOutlet NSButton *prefsMatrixOutOfRange;
 @property (nonatomic, retain) IBOutlet NSButton *prefsAutoRepeat;
+@property (nonatomic, retain) IBOutlet NSButton *prefsAllowBigStack;
 @property (nonatomic, retain) IBOutlet NSButton *prefsPrintText;
 @property (nonatomic, retain) IBOutlet NSTextField *prefsPrintTextFile;
 @property (nonatomic, retain) IBOutlet NSButton *prefsPrintTextRaw;
@@ -144,8 +153,8 @@ void calc_keymodifierschanged(NSUInteger flags);
 - (IBAction) exportPrograms:(id)sender;
 - (IBAction) exportProgramsCancel:(id)sender;
 - (IBAction) exportProgramsOK:(id)sender;
-- (IBAction) doCopy:(id)sender;
-- (IBAction) doPaste:(id)sender;
+- (IBAction) copy:(id)sender;
+- (IBAction) paste:(id)sender;
 - (IBAction) doCopyPrintOutAsText:(id)sender;
 - (IBAction) doCopyPrintOutAsImage:(id)sender;
 - (IBAction) clearPrintOut:(id)sender;

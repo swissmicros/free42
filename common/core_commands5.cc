@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2020  Thomas Okken
+ * Copyright (C) 2004-2021  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -113,26 +113,25 @@ int docmd_and(arg_struct *arg) {
     int8 x, y;
     int err;
     vartype *v;
-    if ((err = get_base_param(reg_x, &x)) != ERR_NONE)
+    if ((err = get_base_param(stack[sp], &x)) != ERR_NONE)
         return err;
-    if ((err = get_base_param(reg_y, &y)) != ERR_NONE)
+    if ((err = get_base_param(stack[sp - 1], &y)) != ERR_NONE)
         return err;
     int8 res = x & y;
     base_range_check(&res, true);
     v = new_real(base2phloat(res));
     if (v == NULL)
         return ERR_INSUFFICIENT_MEMORY;
-    binary_result(v);
-    return ERR_NONE;
+    return binary_result(v);
 }
 
 int docmd_baseadd(arg_struct *arg) {
     int8 x, y, res;
     int err;
     vartype *v;
-    if ((err = get_base_param(reg_x, &x)) != ERR_NONE)
+    if ((err = get_base_param(stack[sp], &x)) != ERR_NONE)
         return err;
-    if ((err = get_base_param(reg_y, &y)) != ERR_NONE)
+    if ((err = get_base_param(stack[sp - 1], &y)) != ERR_NONE)
         return err;
     res = x + y;
     if (!flags.f.base_wrap && effective_wsize() == 64) {
@@ -165,17 +164,16 @@ int docmd_baseadd(arg_struct *arg) {
     v = new_real(base2phloat(res));
     if (v == NULL)
         return ERR_INSUFFICIENT_MEMORY;
-    binary_result(v);
-    return ERR_NONE;
+    return binary_result(v);
 }
 
 int docmd_basesub(arg_struct *arg) {
     int8 x, y, res;
     int err;
     vartype *v;
-    if ((err = get_base_param(reg_x, &x)) != ERR_NONE)
+    if ((err = get_base_param(stack[sp], &x)) != ERR_NONE)
         return err;
-    if ((err = get_base_param(reg_y, &y)) != ERR_NONE)
+    if ((err = get_base_param(stack[sp - 1], &y)) != ERR_NONE)
         return err;
     if (!flags.f.base_signed && !flags.f.base_wrap && (uint8) x > (uint8) y) {
         if (flags.f.range_error_ignore)
@@ -209,8 +207,7 @@ int docmd_basesub(arg_struct *arg) {
     v = new_real(base2phloat(res));
     if (v == NULL)
         return ERR_INSUFFICIENT_MEMORY;
-    binary_result(v);
-    return ERR_NONE;
+    return binary_result(v);
 }
 
 int docmd_basemul(arg_struct *arg) {
@@ -218,9 +215,9 @@ int docmd_basemul(arg_struct *arg) {
     int8 res;
     int err;
     vartype *v;
-    if ((err = get_base_param(reg_x, &x)) != ERR_NONE)
+    if ((err = get_base_param(stack[sp], &x)) != ERR_NONE)
         return err;
-    if ((err = get_base_param(reg_y, &y)) != ERR_NONE)
+    if ((err = get_base_param(stack[sp - 1], &y)) != ERR_NONE)
         return err;
     if (x == 0 || y == 0) {
         res = 0;
@@ -319,17 +316,16 @@ int docmd_basemul(arg_struct *arg) {
     v = new_real(base2phloat(res));
     if (v == NULL)
         return ERR_INSUFFICIENT_MEMORY;
-    binary_result(v);
-    return ERR_NONE;
+    return binary_result(v);
 }
 
 int docmd_basediv(arg_struct *arg) {
     int8 x, y, res;
     int err;
     vartype *v;
-    if ((err = get_base_param(reg_x, &x)) != ERR_NONE)
+    if ((err = get_base_param(stack[sp], &x)) != ERR_NONE)
         return err;
-    if ((err = get_base_param(reg_y, &y)) != ERR_NONE)
+    if ((err = get_base_param(stack[sp - 1], &y)) != ERR_NONE)
         return err;
     if (x == 0)
         return ERR_DIVIDE_BY_0;
@@ -342,14 +338,13 @@ int docmd_basediv(arg_struct *arg) {
     v = new_real(base2phloat(res));
     if (v == NULL)
         return ERR_INSUFFICIENT_MEMORY;
-    binary_result(v);
-    return ERR_NONE;
+    return binary_result(v);
 }
 
 int docmd_basechs(arg_struct *arg) {
     int8 x;
     int err;
-    if ((err = get_base_param(reg_x, &x)) != ERR_NONE)
+    if ((err = get_base_param(stack[sp], &x)) != ERR_NONE)
         return err;
     if (flags.f.base_wrap) {
         x = -x;
@@ -372,7 +367,7 @@ int docmd_basechs(arg_struct *arg) {
         } else
             x = 0;
     }
-    ((vartype_real *) reg_x)->x = base2phloat(x);
+    ((vartype_real *) stack[sp])->x = base2phloat(x);
     return ERR_NONE;
 }
 
@@ -409,7 +404,7 @@ static int get_summation() {
     if (last > size)
         return ERR_SIZE_ERROR;
     for (i = first; i < last; i++)
-        if (r->array->is_string[i])
+        if (r->array->is_string[i] != 0)
             return ERR_ALPHA_DATA_IS_INVALID;
     sigmaregs = r->array->data + first;
     sum.x = sigmaregs[0];
@@ -596,9 +591,9 @@ int docmd_best(arg_struct *arg) {
 int docmd_bit_t(arg_struct *arg) {
     int8 x, y;
     int err;
-    if ((err = get_base_param(reg_x, &x)) != ERR_NONE)
+    if ((err = get_base_param(stack[sp], &x)) != ERR_NONE)
         return err;
-    if ((err = get_base_param(reg_y, &y)) != ERR_NONE)
+    if ((err = get_base_param(stack[sp - 1], &y)) != ERR_NONE)
         return err;
     if (x < 0 || x >= effective_wsize())
         return ERR_INVALID_DATA;
@@ -615,8 +610,7 @@ int docmd_corr(arg_struct *arg) {
     rv = new_real(r);
     if (rv == NULL)
         return ERR_INSUFFICIENT_MEMORY;
-    recall_result(rv);
-    return ERR_NONE;
+    return recall_result(rv);
 }
 
 static int mappable_fcstx(phloat x, phloat *y) {
@@ -645,12 +639,12 @@ int docmd_fcstx(arg_struct *arg) {
     err = slope_yint_helper();
     if (err != ERR_NONE)
         return err;
-    if (reg_x->type == TYPE_REAL || reg_x->type == TYPE_REALMATRIX) {
-        err = map_unary(reg_x, &v, mappable_fcstx, NULL);
+    if (stack[sp]->type == TYPE_REAL || stack[sp]->type == TYPE_REALMATRIX) {
+        err = map_unary(stack[sp], &v, mappable_fcstx, NULL);
         if (err == ERR_NONE)
             unary_result(v);
         return err;
-    } else if (reg_x->type == TYPE_STRING)
+    } else if (stack[sp]->type == TYPE_STRING)
         return ERR_ALPHA_DATA_IS_INVALID;
     else
         return ERR_INVALID_TYPE;
@@ -680,12 +674,12 @@ int docmd_fcsty(arg_struct *arg) {
     err = slope_yint_helper();
     if (err != ERR_NONE)
         return err;
-    if (reg_x->type == TYPE_REAL || reg_x->type == TYPE_REALMATRIX) {
-        err = map_unary(reg_x, &v, mappable_fcsty, NULL);
+    if (stack[sp]->type == TYPE_REAL || stack[sp]->type == TYPE_REALMATRIX) {
+        err = map_unary(stack[sp], &v, mappable_fcsty, NULL);
         if (err == ERR_NONE)
             unary_result(v);
         return err;
-    } else if (reg_x->type == TYPE_STRING)
+    } else if (stack[sp]->type == TYPE_STRING)
         return ERR_ALPHA_DATA_IS_INVALID;
     else
         return ERR_INVALID_TYPE;
@@ -714,14 +708,12 @@ int docmd_mean(arg_struct *arg) {
         free_vartype(mx);
         return ERR_INSUFFICIENT_MEMORY;
     }
-    free_vartype(reg_y);
-    reg_y = my;
-    free_vartype(reg_lastx);
-    reg_lastx = reg_x;
-    reg_x = mx;
-    if (flags.f.trace_print && flags.f.printer_enable)
-        docmd_prx(NULL);
-    return ERR_NONE;
+    if (flags.f.big_stack) {
+        return recall_two_results(mx, my);
+    } else {
+        binary_two_results(mx, my);
+        return ERR_NONE;
+    }
 }
 
 int docmd_sdev(arg_struct *arg) {
@@ -752,14 +744,12 @@ int docmd_sdev(arg_struct *arg) {
         free_vartype(sx);
         return ERR_INSUFFICIENT_MEMORY;
     }
-    free_vartype(reg_y);
-    reg_y = sy;
-    free_vartype(reg_lastx);
-    reg_lastx = reg_x;
-    reg_x = sx;
-    if (flags.f.trace_print && flags.f.printer_enable)
-        docmd_prx(NULL);
-    return ERR_NONE;
+    if (flags.f.big_stack) {
+        return recall_two_results(sx, sy);
+    } else {
+        binary_two_results(sx, sy);
+        return ERR_NONE;
+    }
 }
 
 int docmd_slope(arg_struct *arg) {
@@ -773,8 +763,7 @@ int docmd_slope(arg_struct *arg) {
     v = new_real(model.slope);
     if (v == NULL)
         return ERR_INSUFFICIENT_MEMORY;
-    recall_result(v);
-    return ERR_NONE;
+    return recall_result(v);
 }
 
 int docmd_sum(arg_struct *arg) {
@@ -790,14 +779,12 @@ int docmd_sum(arg_struct *arg) {
         free_vartype(sx);
         return ERR_INSUFFICIENT_MEMORY;
     }
-    free_vartype(reg_lastx);
-    free_vartype(reg_y);
-    reg_y = sy;
-    reg_lastx = reg_x;
-    reg_x = sx;
-    if (flags.f.trace_print && flags.f.printer_enable)
-        docmd_prx(NULL);
-    return ERR_NONE;
+    if (flags.f.big_stack) {
+        return recall_two_results(sx, sy);
+    } else {
+        binary_two_results(sx, sy);
+        return ERR_NONE;
+    }
 }
 
 int docmd_wmean(arg_struct *arg) {
@@ -815,8 +802,7 @@ int docmd_wmean(arg_struct *arg) {
     v = new_real(wm);
     if (v == NULL)
         return ERR_INSUFFICIENT_MEMORY;
-    recall_result(v);
-    return ERR_NONE;
+    return recall_result(v);
 }
 
 int docmd_yint(arg_struct *arg) {
@@ -837,8 +823,7 @@ int docmd_yint(arg_struct *arg) {
     v = new_real(yint);
     if (v == NULL)
         return ERR_INSUFFICIENT_MEMORY;
-    recall_result(v);
-    return ERR_NONE;
+    return recall_result(v);
 }
 
 int docmd_integ(arg_struct *arg) {
@@ -867,7 +852,7 @@ int docmd_not(arg_struct *arg) {
     int8 x;
     int err;
     vartype *v;
-    if ((err = get_base_param(reg_x, &x)) != ERR_NONE)
+    if ((err = get_base_param(stack[sp], &x)) != ERR_NONE)
         return err;
     int8 res = ~x;
     base_range_check(&res, true);
@@ -882,17 +867,16 @@ int docmd_or(arg_struct *arg) {
     int8 x, y; 
     int err; 
     vartype *v;
-    if ((err = get_base_param(reg_x, &x)) != ERR_NONE) 
+    if ((err = get_base_param(stack[sp], &x)) != ERR_NONE) 
         return err;
-    if ((err = get_base_param(reg_y, &y)) != ERR_NONE)
+    if ((err = get_base_param(stack[sp - 1], &y)) != ERR_NONE)
         return err;
     int8 res = x | y;
     base_range_check(&res, true);
     v = new_real(base2phloat(res));
     if (v == NULL) 
         return ERR_INSUFFICIENT_MEMORY;
-    binary_result(v);
-    return ERR_NONE;
+    return binary_result(v);
 }
 
 int docmd_pgmslv(arg_struct *arg) {
@@ -945,12 +929,12 @@ int appmenu_exitcallback_3(int menuid, bool exitall) {
 }
 
 int docmd_pgmslvi(arg_struct *arg) {
-    /* This command can only be invoked from a menu; we assume that
-     * the menu handler only gives us valid arguments. We do check
-     * the argument type, but the existence of the named label, and
-     * whether it actually has MVAR instructions, we just assume.
-     */
     if (arg->type == ARGTYPE_STR) {
+        int idx;
+        if (!find_global_label_index(arg, &idx))
+            return ERR_LABEL_NOT_FOUND;
+        if (!label_has_mvar(idx))
+            return ERR_NO_MENU_VARIABLES;
         set_solve_prgm(arg->val.text, arg->length);
         string_copy(varmenu, &varmenu_length, arg->val.text, arg->length);
         varmenu_row = 0;
@@ -984,12 +968,12 @@ int appmenu_exitcallback_5(int menuid, bool exitall) {
 }
 
 int docmd_pgminti(arg_struct *arg) {
-    /* This command can only be invoked from a menu; we assume that
-     * the menu handler only gives us valid arguments. We do check
-     * the argument type, but the existence of the named label, and
-     * whether it actually has MVAR instructions, we just assume.
-     */
     if (arg->type == ARGTYPE_STR) {
+        int idx;
+        if (!find_global_label_index(arg, &idx))
+            return ERR_LABEL_NOT_FOUND;
+        if (!label_has_mvar(idx))
+            return ERR_NO_MENU_VARIABLES;
         set_integ_prgm(arg->val.text, arg->length);
         string_copy(varmenu, &varmenu_length, arg->val.text, arg->length);
         varmenu_row = 0;
@@ -1015,17 +999,13 @@ int docmd_rotxy(arg_struct *arg) {
     // Not using get_base_param() to fetch x, because that
     // would make it impossible to specify a negative shift
     // count in unsigned mode.
-    if (reg_x->type == TYPE_STRING)
-        return ERR_ALPHA_DATA_IS_INVALID;
-    else if (reg_x->type != TYPE_REAL)
-        return ERR_INVALID_TYPE;
-    phloat px = floor(((vartype_real *) reg_x)->x);
+    phloat px = floor(((vartype_real *) stack[sp])->x);
     int wsize = effective_wsize();
     if (px >= wsize || px <= -wsize)
         return ERR_INVALID_DATA;
     x = to_int(px);
 
-    if ((err = get_base_param(reg_y, (int8 *) &y)) != ERR_NONE)
+    if ((err = get_base_param(stack[sp - 1], (int8 *) &y)) != ERR_NONE)
         return err;
     if (x == 0)
         res = y;
@@ -1043,8 +1023,7 @@ int docmd_rotxy(arg_struct *arg) {
     v = new_real(base2phloat((int8) res));
     if (v == NULL) 
         return ERR_INSUFFICIENT_MEMORY;
-    binary_result(v);
-    return ERR_NONE;
+    return binary_result(v);
 }
 
 int docmd_solve(arg_struct *arg) {
@@ -1071,9 +1050,9 @@ int docmd_solve(arg_struct *arg) {
     else
         return ERR_INVALID_TYPE;
 
-    if (reg_x->type == TYPE_REAL)
-        x2 = ((vartype_real *) reg_x)->x;
-    else if (reg_x->type == TYPE_STRING)
+    if (stack[sp]->type == TYPE_REAL)
+        x2 = ((vartype_real *) stack[sp])->x;
+    else if (stack[sp]->type == TYPE_STRING)
         return ERR_ALPHA_DATA_IS_INVALID;
     else
         return ERR_INVALID_TYPE;
@@ -1112,103 +1091,92 @@ int docmd_xor(arg_struct *arg) {
     int8 x, y;
     int err; 
     vartype *v;
-    if ((err = get_base_param(reg_x, &x)) != ERR_NONE) 
+    if ((err = get_base_param(stack[sp], &x)) != ERR_NONE) 
         return err;
-    if ((err = get_base_param(reg_y, &y)) != ERR_NONE)
+    if ((err = get_base_param(stack[sp - 1], &y)) != ERR_NONE)
         return err;
     int8 res = x ^ y;
     base_range_check(&res, true);
     v = new_real(base2phloat(res));
     if (v == NULL) 
         return ERR_INSUFFICIENT_MEMORY;
-    binary_result(v);
-    return ERR_NONE;
+    return binary_result(v);
 }
 
 int docmd_to_dec(arg_struct *arg) {
-    if (reg_x->type == TYPE_REAL) {
-        phloat oct = ((vartype_real *) reg_x)->x;
-        phloat res;
-        int neg = oct < 0;
-        if (neg)
-            oct = -oct;
-        if (oct > 777777777777.0 || oct != floor(oct))
-            return ERR_INVALID_DATA;
-        vartype *v;
-        #ifdef BCD_MATH
-            phloat dec = 0, mul = 1;
-            while (oct != 0) {
-                int digit = to_digit(oct);
-                if (digit > 7)
-                    return ERR_INVALID_DATA;
-                oct = floor(oct / 10);
-                dec += digit * mul;
-                mul *= 8;
-            }
-            res = neg ? -dec : dec;
-        #else
-            int8 ioct = to_int8(oct);
-            int8 dec = 0, mul = 1;
-            while (ioct != 0) {
-                int digit = (int) (ioct % 10);
-                if (digit > 7)
-                    return ERR_INVALID_DATA;
-                ioct /= 10;
-                dec += digit * mul;
-                mul <<= 3;
-            }
-            res = (double) (neg ? -dec : dec);
-        #endif
-        v = new_real(res);
-        if (v == NULL)
-            return ERR_INSUFFICIENT_MEMORY;
-        unary_result(v);
-        return ERR_NONE;
-    } else if (reg_x->type == TYPE_STRING)
-        return ERR_ALPHA_DATA_IS_INVALID;
-    else
-        return ERR_INVALID_TYPE;
+    phloat oct = ((vartype_real *) stack[sp])->x;
+    phloat res;
+    int neg = oct < 0;
+    if (neg)
+        oct = -oct;
+    if (oct > 777777777777.0 || oct != floor(oct))
+        return ERR_INVALID_DATA;
+    vartype *v;
+    #ifdef BCD_MATH
+        phloat dec = 0, mul = 1;
+        while (oct != 0) {
+            int digit = to_digit(oct);
+            if (digit > 7)
+                return ERR_INVALID_DATA;
+            oct = floor(oct / 10);
+            dec += digit * mul;
+            mul *= 8;
+        }
+        res = neg ? -dec : dec;
+    #else
+        int8 ioct = to_int8(oct);
+        int8 dec = 0, mul = 1;
+        while (ioct != 0) {
+            int digit = (int) (ioct % 10);
+            if (digit > 7)
+                return ERR_INVALID_DATA;
+            ioct /= 10;
+            dec += digit * mul;
+            mul <<= 3;
+        }
+        res = (double) (neg ? -dec : dec);
+    #endif
+    v = new_real(res);
+    if (v == NULL)
+        return ERR_INSUFFICIENT_MEMORY;
+    unary_result(v);
+    return ERR_NONE;
 }
 
 int docmd_to_oct(arg_struct *arg) {
-    if (reg_x->type == TYPE_REAL) {
-        phloat dec = ((vartype_real *) reg_x)->x;
-        phloat res;
-        int neg = dec < 0;
-        if (neg)
-            dec = -dec;
-        if (dec > 68719476735.0 || dec != floor(dec))
-            return ERR_INVALID_DATA;
-        vartype *v;
-        #ifdef BCD_MATH
-            phloat oct = 0, mul = 1;
-            while (dec != 0) {
-                int digit = to_int(fmod(dec, 8));
-                dec = floor(dec / 8);
-                oct += digit * mul;
-                mul *= 10;
-            }
-            res = neg ? -oct : oct;
-        #else
-            int8 idec = to_int8(dec);
-            int8 oct = 0, mul = 1;
-            while (idec != 0) {
-                int digit = (int) (idec & 7);
-                idec >>= 3;
-                oct += digit * mul;
-                mul *= 10;
-            }
-            res = (double) (neg ? -oct : oct);
-        #endif
-        v = new_real(res);
-        if (v == NULL)
-            return ERR_INSUFFICIENT_MEMORY;
-        unary_result(v);
-        return ERR_NONE;
-    } else if (reg_x->type == TYPE_STRING)
-        return ERR_ALPHA_DATA_IS_INVALID;
-    else
-        return ERR_INVALID_TYPE;
+    phloat dec = ((vartype_real *) stack[sp])->x;
+    phloat res;
+    int neg = dec < 0;
+    if (neg)
+        dec = -dec;
+    if (dec > 68719476735.0 || dec != floor(dec))
+        return ERR_INVALID_DATA;
+    vartype *v;
+    #ifdef BCD_MATH
+        phloat oct = 0, mul = 1;
+        while (dec != 0) {
+            int digit = to_int(fmod(dec, 8));
+            dec = floor(dec / 8);
+            oct += digit * mul;
+            mul *= 10;
+        }
+        res = neg ? -oct : oct;
+    #else
+        int8 idec = to_int8(dec);
+        int8 oct = 0, mul = 1;
+        while (idec != 0) {
+            int digit = (int) (idec & 7);
+            idec >>= 3;
+            oct += digit * mul;
+            mul *= 10;
+        }
+        res = (double) (neg ? -oct : oct);
+    #endif
+    v = new_real(res);
+    if (v == NULL)
+        return ERR_INSUFFICIENT_MEMORY;
+    unary_result(v);
+    return ERR_NONE;
 }
 
 static void accum(phloat *sum, phloat term, int weight) {
@@ -1286,39 +1254,39 @@ static int sigma_helper_1(int weight) {
     if (last > size)
         return ERR_SIZE_ERROR;
     for (i = first; i < last; i++)
-        if (r->array->is_string[i])
+        if (r->array->is_string[i] != 0)
             return ERR_ALPHA_DATA_IS_INVALID;
     sigmaregs = r->array->data + first;
 
     /* All summation registers present, real-valued, non-string. */
-    switch (reg_x->type) {
+    switch (stack[sp]->type) {
         case TYPE_REAL: {
-            if (reg_y->type == TYPE_REAL) {
+            if (stack[sp - 1]->type == TYPE_REAL) {
                 vartype_real *x = (vartype_real *) new_real(0);
                 if (x == NULL)
                     return ERR_INSUFFICIENT_MEMORY;
                 x->x = sigma_helper_2(sigmaregs,
-                                      ((vartype_real *) reg_x)->x,
-                                      ((vartype_real *) reg_y)->x,
+                                      ((vartype_real *) stack[sp])->x,
+                                      ((vartype_real *) stack[sp - 1])->x,
                                       weight);
-                free_vartype(reg_lastx);
-                reg_lastx = reg_x;
-                reg_x = (vartype *) x;
+                free_vartype(lastx);
+                lastx = stack[sp];
+                stack[sp] = (vartype *) x;
                 mode_disable_stack_lift = true;
                 return ERR_NONE;
-            } else if (reg_y->type == TYPE_STRING)
+            } else if (stack[sp - 1]->type == TYPE_STRING)
                 return ERR_ALPHA_DATA_IS_INVALID;
             else
                 return ERR_INVALID_TYPE;
         }
         case TYPE_REALMATRIX: {
-            vartype_realmatrix *rm = (vartype_realmatrix *) reg_x;
+            vartype_realmatrix *rm = (vartype_realmatrix *) stack[sp];
             vartype_real *x;
             int4 i;
             if (rm->columns != 2)
                 return ERR_DIMENSION_ERROR;
             for (i = 0; i < rm->rows * 2; i++)
-                if (rm->array->is_string[i])
+                if (rm->array->is_string[i] != 0)
                     return ERR_ALPHA_DATA_IS_INVALID;
             x = (vartype_real *) new_real(0);
             if (x == NULL)
@@ -1328,9 +1296,9 @@ static int sigma_helper_1(int weight) {
                                       rm->array->data[i * 2],
                                       rm->array->data[i * 2 + 1],
                                       weight);
-            free_vartype(reg_lastx);
-            reg_lastx = reg_x;
-            reg_x = (vartype *) x;
+            free_vartype(lastx);
+            lastx = stack[sp];
+            stack[sp] = (vartype *) x;
             mode_disable_stack_lift = true;
             return ERR_NONE;
         }
@@ -1343,14 +1311,14 @@ static int sigma_helper_1(int weight) {
 
 int docmd_sigmaadd(arg_struct *arg) {
     int err = sigma_helper_1(1);
-    if (err == ERR_NONE && flags.f.trace_print && flags.f.printer_exists)
-        docmd_prx(NULL);
+    if (err == ERR_NONE)
+        print_trace();
     return err;
 }
 
 int docmd_sigmasub(arg_struct *arg) {
     int err = sigma_helper_1(-1);
-    if (err == ERR_NONE && flags.f.trace_print && flags.f.printer_exists)
-        docmd_prx(NULL);
+    if (err == ERR_NONE)
+        print_trace();
     return err;
 }

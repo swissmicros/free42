@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2020  Thomas Okken
+ * Copyright (C) 2004-2021  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -24,6 +24,7 @@
 #include "core_main.h"
 #include "core_commands2.h"
 #include "core_commands4.h"
+#include "core_commands7.h"
 #include "core_display.h"
 #include "core_display.h"
 #include "core_helpers.h"
@@ -39,6 +40,14 @@
 // We need these locally for BID128->double conversion
 #include "bid_conf.h"
 #include "bid_functions.h"
+#endif
+
+#ifdef WINDOWS
+FILE *my_fopen(const char *name, const char *mode);
+int my_rename(const char *oldname, const char *newname);
+#else
+#define my_fopen fopen
+#define my_rename rename
 #endif
 
 
@@ -71,23 +80,6 @@ void core_init(int read_saved_state, int4 version, const char *state_file_name, 
 
     phloat_init();
 
-    #if defined(ANDROID) || defined(IPHONE)
-        core_settings.enable_ext_accel = true;
-        core_settings.enable_ext_locat = true;
-        core_settings.enable_ext_heading = true;
-    #else
-        core_settings.enable_ext_accel = false;
-        core_settings.enable_ext_locat = false;
-        core_settings.enable_ext_heading = false;
-    #endif
-    #ifdef FREE42_FPTEST
-        core_settings.enable_ext_fptest = true;
-    #else
-        core_settings.enable_ext_fptest = false;
-    #endif
-    core_settings.enable_ext_time = true;
-    core_settings.enable_ext_prog = true;
-
 #ifndef ARM
     char *state_file_name_crash = NULL;
     if (read_saved_state == 1) {
@@ -104,13 +96,13 @@ void core_init(int read_saved_state, int4 version, const char *state_file_name, 
             int weekday;
             shell_get_time_date(&time, &date, &weekday);
             sprintf(state_file_name_crash, "%s.%08u%08u.crash", state_file_name, date, time);
-            rename(state_file_name, state_file_name_crash);
-            gfile = fopen(state_file_name_crash, "rb");
+            my_rename(state_file_name, state_file_name_crash);
+            gfile = my_fopen(state_file_name_crash, "rb");
         } else
 #else
     if (read_saved_state == 1) {
 #endif
-            gfile = fopen(state_file_name, "rb");
+            gfile = my_fopen(state_file_name, "rb");
         if (gfile == NULL)
             read_saved_state = 0;
         else if (offset > 0)
@@ -124,23 +116,22 @@ void core_init(int read_saved_state, int4 version, const char *state_file_name, 
         reason = too_new ? 2 : (read_saved_state != 0 && !clear) ? 1 : 0;
         hard_reset(reason);
     }
-
     if (gfile != NULL)
         fclose(gfile);
 #ifndef ARM
     if (state_file_name != NULL) {
         if (reason == 0) {
             if (state_file_name_crash != NULL)
-                rename(state_file_name_crash, state_file_name);
+                my_rename(state_file_name_crash, state_file_name);
         } else {
             char *tmp = (char *) malloc(strlen(state_file_name) + 9);
             if (tmp != NULL) {
                 strcpy(tmp, state_file_name);
                 strcat(tmp, reason == 1 ? ".corrupt" : ".too_new");
                 if (state_file_name_crash != NULL)
-                    rename(state_file_name_crash, tmp);
+                    my_rename(state_file_name_crash, tmp);
                 else
-                    rename(state_file_name, tmp);
+                    my_rename(state_file_name, tmp);
                 free(tmp);
             }
         }
@@ -153,7 +144,7 @@ void core_init(int read_saved_state, int4 version, const char *state_file_name, 
                        mode_shift,
                        0 /*print*/,
                        mode_running,
-                       flags.f.grad,
+                       !flags.f.rad && flags.f.grad,
                        flags.f.rad || flags.f.grad);
 }
 
@@ -161,7 +152,7 @@ void core_save_state(const char *state_file_name) {
     if (mode_interruptible != NULL)
         stop_interruptible();
     set_running(false);
-    gfile = fopen(state_file_name, "wb");
+    gfile = my_fopen(state_file_name, "wb");
     if (gfile != NULL) {
         save_state();
         fclose(gfile);
@@ -169,16 +160,14 @@ void core_save_state(const char *state_file_name) {
 }
 
 void core_cleanup() {
-    free_vartype(reg_x);
-    reg_x = NULL;
-    free_vartype(reg_y);
-    reg_y = NULL;
-    free_vartype(reg_z);
-    reg_z = NULL;
-    free_vartype(reg_t);
-    reg_t = NULL;
-    free_vartype(reg_lastx);
-    reg_lastx = NULL;
+    for (int i = 0; i <= sp; i++)
+        free_vartype(stack[i]);
+    sp = -1;
+    free(stack);
+    stack = NULL;
+    stack_capacity = 0;
+    free_vartype(lastx);
+    lastx = NULL;
     purge_all_vars();
     clear_all_prgms();
     if (vars != NULL) {
@@ -193,27 +182,26 @@ void core_repaint_display() {
     repaint_display();
 }
 
-int core_menu() {
-    return mode_clall || get_front_menu() != NULL;
+bool core_menu() {
+    return mode_clall || get_front_menu() != MENU_NONE;
 }
 
 bool alpha_active() {
-    int *menu = get_front_menu();
-    return menu != NULL && *menu >= MENU_ALPHA1 && *menu <= MENU_ALPHA_MISC2;
+    int menu = get_front_menu();
+    return menu >= MENU_ALPHA1 && menu <= MENU_ALPHA_MISC2;
 }
 
-int core_alpha_menu() {
+bool core_alpha_menu() {
     return !mode_getkey && alpha_active();
 }
 
-int core_hex_menu() {
-    int *menu = get_front_menu();
-    return menu != NULL && *menu == MENU_BASE_A_THRU_F;
+bool core_hex_menu() {
+    return get_front_menu() == MENU_BASE_A_THRU_F;
 }
 
 static int ascii2hp(char *dst, const char *src, int maxchars);
 
-int core_keydown_command(const char *name, int *enqueued, int *repeat) {
+bool core_keydown_command(const char *name, bool *enqueued, int *repeat) {
     char hpname[70];
     int len = ascii2hp(hpname, name, 63);
     int cmd = find_builtin(hpname, len, false);
@@ -224,7 +212,7 @@ int core_keydown_command(const char *name, int *enqueued, int *repeat) {
     return core_keydown(cmd == CMD_NONE ? 0 : cmd + 2048, enqueued, repeat);
 }
 
-int core_keydown(int key, int *enqueued, int *repeat) {
+bool core_keydown(int key, bool *enqueued, int *repeat) {
 
     *enqueued = 0;
     *repeat = 0;
@@ -270,7 +258,7 @@ int core_keydown(int key, int *enqueued, int *repeat) {
             }
             set_shift(false);
         }
-        error = mode_interruptible(0);
+        error = mode_interruptible(false);
         if (error == ERR_INTERRUPTIBLE)
             /* Still not done */
             return 1;
@@ -419,7 +407,7 @@ void core_keytimeout1() {
         flags.f.prgm_mode = 0;
         pending_command = saved_pending_command;
     } else if (pending_command != CMD_NONE && pending_command != CMD_CANCELLED
-            && (cmdlist(pending_command)->flags & FLAG_NO_SHOW) == 0) {
+            && (cmd_array[pending_command].flags & FLAG_NO_SHOW) == 0) {
         display_command(0);
         /* If the program catalog was left up by GTO or XEQ,
          * don't paint over it */
@@ -434,7 +422,7 @@ void core_keytimeout2() {
         return;
     remove_program_catalog = 0;
     if (pending_command != CMD_NONE && pending_command != CMD_CANCELLED
-            && (cmdlist(pending_command)->flags & FLAG_NO_SHOW) == 0) {
+            && (cmd_array[pending_command].flags & FLAG_NO_SHOW) == 0) {
         clear_row(0);
         draw_string(0, 0, "NULL", 4);
         display_x(1);
@@ -443,7 +431,7 @@ void core_keytimeout2() {
     }
 }
 
-bool core_timeout3(int repaint) {
+bool core_timeout3(bool repaint) {
     if (mode_pause) {
         if (repaint) {
             /* The PSE ended normally */
@@ -466,10 +454,10 @@ bool core_timeout3(int repaint) {
     return false;
 }
 
-int core_keyup() {
+bool core_keyup() {
     if (mode_pause) {
         /* The only way this can happen is if they key in question was Shift */
-        return 0;
+        return false;
     }
 
     int error = ERR_NONE;
@@ -493,7 +481,7 @@ int core_keyup() {
         shell_powerdown();
 #endif
         pending_command = CMD_NONE;
-        return 0;
+        return false;
     }
 
     if (pending_command == CMD_NONE)
@@ -529,13 +517,13 @@ int core_keyup() {
                 int llen, rlen;
                 string_copy(lbuf, &llen, input_name, input_length);
                 lbuf[llen++] = '=';
-                rlen = vartype2string(reg_x, rbuf, 100);
+                rlen = vartype2string(stack[sp], rbuf, 100);
                 print_wide(lbuf, llen, rbuf, rlen);
             }
             input_length = 0;
             if (err != ERR_NONE) {
                 pending_command = CMD_NONE;
-                display_error(err, 1);
+                display_error(err, true);
                 redisplay();
                 return mode_running || keybuf_head != keybuf_tail;
             }
@@ -549,7 +537,7 @@ int core_keyup() {
             input_length = 0;
     }
 
-    if (pending_command == CMD_VMEXEC) {
+    if (pending_command == CMD_VMEXEC || pending_command == CMD_PMEXEC) {
         string_copy(reg_alpha, &reg_alpha_length,
                     pending_command_arg.val.text, pending_command_arg.length);
         goto do_run;
@@ -565,7 +553,7 @@ int core_keyup() {
         if (pc == -1)
             pc = 0;
         set_running(true);
-        return 1;
+        return true;
     }
 
     if (pending_command == CMD_SST || pending_command == CMD_SST_RT) {
@@ -574,7 +562,7 @@ int core_keyup() {
         oldpc = pc;
         if (pc == -1)
             pc = 0;
-        get_next_command(&pc, &cmd, &arg, 1);
+        get_next_command(&pc, &cmd, &arg, 1, NULL);
         if (pending_command == CMD_SST_RT
                 && (cmd == CMD_XEQ || cmd == CMD_SOLVE || cmd == CMD_INTEG)) {
             pc = oldpc;
@@ -589,7 +577,7 @@ int core_keyup() {
         }
         mode_disable_stack_lift = false;
         set_running(true);
-        error = cmdlist(cmd)->handler(&arg);
+        error = handle(cmd, &arg);
         set_running(false);
         mode_pause = false;
     } else {
@@ -597,14 +585,14 @@ int core_keyup() {
                 && flags.f.printer_exists)
             print_command(pending_command, &pending_command_arg);
         mode_disable_stack_lift = false;
-        error = cmdlist(pending_command)->handler(&pending_command_arg);
+        error = handle(pending_command, &pending_command_arg);
         mode_pause = false;
     }
 
     if (error == ERR_INTERRUPTIBLE) {
         shell_annunciators(-1, -1, -1, 1, -1, -1);
         pending_command = CMD_NONE;
-        return 1;
+        return true;
     }
 
     handle_error(error);
@@ -614,7 +602,7 @@ int core_keyup() {
     return (mode_running && !mode_getkey && !mode_pause) || keybuf_head != keybuf_tail;
 }
 
-int core_powercycle() {
+bool core_powercycle() {
     bool need_redisplay = false;
 
     if (mode_interruptible != NULL)
@@ -640,15 +628,23 @@ int core_powercycle() {
          */
         vartype *seventy = new_real(70);
         if (seventy != NULL) {
-            recall_result(seventy);
+            if (recall_result(seventy) != ERR_NONE)
+                goto nomem;
             flags.f.stack_lift_disable = 0;
         } else {
-            display_error(ERR_INSUFFICIENT_MEMORY, 1);
+            nomem:
+            display_error(ERR_INSUFFICIENT_MEMORY, true);
             flags.f.auto_exec = 0;
         }
         if (!flags.f.auto_exec)
             need_redisplay = true;
         mode_getkey = false;
+    }
+    
+    if (flags.f.big_stack && !core_settings.allow_big_stack) {
+        arg_struct dummy_arg;
+        docmd_4stk(&dummy_arg);
+        need_redisplay = true;
     }
 
     if (flags.f.auto_exec) {
@@ -662,7 +658,8 @@ int core_powercycle() {
                 arg_struct arg;
                 arg.type = ARGTYPE_DOUBLE;
                 arg.val_d = entered_number;
-                store_command(pc, CMD_NUMBER, &arg);
+                cmdline[cmdline_length] = 0;
+                store_command(pc, CMD_NUMBER, &arg, cmdline);
                 prgm_highlight_row = 1;
             }
             flags.f.prgm_mode = false;
@@ -690,6 +687,19 @@ int core_powercycle() {
 
     return mode_running;
 }
+
+void core_update_allow_big_stack() {
+    if (prgms == NULL)
+        // Hack to deal with the Mac version calling this function
+        // after already having called core_quit()
+        return;
+    if (flags.f.big_stack && !core_settings.allow_big_stack) {
+        arg_struct dummy_arg;
+        docmd_4stk(&dummy_arg);
+    }
+    redisplay();
+}
+
 
 #ifdef ARM
 
@@ -883,7 +893,6 @@ static void export_hp42s(int index) {
     int cmd;
     arg_struct arg;
     int saved_prgm = current_prgm;
-    uint4 hp42s_code;
     unsigned char code_flags, code_name, code_std_1, code_std_2;
     char cmdbuf[50];
     int cmdlen;
@@ -893,12 +902,12 @@ static void export_hp42s(int index) {
 
     current_prgm = index;
     do {
-        get_next_command(&pc, &cmd, &arg, 0);
-        hp42s_code = cmdlist(cmd)->hp42s_code;
-        code_flags = hp42s_code >> 24;
-        code_name = hp42s_code >> 16;
-        code_std_1 = hp42s_code >> 8;
-        code_std_2 = hp42s_code;
+        const char *orig_num;
+        get_next_command(&pc, &cmd, &arg, 0, &orig_num);
+        code_flags = (cmd_array[cmd].flags & (FLAG_SPECIAL | FLAG_ILLEGAL)) >> 5;
+        code_name = cmd_array[cmd].scode;
+        code_std_1 = cmd_array[cmd].code1;
+        code_std_2 = cmd_array[cmd].code2;
         cmdlen = 0;
         switch (code_flags) {
             case 1:
@@ -1000,13 +1009,16 @@ static void export_hp42s(int index) {
                     cmdbuf[cmdlen++] = 0x00;
                     cmdbuf[cmdlen++] = 0x0D;
                 } else if (cmd == CMD_NUMBER) {
-                    char *p = phloat2program(arg.val_d);
-                    char dot = flags.f.decimal_point ? '.' : ',';
+                    const char *p;
+                    if (orig_num != NULL)
+                        p = orig_num;
+                    else
+                        p = phloat2program(arg.val_d);
                     char c;
                     while ((c = *p++) != 0) {
                         if (c >= '0' && c <= '9')
                             cmdbuf[cmdlen++] = 0x10 + c - '0';
-                        else if (c == dot)
+                        else if (c == '.' || c == ',')
                             cmdbuf[cmdlen++] = 0x1A;
                         else if (c == 24)
                             cmdbuf[cmdlen++] = 0x1B;
@@ -1033,7 +1045,7 @@ static void export_hp42s(int index) {
                          * actually used this in a program), we handle it
                          * anyway.
                          */
-                        const command_spec *cs = cmdlist(arg.val.cmd);
+                        const command_spec *cs = &cmd_array[arg.val.cmd];
                         cmdbuf[cmdlen++] = 0xF2 + cs->name_length;
                         cmdbuf[cmdlen++] = (char) 0xC0;
                         for (i = 0; i < cs->name_length; i++)
@@ -1070,15 +1082,26 @@ static void export_hp42s(int index) {
             normal:
                 if (arg.type == ARGTYPE_STR || arg.type == ARGTYPE_IND_STR) {
                     int i;
-                    cmdbuf[cmdlen++] = 0xF0 + arg.length + 1;
+                    if ((code_name & 0x80) == 0) {
+                        cmdbuf[cmdlen++] = 0xf0 + arg.length + 2;
+                        cmdbuf[cmdlen++] = 0xa7;
+                    } else {
+                        cmdbuf[cmdlen++] = 0xf0 + arg.length + 1;
+                    }
                     cmdbuf[cmdlen++] = arg.type == ARGTYPE_STR ? code_name
                                                             : code_name + 8;
                     for (i = 0; i < arg.length; i++)
                         cmdbuf[cmdlen++] = arg.val.text[i];
                 } else {
                     unsigned char suffix;
-                    if (code_std_1 != 0)
-                        cmdbuf[cmdlen++] = code_std_1;
+                    if (code_std_1 != 0) {
+                        if (code_std_1 == 0xf2 && (code_std_2 & 0x80) == 0) {
+                            cmdbuf[cmdlen++] = 0xf3;
+                            cmdbuf[cmdlen++] = 0xa7;
+                        } else {
+                            cmdbuf[cmdlen++] = code_std_1;
+                        }
+                    }
                     cmdbuf[cmdlen++] = code_std_2;
 
                     non_string_suffix:
@@ -1157,19 +1180,18 @@ int4 core_program_size(int prgm_index) {
     int cmd;
     arg_struct arg;
     int saved_prgm = current_prgm;
-    uint4 hp42s_code;
-    unsigned char code_flags, code_std_1;
-    //unsigned char code_name, code_std_2;
+    unsigned char code_flags, code_std_1, code_std_2;
+    //unsigned char code_name;
     int4 size = 0;
 
     current_prgm = prgm_index;
     do {
-        get_next_command(&pc, &cmd, &arg, 0);
-        hp42s_code = cmdlist(cmd)->hp42s_code;
-        code_flags = hp42s_code >> 24;
-        //code_name = hp42s_code >> 16;
-        code_std_1 = hp42s_code >> 8;
-        //code_std_2 = hp42s_code;
+        const char *orig_num;
+        get_next_command(&pc, &cmd, &arg, 0, &orig_num);
+        code_flags = (cmd_array[cmd].flags & (FLAG_SPECIAL | FLAG_ILLEGAL)) >> 5;
+        //code_name = cmd_array[cmd].scode;
+        code_std_1 = cmd_array[cmd].code1;
+        code_std_2 = cmd_array[cmd].code2;
         switch (code_flags) {
             case 1:
                 /* A command that requires some special attention */
@@ -1221,10 +1243,12 @@ int4 core_program_size(int prgm_index) {
                 } else if (cmd == CMD_END) {
                     /* Not counted for the line 00 total */
                 } else if (cmd == CMD_NUMBER) {
-                    char *p = phloat2program(arg.val_d);
-                    while (*p++ != 0)
-                        size += 1;
-                    size += 1;
+                    const char *p;
+                    if (orig_num != NULL)
+                        p = orig_num;
+                    else
+                        p = phloat2program(arg.val_d);
+                    size += strlen(p) + 1;
                 } else if (cmd == CMD_STRING) {
                     size += arg.length + 1;
                 } else if (cmd >= CMD_ASGN01 && cmd <= CMD_ASGN18) {
@@ -1236,7 +1260,7 @@ int4 core_program_size(int prgm_index) {
                          * actually used this in a program), we handle it
                          * anyway.
                          */
-                        size += cmdlist(arg.val.cmd)->name_length + 3;
+                        size += cmd_array[arg.val.cmd].name_length + 3;
                 } else if ((cmd >= CMD_KEY1G && cmd <= CMD_KEY9G) 
                             || (cmd >= CMD_KEY1X && cmd <= CMD_KEY9X)) {
                     if (arg.type == ARGTYPE_STR || arg.type == ARGTYPE_IND_STR)
@@ -1259,6 +1283,9 @@ int4 core_program_size(int prgm_index) {
                     if (arg.type != ARGTYPE_NONE)
                         size += 1;
                 }
+                if (code_std_1 == 0xf2 && (code_std_2 & 0x80) == 0)
+                    /* Extra extension */
+                    size += 1;
                 break;
             case 2:
             default:
@@ -1284,7 +1311,7 @@ void core_export_programs(int count, const int *indexes, const char *raw_file_na
         } else {
             raw_buf = NULL;
 #endif
-            gfile = fopen(raw_file_name, "wb");
+            gfile = my_fopen(raw_file_name, "wb");
             if (gfile == NULL) {
                 char msg[1024];
                 int err = errno;
@@ -1593,7 +1620,7 @@ static int hp42tofree42[] = {
 
     /* F0-FF */
     /* Strings + 42S ext */
-    CMD_NULL  | 0x3000,
+    CMD_NOP  | 0x0000,
     CMD_NULL  | 0x3000,
     CMD_NULL  | 0x3000,
     CMD_NULL  | 0x3000,
@@ -1613,7 +1640,160 @@ static int hp42tofree42[] = {
 
 static int hp42ext[] = {
     /* Flag values: 0 = string, 1 = IND string, 2 = suffix, 3 = special,
-     * 4 = illegal */
+     * 4 = illegal
+     * Values 80-ff are the space used on the HP-42S, that is, strings whose
+     * first character has its high bit set. Since the gaps left in that
+     * scheme ran out when development of Plus42 started, additional
+     * extensions had to be defined, and they are encoded using a7 as the
+     * first character, and the opcode in the second character. By keeping
+     * that second-character opcode in the range 00-7f, we can still
+     * use a single byte lookup for all these extensions.
+     */
+
+    /* 00-0F */
+    CMD_NULL    | 0x4000,
+    CMD_XASTO   | 0x0000,
+    CMD_LXASTO  | 0x0000,
+    CMD_HEAD    | 0x0000,
+    CMD_X_EQ_NN | 0x0000,
+    CMD_X_NE_NN | 0x0000,
+    CMD_X_LT_NN | 0x0000,
+    CMD_X_GT_NN | 0x0000,
+    CMD_NULL    | 0x4000,
+    CMD_XASTO   | 0x1000,
+    CMD_LXASTO  | 0x1000,
+    CMD_HEAD    | 0x1000,
+    CMD_X_EQ_NN | 0x1000,
+    CMD_X_NE_NN | 0x1000,
+    CMD_X_LT_NN | 0x1000,
+    CMD_X_GT_NN | 0x1000,
+
+    /* 10-1F */
+    CMD_NULL    | 0x4000,
+    CMD_XASTO   | 0x2000,
+    CMD_LXASTO  | 0x2000,
+    CMD_HEAD    | 0x2000,
+    CMD_X_EQ_NN | 0x2000,
+    CMD_X_NE_NN | 0x2000,
+    CMD_X_LT_NN | 0x2000,
+    CMD_X_GT_NN | 0x2000,
+    CMD_X_LE_NN | 0x2000,
+    CMD_X_GE_NN | 0x2000,
+    CMD_0_EQ_NN | 0x2000,
+    CMD_0_NE_NN | 0x2000,
+    CMD_0_LT_NN | 0x2000,
+    CMD_0_GT_NN | 0x2000,
+    CMD_0_LE_NN | 0x2000,
+    CMD_0_GE_NN | 0x2000,
+
+    /* 20-2F */
+    CMD_X_LE_NN | 0x0000,
+    CMD_X_GE_NN | 0x0000,
+    CMD_0_EQ_NN | 0x0000,
+    CMD_0_NE_NN | 0x0000,
+    CMD_0_LT_NN | 0x0000,
+    CMD_0_GT_NN | 0x0000,
+    CMD_0_LE_NN | 0x0000,
+    CMD_0_GE_NN | 0x0000,
+    CMD_X_LE_NN | 0x1000,
+    CMD_X_GE_NN | 0x1000,
+    CMD_0_EQ_NN | 0x1000,
+    CMD_0_NE_NN | 0x1000,
+    CMD_0_LT_NN | 0x1000,
+    CMD_0_GT_NN | 0x1000,
+    CMD_0_LE_NN | 0x1000,
+    CMD_0_GE_NN | 0x1000,
+
+    /* 30-3F */
+    CMD_PRMVAR | 0x2000,
+    CMD_NULL   | 0x4000,
+    CMD_NULL   | 0x4000,
+    CMD_NULL   | 0x4000,
+    CMD_NULL   | 0x4000,
+    CMD_NULL   | 0x4000,
+    CMD_NULL   | 0x4000,
+    CMD_NULL   | 0x4000,
+    CMD_NULL   | 0x4000,
+    CMD_NULL   | 0x4000,
+    CMD_NULL   | 0x4000,
+    CMD_NULL   | 0x4000,
+    CMD_NULL   | 0x4000,
+    CMD_NULL   | 0x4000,
+    CMD_NULL   | 0x4000,
+    CMD_NULL   | 0x4000,
+
+    /* 40-4F */
+    CMD_PRMVAR | 0x0000,
+    CMD_NULL   | 0x4000,
+    CMD_NULL   | 0x4000,
+    CMD_NULL   | 0x4000,
+    CMD_NULL   | 0x4000,
+    CMD_NULL   | 0x4000,
+    CMD_NULL   | 0x4000,
+    CMD_NULL   | 0x4000,
+    CMD_PRMVAR | 0x1000,
+    CMD_NULL   | 0x4000,
+    CMD_NULL   | 0x4000,
+    CMD_NULL   | 0x4000,
+    CMD_NULL   | 0x4000,
+    CMD_NULL   | 0x4000,
+    CMD_NULL   | 0x4000,
+    CMD_NULL   | 0x4000,
+
+    /* 50-5F */
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+
+    /* 60-6F */
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+
+    /* 70-7F */
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+    CMD_NULL | 0x4000,
+
     /* 80-8F */
     CMD_VIEW    | 0x0000,
     CMD_STO     | 0x0000,
@@ -1651,22 +1831,22 @@ static int hp42ext[] = {
     CMD_DSE     | 0x1000,
 
     /* A0-AF */
-    CMD_NULL  | 0x4000,
-    CMD_NULL  | 0x4000,
-    CMD_NULL  | 0x4000,
-    CMD_NULL  | 0x4000,
-    CMD_NULL  | 0x4000,
-    CMD_NULL  | 0x4000,
-    CMD_NULL  | 0x4000,
-    CMD_NULL  | 0x4000,
-    CMD_SF    | 0x1000,
-    CMD_CF    | 0x1000,
-    CMD_FSC_T | 0x1000,
-    CMD_FCC_T | 0x1000,
-    CMD_FS_T  | 0x1000,
-    CMD_FC_T  | 0x1000,
-    CMD_GTO   | 0x1000,
-    CMD_XEQ   | 0x1000,
+    CMD_RTNERR | 0x2000,
+    CMD_DROPN  | 0x2000,
+    CMD_DUPN   | 0x2000,
+    CMD_PICK   | 0x2000,
+    CMD_UNPICK | 0x2000,
+    CMD_RDNN   | 0x2000,
+    CMD_RUPN   | 0x2000,
+    CMD_NULL   | 0x3000, /* Extra extensions */
+    CMD_SF     | 0x1000,
+    CMD_CF     | 0x1000,
+    CMD_FSC_T  | 0x1000,
+    CMD_FCC_T  | 0x1000,
+    CMD_FS_T   | 0x1000,
+    CMD_FC_T   | 0x1000,
+    CMD_GTO    | 0x1000,
+    CMD_XEQ    | 0x1000,
 
     /* B0-BF */
     CMD_CLV    | 0x0000,
@@ -1695,7 +1875,7 @@ static int hp42ext[] = {
     CMD_INPUT   | 0x0000,
     CMD_EDITN   | 0x0000,
     CMD_LSTO    | 0x0000,
-    CMD_NULL    | 0x4000,
+    CMD_LASTO   | 0x2000,
     CMD_VARMENU | 0x1000,
     CMD_NULL    | 0x3000, /* KEYX IND name */
     CMD_NULL    | 0x3000, /* KEYG IND name */
@@ -1723,11 +1903,11 @@ static int hp42ext[] = {
     CMD_TONE     | 0x1000,
 
     /* E0-EF */
-    CMD_NULL   | 0x4000,
+    CMD_FUNC   | 0x2000,
     CMD_NULL   | 0x4000,
     CMD_NULL   | 0x3000, /* KEYX suffix */
     CMD_NULL   | 0x3000, /* KEYG suffix */
-    CMD_NULL   | 0x4000,
+    CMD_RTNERR | 0x1000,
     CMD_NULL   | 0x4000, /* FIX 11 */
     CMD_NULL   | 0x4000, /* SCI 11 */
     CMD_NULL   | 0x4000, /* ENG 11 */
@@ -1746,19 +1926,30 @@ static int hp42ext[] = {
     CMD_NULL    | 0x4000, /* GTO . nnnn */
     CMD_NULL    | 0x4000, /* GTO .. */
     CMD_NULL    | 0x4000, /* GTO . "name" */
-    CMD_NULL    | 0x4000,
+    CMD_LASTO   | 0x0000,
     CMD_NULL    | 0x4000, /* DEL */
     CMD_NULL    | 0x3000, /* SIZE */
     CMD_VARMENU | 0x2000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000,
-    CMD_NULL    | 0x4000
+    CMD_DROPN   | 0x1000,
+    CMD_DUPN    | 0x1000,
+    CMD_PICK    | 0x1000,
+    CMD_UNPICK  | 0x1000,
+    CMD_LASTO   | 0x1000,
+    CMD_RDNN    | 0x1000,
+    CMD_RUPN    | 0x1000
 };
 
+
+static bool looks_like_zero(const char *buf) {
+    char c;
+    while ((c = *buf++) != 0) {
+        if (c >= '1' && c <= '9')
+            return false;
+        if (c == 'E')
+            return true;
+    }
+    return true;
+}
 
 static phloat parse_number_line(char *buf) {
     phloat res;
@@ -1780,36 +1971,15 @@ static phloat parse_number_line(char *buf) {
     }
 #ifdef BCD_MATH
     res = Phloat(buf);
-    int s = p_isinf(res);
-    if (s > 0)
-        res = POS_HUGE_PHLOAT;
-    else if (s < 0)
-        res = NEG_HUGE_PHLOAT;
 #else
     BID_UINT128 d;
     bid128_from_string(&d, buf);
     bid128_to_binary64(&res, &d);
-    if (res == 0) {
-        int zero = 0;
-        BID_UINT128 z;
-        bid128_from_int32(&z, &zero);
-        int r;
-        bid128_quiet_equal(&r, &d, &z);
-        if (!r) {
-            bid128_isSigned(&r, &d);
-            if (r)
-                res = NEG_TINY_PHLOAT;
-            else
-                res = POS_TINY_PHLOAT;
-        }
-    } else {
-        int s = p_isinf(res);
-        if (s > 0)
-            res = POS_HUGE_PHLOAT;
-        else if (s < 0)
-            res = NEG_HUGE_PHLOAT;
-    }
 #endif
+    if (p_isinf(res) != 0)
+        res = NAN_1_PHLOAT;
+    else if (res == 0 && !looks_like_zero(buf))
+        res = NAN_2_PHLOAT;
     return res;
 }
 
@@ -1836,7 +2006,7 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
         } else {
             raw_buf = NULL;
 #endif
-            gfile = fopen(raw_file_name, "rb");
+            gfile = my_fopen(raw_file_name, "rb");
             if (gfile == NULL) {
                 char msg[1024];
                 int err = errno;
@@ -1872,6 +2042,8 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
         pending_end = pc > 0;
     }
 
+    char numbuf[50];
+
     while (!done_flag) {
         skip:
         byte1 = raw_getc();
@@ -1880,6 +2052,7 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
         cmd = hp42tofree42[byte1];
         flag = cmd >> 12;
         cmd &= 0x0FFF;
+        bool extra_extension = false;
         if (flag == 0) {
             arg.type = ARGTYPE_NONE;
             goto store;
@@ -1900,7 +2073,6 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
                 goto skip;
             else if (byte1 >= 0x10 && byte1 <= 0x1C) {
                 /* Number */
-                char numbuf[50];
                 int numlen = 0;
                 do {
                     if (byte1 == 0x1A)
@@ -1941,16 +2113,47 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
                 /* XROM & parameterless HP-42S extensions.
                  * I don't want to build a reverse look-up table
                  * for these, so instead I just do a linear search
-                 * on the cmdlist table.
+                 * on the cmd_array table.
                  */
                 uint4 code;
                 byte2 = raw_getc();
                 if (byte2 == EOF)
                     goto done;
                 code = (((unsigned int) byte1) << 8) | byte2;
+                if (code >= 0x0A7DB && code <= 0x0A7DD) {
+                    /* FUNC0, FUNC1, FUNC2: translate to FUNC nn */
+                    cmd = CMD_FUNC;
+                    arg.type = ARGTYPE_NUM;
+                    if (code == 0x0A7DB)
+                        arg.val.num = 0;
+                    else if (code == 0x0A7DC)
+                        arg.val.num = 11;
+                    else // code == 0x0A7DD
+                        arg.val.num = 21;
+                    goto store;
+                } else if (code == 0x0A7E0) {
+                    /* Unparameterized RTNERR: translate to RTNERR IND ST X */
+                    cmd = CMD_RTNERR;
+                    arg.type = ARGTYPE_IND_STK;
+                    arg.val.stk = 'X';
+                    goto store;
+                } else if (code >= 0x0a679 && code <= 0x0a67e) {
+                    /* HP-41CX: X=NN? etc. */
+                    switch (code & 0xf) {
+                        case 0x9: cmd = CMD_X_EQ_NN; break;
+                        case 0xa: cmd = CMD_X_NE_NN; break;
+                        case 0xb: cmd = CMD_X_LT_NN; break;
+                        case 0xc: cmd = CMD_X_LE_NN; break;
+                        case 0xd: cmd = CMD_X_GT_NN; break;
+                        case 0xe: cmd = CMD_X_GE_NN; break;
+                    }
+                    arg.type = ARGTYPE_IND_STK;
+                    arg.val.stk = 'Y';
+                    goto store;
+                }
                 for (i = 0; i < CMD_SENTINEL; i++)
-                    if (cmdlist(i)->hp42s_code == code) {
-                        if ((cmdlist(i)->flags & FLAG_HIDDEN) != 0)
+                    if (cmd_array[i].code1 == byte1 && cmd_array[i].code2 == byte2) {
+                        if ((cmd_array[i].flags & FLAG_HIDDEN) != 0)
                             break;
                         cmd = i;
                         arg.type = ARGTYPE_NONE;
@@ -2019,23 +2222,8 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
                 cmd = byte1 <= 0x0DF ? CMD_GTO : CMD_XEQ;
                 suffix &= 0x7F;
                 goto do_suffix;
-            } else /* byte1 >= 0xF0 && byte1 <= 0xFF */ {
+            } else /* byte1 >= 0xF1 && byte1 <= 0xFF */ {
                 /* Strings and parameterized HP-42S extensions */
-                if (byte1 == 0x0F0) {
-                    /* Zero-length strings can only be entered synthetically
-                     * on the HP-41; they act as NOPs and are sometimes used
-                     * right after ISG or DSE.
-                     * I would be within my rights to drop these instructions
-                     * on the floor -- the real 42S doesn't deal with them
-                     * all that gracefully either -- but I'm just too nice,
-                     * so I convert them to |-"", which is also a NOP.
-                     */
-                    cmd = CMD_STRING;
-                    arg.type = ARGTYPE_STR;
-                    arg.length = 1;
-                    arg.val.text[0] = 127;
-                    goto store;
-                }
                 byte2 = raw_getc();
                 if (byte2 == EOF)
                     goto done;
@@ -2067,6 +2255,11 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
                             goto done;
                         arg.val.text[i] = suffix;
                     }
+                    if (extra_extension) {
+                        memmove(arg.val.text + 1, arg.val.text, str_len);
+                        arg.val.text[0] = 0xa7;
+                        str_len++;
+                    }
                     arg.length = str_len;
                     if (assign) {
                         assign = 0;
@@ -2090,13 +2283,21 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
                     goto store;
                 } else {
                     /* Parameterized HP-42S extension */
-                    cmd = hp42ext[byte2 - 0x080];
+                    if (byte2 == 0xa7) {
+                        byte2 = raw_getc();
+                        if (byte2 == EOF)
+                            goto done;
+                        byte1--;
+                        extra_extension = true;
+                    }
+                    cmd = hp42ext[byte2];
                     flag = cmd >> 12;
                     cmd &= 0x0FFF;
                     if (flag == 0 || flag == 1) {
                         arg.type = flag == 0 ? ARGTYPE_STR
                                                 : ARGTYPE_IND_STR;
                         str_len = byte1 - 0x0F1;
+                        extra_extension = false;
                         goto do_string;
                     } else if (flag == 2) {
                         int ind;
@@ -2227,13 +2428,14 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
                 break;
             pending_end = true;
         } else {
-            store_command_after(&pc, cmd, &arg);
+            store_command_after(&pc, cmd, &arg, numbuf);
         }
     }
 
     done:
     rebuild_label_table();
-    update_catalog();
+    if (!loading_state)
+        update_catalog();
 
     flags.f.trace_print = saved_trace;
     flags.f.normal_print = saved_normal;
@@ -2294,7 +2496,7 @@ char *core_copy() {
         tb_write_null(&tb);
         if (tb.fail) {
             free(tb.buf);
-            display_error(ERR_INSUFFICIENT_MEMORY, 0);
+            display_error(ERR_INSUFFICIENT_MEMORY, false);
             redisplay();
             return NULL;
         } else
@@ -2304,25 +2506,29 @@ char *core_copy() {
         int bufptr = hp2ascii(buf, reg_alpha, reg_alpha_length);
         buf[bufptr] = 0;
         return buf;
-    } else if (reg_x->type == TYPE_REAL) {
+    } else if (sp == -1) {
+        char *buf = (char *) malloc(1);
+        buf[0] = 0;
+        return buf;
+    } else if (stack[sp]->type == TYPE_REAL) {
         char *buf = (char *) malloc(50);
-        int bufptr = real2buf(buf, ((vartype_real *) reg_x)->x);
+        int bufptr = real2buf(buf, ((vartype_real *) stack[sp])->x);
         buf[bufptr] = 0;
         return buf;
-    } else if (reg_x->type == TYPE_COMPLEX) {
+    } else if (stack[sp]->type == TYPE_COMPLEX) {
         char *buf = (char *) malloc(100);
-        vartype_complex *c = (vartype_complex *) reg_x;
+        vartype_complex *c = (vartype_complex *) stack[sp];
         int bufptr = complex2buf(buf, c->re, c->im, false);
         buf[bufptr] = 0;
         return buf;
-    } else if (reg_x->type == TYPE_STRING) {
-        vartype_string *s = (vartype_string *) reg_x;
+    } else if (stack[sp]->type == TYPE_STRING) {
+        vartype_string *s = (vartype_string *) stack[sp];
         char *buf = (char *) malloc(5 * s->length + 1);
-        int bufptr = hp2ascii(buf, s->text, s->length);
+        int bufptr = hp2ascii(buf, s->txt(), s->length);
         buf[bufptr] = 0;
         return buf;
-    } else if (reg_x->type == TYPE_REALMATRIX) {
-        vartype_realmatrix *rm = (vartype_realmatrix *) reg_x;
+    } else if (stack[sp]->type == TYPE_REALMATRIX) {
+        vartype_realmatrix *rm = (vartype_realmatrix *) stack[sp];
         phloat *data = rm->array->data;
         char *is_string = rm->array->is_string;
         textbuf tb;
@@ -2335,13 +2541,23 @@ char *core_copy() {
         for (int r = 0; r < rm->rows; r++) {
             for (int c = 0; c < rm->columns; c++) {
                 int bufptr;
-                if (is_string[n])
-                    bufptr = hp2ascii(buf, phloat_text(data[n]), phloat_length(data[n]));
-                else
+                if (is_string[n] == 0) {
                     bufptr = real2buf(buf, data[n]);
+                    tb_write(&tb, buf, bufptr);
+                } else {
+                    char *text;
+                    int4 len;
+                    get_matrix_string(rm, n, &text, &len);
+                    for (int4 i = 0; i < len; i += 10) {
+                        int4 seg_len = len - i;
+                        if (seg_len > 10)
+                            seg_len = 10;
+                        bufptr = hp2ascii(buf, text + i, seg_len);
+                        tb_write(&tb, buf, bufptr);
+                    }
+                }
                 if (c < rm->columns - 1)
-                    buf[bufptr++] = '\t';
-                tb_write(&tb, buf, bufptr);
+                    tb_write(&tb, "\t", 1);
                 n++;
             }
             if (r < rm->rows - 1)
@@ -2350,13 +2566,13 @@ char *core_copy() {
         tb_write_null(&tb);
         if (tb.fail) {
             free(tb.buf);
-            display_error(ERR_INSUFFICIENT_MEMORY, 0);
+            display_error(ERR_INSUFFICIENT_MEMORY, false);
             redisplay();
             return NULL;
         } else
             return tb.buf;
-    } else if (reg_x->type == TYPE_COMPLEXMATRIX) {
-        vartype_complexmatrix *cm = (vartype_complexmatrix *) reg_x;
+    } else if (stack[sp]->type == TYPE_COMPLEXMATRIX) {
+        vartype_complexmatrix *cm = (vartype_complexmatrix *) stack[sp];
         phloat *data = cm->array->data;
         textbuf tb;
         tb.buf = NULL;
@@ -2379,7 +2595,7 @@ char *core_copy() {
         tb_write_null(&tb);
         if (tb.fail) {
             free(tb.buf);
-            display_error(ERR_INSUFFICIENT_MEMORY, 0);
+            display_error(ERR_INSUFFICIENT_MEMORY, false);
             redisplay();
             return NULL;
         } else
@@ -2454,27 +2670,76 @@ static bool parse_phloat(const char *p, int len, phloat *res) {
     // not allow the mantissa to be more than 34 or 16 digits long (including
     // leading zeroes). So, we massage the string a bit to make it
     // comply with those restrictions.
+    // Note that this function does not check well-formedness;
+    // that part should be checked beforehand using scan_number().
     char buf[100];
     bool in_mant = true;
+    bool leading_zero = true;
+    int exp_offset = 0;
+    int exp = 0;
+    bool neg_exp = false;
     int mant_digits = 0;
+    bool in_int_mant = true;
+    bool empty_mant = true;
     int i = 0, j = 0;
+    char decimal = flags.f.decimal_point ? '.' : ',';
+    char separator = flags.f.decimal_point ? ',' : '.';
     while (i < 100 && j < len) {
         char c = p[j++];
         if (c == 0)
             break;
-        if (c == '+' || c == ' ')
+        if (c == '+' || c == ' ' || c == separator) {
             continue;
-        else if (c == 'e' || c == 'E' || c == 24) {
+        } else if (c == 'e' || c == 'E' || c == 24) {
+            if (!empty_mant && mant_digits == 0)
+                buf[i++] = '0';
             in_mant = false;
-            buf[i++] = 24;
-        } else if (c >= '0' && c <= '9') {
-            if (!in_mant || mant_digits++ < MAX_MANT_DIGITS)
-                buf[i++] = c;
-        } else
+        } else if (c == decimal) {
+            in_int_mant = false;
             buf[i++] = c;
+        } else if (c >= '0' && c <= '9') {
+            if (in_mant) {
+                empty_mant = false;
+                if (in_int_mant) {
+                    if (mant_digits < MAX_MANT_DIGITS) {
+                        if (c != '0' || !leading_zero) {
+                            buf[i++] = c;
+                            leading_zero = false;
+                            mant_digits++;
+                        }
+                    } else {
+                        exp_offset++;
+                    }
+                } else {
+                    if (mant_digits < MAX_MANT_DIGITS) {
+                        if (c != '0' || !leading_zero) {
+                            buf[i++] = c;
+                            leading_zero = false;
+                            mant_digits++;
+                        } else {
+                            exp_offset--;
+                        }
+                    }
+                }
+            } else {
+                exp = exp * 10 + c - '0';
+            }
+        } else if (c == '-') {
+            if (in_mant)
+                buf[i++] = c;
+            else
+                neg_exp = true;
+        }
     }
-    if (in_mant && mant_digits == 0)
+    if (in_mant && empty_mant)
         return false;
+    if (in_mant && mant_digits == 0)
+        buf[i++] = '0';
+    if (neg_exp)
+        exp = -exp;
+    exp += exp_offset;
+    if (exp != 0)
+        i += sprintf(buf + i, "\030%d", exp);
     int err = string2phloat(buf, i, res);
     if (err == 0)
         return true;
@@ -2718,11 +2983,11 @@ static int ascii2hp(char *dst, const char *src, int maxchars) {
     return dstpos > maxchars ? maxchars : dstpos;
 }
 
-typedef struct {
+struct text_alias {
     char len;
     char equiv;
     char text[8];
-} text_alias;
+};
 
 static text_alias aliases[] = {
     { 5,    2, "\\sqrt"   },
@@ -2820,7 +3085,7 @@ static vartype *parse_base(const char *buf, int len) {
     return new_real((phloat) n);
 }
 
-static int parse_scalar(const char *buf, int len, bool strict, phloat *re, phloat *im, char *s, int *slen) {
+static int parse_scalar(const char *buf, int len, bool strict, phloat *re, phloat *im, int *slen) {
     int i, s1, e1, s2, e2;
     bool polar = false;
     bool empty_im = false;
@@ -2967,9 +3232,6 @@ static int parse_scalar(const char *buf, int len, bool strict, phloat *re, phloa
         return TYPE_REAL;
 
     finish_string:
-    if (len > 6)
-        len = 6;
-    memcpy(s, buf, len);
     *slen = len;
     return TYPE_STRING;
 }
@@ -3003,6 +3265,7 @@ static void paste_programs(const char *buf) {
     char hpbuf[1027];
     int cmd;
     arg_struct arg;
+    char numbuf[50];
 
     while (!done) {
         int end = pos;
@@ -3038,7 +3301,6 @@ static void paste_programs(const char *buf) {
             // line.
             if (hppos < hpend && (c = hpbuf[hppos], c == '.' || c == ','
                             || c == 'E' || c == 'e' || c == 24)) {
-                char numbuf[50];
                 int len = hpend - prev_hppos;
                 if (len > 50)
                     len = 50;
@@ -3062,7 +3324,7 @@ static void paste_programs(const char *buf) {
                 arg.type = ARGTYPE_DOUBLE;
                 goto store;
             } else {
-                // Check for 1/X or 10^X
+                // Check for 1/X, 10^X, 4STK, and generalized comparisons with 0
                 int len = hpend - prev_hppos;
                 if (len == 3 && strncmp(hpbuf + prev_hppos, "1/X", 3) == 0) {
                     cmd = CMD_INV;
@@ -3072,9 +3334,29 @@ static void paste_programs(const char *buf) {
                     cmd = CMD_10_POW_X;
                     arg.type = ARGTYPE_NONE;
                     goto store;
+                } else if (len == 4 && strncmp(hpbuf + prev_hppos, "4STK", 4) == 0) {
+                    cmd = CMD_4STK;
+                    arg.type = ARGTYPE_NONE;
+                    goto store;
+                } else if (len >= 4 && hpbuf[prev_hppos] == '0'
+                                    && hpbuf[prev_hppos + 2] == '?'
+                                    && hpbuf[prev_hppos + 3] == ' ') {
+                    switch (hpbuf[prev_hppos + 1]) {
+                        case '=':    cmd = CMD_0_EQ_NN; goto parse_arg;
+                        case '\014': cmd = CMD_0_NE_NN; goto parse_arg;
+                        case '<':    cmd = CMD_0_LT_NN; goto parse_arg;
+                        case '>':    cmd = CMD_0_GT_NN; goto parse_arg;
+                        case '\011': cmd = CMD_0_LE_NN; goto parse_arg;
+                        case '\013': cmd = CMD_0_GE_NN; goto parse_arg;
+                        default: goto not_zero_comp;
+                    }
+                    parse_arg:
+                    hppos = prev_hppos;
+                    goto after_line_number;
+                    not_zero_comp:;
                 }
                 // No decimal or exponent following the digits, and it's
-                // not 1/X or 10^X; for now, assume it's a line number.
+                // not 1/X, 10^X, or 4STK; for now, assume it's a line number.
                 lineno_start = prev_hppos;
                 lineno_end = hppos;
             }
@@ -3099,6 +3381,7 @@ static void paste_programs(const char *buf) {
         }
         // Now hppos should be pointing at the first character of the
         // command.
+        after_line_number:
         if (hppos == hpend) {
             if (lineno_start == -1) {
                 // empty line
@@ -3112,7 +3395,8 @@ static void paste_programs(const char *buf) {
                 // I see a good reason to.
                 hpbuf[lineno_end] = 0;
                 cmd = CMD_NUMBER;
-                arg.val_d = parse_number_line(hpbuf + lineno_start);
+                strcpy(numbuf, hpbuf + lineno_start);
+                arg.val_d = parse_number_line(numbuf);
                 arg.type = ARGTYPE_DOUBLE;
                 goto store;
             }
@@ -3157,6 +3441,23 @@ static void paste_programs(const char *buf) {
                 cmd_end++;
             if (cmd_end == hppos)
                 goto line_done;
+            if (cmd_end - hppos == 5 && hpbuf[hppos] == 'X' && strncmp(hpbuf + 2, "NN?", 3) == 0) {
+                // HP-41CX: X=NN? etc.
+                switch (hpbuf[hppos + 1]) {
+                    case '=': cmd = CMD_X_EQ_NN; goto cx_comp;
+                    case  12: cmd = CMD_X_NE_NN; goto cx_comp;
+                    case '<': cmd = CMD_X_LT_NN; goto cx_comp;
+                    case '>': cmd = CMD_X_GT_NN; goto cx_comp;
+                    case   9: cmd = CMD_X_LE_NN; goto cx_comp;
+                    case  11: cmd = CMD_X_GE_NN; goto cx_comp;
+                    default: goto not_cx_comp;
+                }
+                cx_comp:
+                arg.type = ARGTYPE_IND_STK;
+                arg.val.stk = 'Y';
+                goto store;
+                not_cx_comp:;
+            }
             cmd = find_builtin(hpbuf + hppos, cmd_end - hppos, false);
             int tok_start, tok_end;
             int argtype;
@@ -3176,6 +3477,21 @@ static void paste_programs(const char *buf) {
                 }
                 arg.type = ARGTYPE_NUM;
                 arg.val.num = sz;
+                goto store;
+            } else if (cmd == CMD_FUNC) {
+                if (!nexttoken(hpbuf, cmd_end, hpend, &tok_start, &tok_end))
+                    goto line_done;
+                if (tok_end - tok_start != 2)
+                    goto line_done;
+                int io = 0;
+                for (int i = tok_start; i < tok_end; i++) {
+                    char c = hpbuf[i];
+                    if (c < '0' || c > '4')
+                        goto line_done;
+                    io = io * 10 + c - '0';
+                }
+                arg.type = ARGTYPE_NUM;
+                arg.val.num = io;
                 goto store;
             } else if (cmd == CMD_ASSIGNa) {
                 // What we're looking for is '".*"  *TO  *[0-9][0-9]'
@@ -3229,10 +3545,11 @@ static void paste_programs(const char *buf) {
                 goto store;
             } else if (cmd != CMD_NONE) {
                 int flags;
-                flags = cmdlist(cmd)->flags;
+                flags = cmd_array[cmd].flags;
+                arg.type = ARGTYPE_NONE;
                 if ((flags & (FLAG_IMMED | FLAG_HIDDEN | FLAG_NO_PRGM)) != 0)
                     goto line_done;
-                argtype = cmdlist(cmd)->argtype;
+                argtype = cmd_array[cmd].argtype;
                 bool ind;
                 switch (argtype) {
                     case ARG_NONE: {
@@ -3290,9 +3607,20 @@ static void paste_programs(const char *buf) {
                             if (tok_end - tok_start == 1 && isdigit(hpbuf[tok_start])) {
                                 arg.type = ARGTYPE_NUM;
                                 arg.val.num = hpbuf[tok_start] - '0';
+                                if (cmd == CMD_RTNERR && arg.val.num > 8)
+                                    goto line_done;
                                 goto store;
                             }
                             goto line_done;
+                        }
+                        if (!ind && argtype == ARG_NUM11 && tok_end - tok_start == 1
+                                && isdigit(hpbuf[tok_start])) {
+                            // Special case for FIX/SCI/ENG with 1-digit
+                            // non-indirect argument; needed for parsing
+                            // HP-41 code.
+                            arg.type = ARGTYPE_NUM;
+                            arg.val.num = hpbuf[tok_start] - '0';
+                            goto store;
                         }
                         if (tok_end - tok_start == 2 && isdigit(hpbuf[tok_start])
                                                      && isdigit(hpbuf[tok_start + 1])) {
@@ -3424,6 +3752,18 @@ static void paste_programs(const char *buf) {
                 arg.type = ARGTYPE_NUM;
                 arg.val.num = (a << 6) | b;
                 goto store;
+            } else if ((string_equals(hpbuf + hppos, cmd_end - hppos - 1, "FNC", 3)
+                    || string_equals(hpbuf + hppos, cmd_end - hppos - 1, "FUNC", 4))
+                    && hpbuf[cmd_end - 1] >= '0'
+                    && hpbuf[cmd_end - 1] <= '2') {
+                cmd = CMD_FUNC;
+                arg.type = ARGTYPE_NUM;
+                switch (hpbuf[cmd_end - 1]) {
+                    case '0': arg.val.num =  0; break;
+                    case '1': arg.val.num = 11; break;
+                    case '2': arg.val.num = 21; break;
+                }
+                goto store;
             } else {
                 // Number or bust!
                 if (nexttoken(hpbuf, hppos, hpend, &tok_start, &tok_end)) {
@@ -3436,7 +3776,6 @@ static void paste_programs(const char *buf) {
                         int len = tok_end - tok_start;
                         if (len > 49)
                             len = 49;
-                        char numbuf[50];
                         for (int i = 0; i < len; i++) {
                             c = hpbuf[tok_start + i];
                             if (c == 'e' || c == 24)
@@ -3492,9 +3831,15 @@ static void paste_programs(const char *buf) {
             goto_dot_dot(false);
         after_end = cmd == CMD_END;
         if (!after_end)
-            store_command_after(&pc, cmd, &arg);
+            store_command_after(&pc, cmd, &arg, numbuf);
 
         line_done:
+        if (cmd == CMD_RTNERR && arg.type == ARGTYPE_NONE) {
+            // Hack to handle RTNERR with no argument as RTNERR IND ST X
+            arg.type = ARGTYPE_IND_STK;
+            arg.val.stk = 'X';
+            goto store;
+        }
         pos = end + 1;
     }
 }
@@ -3565,7 +3910,7 @@ void core_paste(const char *buf) {
             int len = (int) strlen(buf);
             char *asciibuf = (char *) malloc(len + 1);
             if (asciibuf == NULL) {
-                display_error(ERR_INSUFFICIENT_MEMORY, 0);
+                display_error(ERR_INSUFFICIENT_MEMORY, false);
                 redisplay();
                 return;
             }
@@ -3578,7 +3923,7 @@ void core_paste(const char *buf) {
             char *hpbuf = (char *) malloc(len + 4);
             if (hpbuf == NULL) {
                 free(asciibuf);
-                display_error(ERR_INSUFFICIENT_MEMORY, 0);
+                display_error(ERR_INSUFFICIENT_MEMORY, false);
                 redisplay();
                 return;
             }
@@ -3587,9 +3932,8 @@ void core_paste(const char *buf) {
             v = parse_base(hpbuf, len);
             if (v == NULL) {
                 phloat re, im;
-                char s[6];
                 int slen;
-                int type = parse_scalar(hpbuf, len, false, &re, &im, s, &slen);
+                int type = parse_scalar(hpbuf, len, false, &re, &im, &slen);
                 switch (type) {
                     case TYPE_REAL:
                         v = new_real(re);
@@ -3598,8 +3942,13 @@ void core_paste(const char *buf) {
                         v = new_complex(re, im);
                         break;
                     case TYPE_STRING:
-                        v = new_string(s, slen);
+                        v = new_string(hpbuf, slen);
                         break;
+                }
+                if (v == NULL) {
+                    display_error(ERR_INSUFFICIENT_MEMORY, false);
+                    redisplay();
+                    return;
                 }
             }
             free(hpbuf);
@@ -3608,14 +3957,14 @@ void core_paste(const char *buf) {
             int n = rows * cols;
             phloat *data = (phloat *) malloc(n * sizeof(phloat));
             if (data == NULL) {
-                display_error(ERR_INSUFFICIENT_MEMORY, 0);
+                display_error(ERR_INSUFFICIENT_MEMORY, false);
                 redisplay();
                 return;
             }
             char *is_string = (char *) malloc(n);
             if (is_string == NULL) {
                 free(data);
-                display_error(ERR_INSUFFICIENT_MEMORY, 0);
+                display_error(ERR_INSUFFICIENT_MEMORY, false);
                 redisplay();
                 return;
             }
@@ -3623,7 +3972,7 @@ void core_paste(const char *buf) {
             if (asciibuf == NULL) {
                 free(data);
                 free(is_string);
-                display_error(ERR_INSUFFICIENT_MEMORY, 0);
+                display_error(ERR_INSUFFICIENT_MEMORY, false);
                 redisplay();
                 return;
             }
@@ -3632,7 +3981,7 @@ void core_paste(const char *buf) {
                 free(asciibuf);
                 free(data);
                 free(is_string);
-                display_error(ERR_INSUFFICIENT_MEMORY, 0);
+                display_error(ERR_INSUFFICIENT_MEMORY, false);
                 redisplay();
                 return;
             }
@@ -3653,9 +4002,8 @@ void core_paste(const char *buf) {
                     asciibuf[cellsize] = 0;
                     int hplen = ascii2hp(hpbuf, asciibuf, cellsize);
                     phloat re, im;
-                    char s[6];
                     int slen;
-                    int type = parse_scalar(hpbuf, hplen, true, &re, &im, s, &slen);
+                    int type = parse_scalar(hpbuf, hplen, true, &re, &im, &slen);
                     if (is_string != NULL) {
                         switch (type) {
                             case TYPE_REAL:
@@ -3663,18 +4011,20 @@ void core_paste(const char *buf) {
                                 is_string[p] = 0;
                                 break;
                             case TYPE_COMPLEX:
+                                free_long_strings(is_string, data, p);
                                 for (int i = 0; i < p; i++)
-                                    if (is_string[i])
+                                    if (is_string[i] != 0)
                                         data[i] = 0;
                                 free(is_string);
                                 is_string = NULL;
                                 phloat *newdata;
                                 newdata = (phloat *) realloc(data, 2 * n * sizeof(phloat));
                                 if (newdata == NULL) {
+                                    nomem:
                                     free(data);
                                     free(asciibuf);
                                     free(hpbuf);
-                                    display_error(ERR_INSUFFICIENT_MEMORY, 0);
+                                    display_error(ERR_INSUFFICIENT_MEMORY, false);
                                     redisplay();
                                     return;
                                 }
@@ -3691,10 +4041,22 @@ void core_paste(const char *buf) {
                                 if (slen == 0) {
                                     data[p] = 0;
                                     is_string[p] = 0;
-                                } else {
-                                    memcpy(phloat_text(data[p]), s, slen);
-                                    phloat_length(data[p]) = slen;
+                                } else if (slen <= SSLENM) {
+                                    char *text = (char *) &data[p];
+                                    *text = slen;
+                                    memcpy(text + 1, hpbuf, slen);
                                     is_string[p] = 1;
+                                } else {
+                                    int4 *t = (int4 *) malloc(slen + 4);
+                                    if (t == NULL) {
+                                        free_long_strings(is_string, data, p);
+                                        free(is_string);
+                                        goto nomem;
+                                    }
+                                    *t = slen;
+                                    memcpy(t + 1, hpbuf, slen);
+                                    *(int4 **) &data[p] = t;
+                                    is_string[p] = 2;
                                 }
                                 break;
                         }
@@ -3748,9 +4110,10 @@ void core_paste(const char *buf) {
                 vartype_realmatrix *rm = (vartype_realmatrix *)
                                 malloc(sizeof(vartype_realmatrix));
                 if (rm == NULL) {
+                    free_long_strings(is_string, data, p);
                     free(data);
                     free(is_string);
-                    display_error(ERR_INSUFFICIENT_MEMORY, 0);
+                    display_error(ERR_INSUFFICIENT_MEMORY, false);
                     redisplay();
                     return;
                 }
@@ -3758,9 +4121,10 @@ void core_paste(const char *buf) {
                                 malloc(sizeof(realmatrix_data));
                 if (rm->array == NULL) {
                     free(rm);
+                    free_long_strings(is_string, data, p);
                     free(data);
                     free(is_string);
-                    display_error(ERR_INSUFFICIENT_MEMORY, 0);
+                    display_error(ERR_INSUFFICIENT_MEMORY, false);
                     redisplay();
                     return;
                 }
@@ -3776,7 +4140,7 @@ void core_paste(const char *buf) {
                                 malloc(sizeof(vartype_complexmatrix));
                 if (cm == NULL) {
                     free(data);
-                    display_error(ERR_INSUFFICIENT_MEMORY, 0);
+                    display_error(ERR_INSUFFICIENT_MEMORY, false);
                     redisplay();
                     return;
                 }
@@ -3785,7 +4149,7 @@ void core_paste(const char *buf) {
                 if (cm->array == NULL) {
                     free(cm);
                     free(data);
-                    display_error(ERR_INSUFFICIENT_MEMORY, 0);
+                    display_error(ERR_INSUFFICIENT_MEMORY, false);
                     redisplay();
                     return;
                 }
@@ -3798,7 +4162,11 @@ void core_paste(const char *buf) {
             }
         }
         mode_number_entry = false;
-        recall_result(v);
+        if (recall_result(v) != ERR_NONE) {
+            display_error(ERR_INSUFFICIENT_MEMORY, false);
+            redisplay();
+            return;
+        }
         flags.f.stack_lift_disable = 0;
         flags.f.message = 0;
         flags.f.two_line_message = 0;
@@ -3829,16 +4197,16 @@ bool program_running() {
 
 void do_interactive(int command) {
     int err;
-    if ((cmdlist(command)->flags
+    if ((cmd_array[command].flags
                 & (flags.f.prgm_mode ? FLAG_NO_PRGM : FLAG_PRGM_ONLY)) != 0) {
-        display_error(ERR_RESTRICTED_OPERATION, 0);
+        display_error(ERR_RESTRICTED_OPERATION, false);
         redisplay();
         return;
     }
     if (command == CMD_GOTOROW) {
         err = docmd_stoel(NULL);
         if (err != ERR_NONE) {
-            display_error(err, 1);
+            display_error(err, true);
             redisplay();
             return;
         }
@@ -3854,7 +4222,7 @@ void do_interactive(int command) {
         return;
     } else if (command == CMD_CLV || command == CMD_PRV) {
         if (!flags.f.prgm_mode && vars_count == 0) {
-            display_error(ERR_NO_VARIABLES, 0);
+            display_error(ERR_NO_VARIABLES, false);
             redisplay();
             return;
         }
@@ -3881,13 +4249,13 @@ void do_interactive(int command) {
         return;
     }
 
-    if (flags.f.prgm_mode && (cmdlist(command)->flags & FLAG_IMMED) == 0) {
+    if (flags.f.prgm_mode && (cmd_array[command].flags & FLAG_IMMED) == 0) {
         if (command == CMD_RUN)
             command = CMD_STOP;
-        if (cmdlist(command)->argtype == ARG_NONE) {
+        if (cmd_array[command].argtype == ARG_NONE) {
             arg_struct arg;
             arg.type = ARGTYPE_NONE;
-            store_command_after(&pc, command, &arg);
+            store_command_after(&pc, command, &arg, NULL);
             if (command == CMD_END)
                 pc = 0;
             prgm_highlight_row = 1;
@@ -3903,7 +4271,7 @@ void do_interactive(int command) {
             start_incomplete_command(command);
         }
     } else {
-        if (cmdlist(command)->argtype == ARG_NONE)
+        if (cmd_array[command].argtype == ARG_NONE)
             pending_command = command;
         else {
             if (flags.f.prgm_mode) {
@@ -3928,14 +4296,14 @@ static void continue_running() {
             set_running(false);
             return;
         }
-        get_next_command(&pc, &cmd, &arg, 1);
+        get_next_command(&pc, &cmd, &arg, 1, NULL);
         if (flags.f.trace_print && flags.f.printer_exists) {
             if (cmd == CMD_LBL)
                 print_text(NULL, 0, 1);
             print_program_line(current_prgm, oldpc);
         }
         mode_disable_stack_lift = false;
-        error = cmdlist(cmd)->handler(&arg);
+        error = handle(cmd, &arg);
         if (mode_pause) {
             shell_request_timeout3(1000);
             return;
@@ -3949,12 +4317,12 @@ static void continue_running() {
     }
 }
 
-typedef struct {
+struct synonym_spec {
     char name[7];
     bool is_orig;
     int namelen;
     int cmd_id;
-} synonym_spec;
+};
 
 static synonym_spec hp41_synonyms[] =
 {
@@ -4012,25 +4380,24 @@ int find_builtin(const char *name, int namelen, bool strict) {
     }
 
     for (i = 0; true; i++) {
-        if (i == CMD_OPENF) i += 15; // Skip COPAN and BIGSTACK
-        if (i == CMD_ACCEL && !core_settings.enable_ext_accel) i++;
-        if (i == CMD_LOCAT && !core_settings.enable_ext_locat) i++;
-        if (i == CMD_HEADING && !core_settings.enable_ext_heading) i++;
-        if (i == CMD_ADATE && !core_settings.enable_ext_time) i += 34;
-        if (i == CMD_FPTEST && !core_settings.enable_ext_fptest) i++;
-        if (i == CMD_SST_UP && !core_settings.enable_ext_prog) i += 2;
+        // Skip COPAN
+        if (i == CMD_OPENF)
+            i += 14;
+        // Skip String & List functions. These are only implemented in Plus42.
+        if (i == CMD_XASTO)
+            i += 16;
         if (i == CMD_SENTINEL)
             break;
-        if ((cmdlist(i)->flags & FLAG_HIDDEN) != 0)
+        if ((cmd_array[i].flags & FLAG_HIDDEN) != 0)
             continue;
-        if (cmdlist(i)->name_length != namelen)
+        if (cmd_array[i].name_length != namelen)
             continue;
         for (j = 0; j < namelen; j++) {
             unsigned char c1, c2;
             c1 = name[j];
             if (c1 >= 130 && c1 != 138)
                 c1 &= 127;
-            c2 = cmdlist(i)->name[j];
+            c2 = cmd_array[i].name[j];
             if (c2 >= 130 && c2 != 138)
                 c2 &= 127;
             if (c1 != c2)
@@ -4123,19 +4490,19 @@ int find_menu_key(int key) {
 }
 
 void start_incomplete_command(int cmd_id) {
-    int argtype = cmdlist(cmd_id)->argtype;
-    if (!flags.f.prgm_mode && (cmdlist(cmd_id)->flags & FLAG_PRGM_ONLY) != 0) {
-        display_error(ERR_RESTRICTED_OPERATION, 0);
+    int argtype = cmd_array[cmd_id].argtype;
+    if (!flags.f.prgm_mode && (cmd_array[cmd_id].flags & FLAG_PRGM_ONLY) != 0) {
+        display_error(ERR_RESTRICTED_OPERATION, false);
         redisplay();
         return;
     }
     incomplete_command = cmd_id;
-    incomplete_ind = 0;
+    incomplete_ind = false;
     if (argtype == ARG_NAMED || argtype == ARG_PRGM
             || argtype == ARG_RVAR || argtype == ARG_MAT)
-        incomplete_alpha = 1;
+        incomplete_alpha = true;
     else
-        incomplete_alpha = 0;
+        incomplete_alpha = false;
     incomplete_length = 0;
     incomplete_num = 0;
     if (argtype == ARG_NUM9)
@@ -4172,21 +4539,21 @@ void start_incomplete_command(int cmd_id) {
         else
             set_catalog_menu(CATSECT_REAL_ONLY);
     } else if (argtype == ARG_RVAR) {
-        if (vars_exist(1, 0, 0))
+        if (vars_exist(CATSECT_REAL))
             set_catalog_menu(CATSECT_REAL_ONLY);
         else if (flags.f.prgm_mode) {
             if (incomplete_command == CMD_MVAR)
                 mode_commandmenu = MENU_ALPHA1;
         } else {
             mode_command_entry = false;
-            display_error(ERR_NO_REAL_VARIABLES, 0);
+            display_error(ERR_NO_REAL_VARIABLES, false);
         }
     } else if (argtype == ARG_MAT) {
-        if (flags.f.prgm_mode || vars_exist(0, 0, 1))
+        if (flags.f.prgm_mode || vars_exist(CATSECT_MAT))
             set_catalog_menu(CATSECT_MAT_ONLY);
         else if (cmd_id != CMD_DIM) {
             mode_command_entry = false;
-            display_error(ERR_NO_MATRIX_VARIABLES, 0);
+            display_error(ERR_NO_MATRIX_VARIABLES, false);
         }
     } else if (argtype == ARG_LBL || argtype == ARG_PRGM)
         set_catalog_menu(CATSECT_PGM_ONLY);
@@ -4222,9 +4589,9 @@ void finish_command_entry(bool refresh) {
             redisplay();
         } else {
             int inserting_an_end = pending_command == CMD_END;
-            if ((cmdlist(pending_command)->flags & FLAG_IMMED) != 0)
+            if ((cmd_array[pending_command].flags & FLAG_IMMED) != 0)
                 goto do_it_now;
-            store_command(pc, pending_command, &pending_command_arg);
+            store_command(pc, pending_command, &pending_command_arg, NULL);
             if (inserting_an_end)
                 /* current_prgm was already incremented by store_command() */
                 pc = 0;
@@ -4304,7 +4671,7 @@ void finish_xeq() {
          */
         mode_command_entry = false;
         redisplay();
-        if (cmdlist(cmd)->argtype == ARG_NONE) {
+        if (cmd_array[cmd].argtype == ARG_NONE) {
             pending_command = cmd;
             pending_command_arg.type = ARGTYPE_NONE;
             finish_command_entry(false);
@@ -4315,7 +4682,7 @@ void finish_xeq() {
             set_menu(MENULEVEL_COMMAND, MENU_NONE);
             if ((cmd == CMD_CLV || cmd == CMD_PRV)
                     && !flags.f.prgm_mode && vars_count == 0) {
-                display_error(ERR_NO_VARIABLES, 0);
+                display_error(ERR_NO_VARIABLES, false);
                 pending_command = CMD_NONE;
                 redisplay();
             } else
@@ -4350,14 +4717,14 @@ void finish_alpha_prgm_line() {
         arg.length = entered_string_length;
         for (i = 0; i < entered_string_length; i++)
             arg.val.text[i] = entered_string[i];
-        store_command(pc, CMD_STRING, &arg);
+        store_command(pc, CMD_STRING, &arg, NULL);
         prgm_highlight_row = 1;
     }
     mode_alpha_entry = false;
 }
 
 static void stop_interruptible() {
-    int error = mode_interruptible(1);
+    int error = mode_interruptible(true);
     handle_error(error);
     mode_interruptible = NULL;
     if (mode_running)
@@ -4366,6 +4733,10 @@ static void stop_interruptible() {
         shell_annunciators(-1, -1, -1, false, -1, -1);
     pending_command = CMD_NONE;
     redisplay();
+}
+
+void set_old_pc(int4 pc) {
+    oldpc = pc;
 }
 
 static int handle_error(int error) {
@@ -4383,6 +4754,11 @@ static int handle_error(int error) {
                 pc = -1;
             set_running(false);
             return 0;
+        } else if (error == ERR_NUMBER_TOO_LARGE
+                || error == ERR_NUMBER_TOO_SMALL) {
+            // Handling these separately because they shouldn't be
+            // suppressed by flag 25, nor trapped by SOLVE
+            goto handle_it;
         } else if (error != ERR_NONE && error != ERR_YES) {
             if (flags.f.error_ignore && error != ERR_SUSPICIOUS_OFF) {
                 flags.f.error_ignore = 0;
@@ -4399,8 +4775,9 @@ static int handle_error(int error) {
                 if (error == ERR_NONE || error == ERR_RUN || error == ERR_STOP)
                     return 0;
             }
+            handle_it:
             pc = oldpc;
-            display_error(error, 1);
+            display_error(error, true);
             set_running(false);
             return 0;
         }
@@ -4420,6 +4797,11 @@ static int handle_error(int error) {
             error = ERR_NONE;
             if (pc > prgms[current_prgm].size)
                 pc = -1;
+        } else if (error == ERR_NUMBER_TOO_LARGE
+                || error == ERR_NUMBER_TOO_SMALL) {
+            // Handling these separately because they shouldn't be
+            // suppressed by flag 25, nor trapped by SOLVE
+            goto handle_it_2;
         } else {
             if (flags.f.error_ignore) {
                 flags.f.error_ignore = 0;
@@ -4434,8 +4816,9 @@ static int handle_error(int error) {
                 if (error == ERR_NONE || error == ERR_RUN || error == ERR_STOP)
                     goto noerr;
             }
+            handle_it_2:
             pc = oldpc;
-            display_error(error, 1);
+            display_error(error, true);
         }
         return 0;
     } else {
@@ -4451,7 +4834,7 @@ static int handle_error(int error) {
             error = ERR_NONE;
         }
         if (error != ERR_NONE && error != ERR_STOP)
-            display_error(error, 1);
+            display_error(error, true);
         return 0;
     }
 }

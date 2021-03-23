@@ -9,13 +9,13 @@ android {
             keyPassword free42_keyPassword
         }
     }
-    compileSdkVersion 28
+    compileSdkVersion 29
     defaultConfig {
         applicationId "com.thomasokken.free42"
         minSdkVersion 14
-        targetSdkVersion 28
-        versionCode 126
-        versionName "2.5.20"
+        targetSdkVersion 29
+        versionCode 136
+        versionName "3.0.1"
     }
     buildTypes {
         debug {
@@ -29,10 +29,10 @@ android {
                 abiFilters 'armeabi-v7a', 'arm64-v8a'
             }
             minifyEnabled false
-            useProguard false
             signingConfig signingConfigs.release
         }
     }
+    ndkVersion "19.2.5345600"
     externalNativeBuild {
         ndkBuild {
             path "src/main/cpp/Android.mk"
