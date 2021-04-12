@@ -740,10 +740,10 @@ void draw_pattern(phloat dx, phloat dy, const char *pattern, int pattern_width){
     int const MAXX = gr_MAXX();
     int const MAXY = gr_MAXY();
 
-    if (dx + pattern_width < 1 || dx > MAXX || dy + 8 < 1 || dy > MAXY)
-        return;
     x = dx < 0 ? to_int(-floor(-dx + 0.5)) : to_int(floor(dx + 0.5));
     y = dy < 0 ? to_int(-floor(-dy + 0.5)) : to_int(floor(dy + 0.5));
+    if (x + pattern_width < 1 || x > MAXX || y + 8 < 1 || y > MAXY)
+        return;
 #ifdef ARM
     thell_draw_pattern(x-1,y-1, pattern, pattern_width, (flags.f.agraph_control1<<1)|flags.f.agraph_control0);
     if ( graphics_mode() )

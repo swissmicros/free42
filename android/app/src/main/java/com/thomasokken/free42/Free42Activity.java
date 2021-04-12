@@ -110,8 +110,6 @@ public class Free42Activity extends Activity {
     
     public static Free42Activity instance;
     
-    public static final String MY_STORAGE_DIR = Environment.getExternalStorageDirectory() + "/Android/data/com.thomasokken.free42";
-    
     static {
         System.loadLibrary("free42");
     }
@@ -1075,7 +1073,7 @@ public class Free42Activity extends Activity {
                 
                 ImageView icon = new ImageView(context);
                 icon.setId(1);
-                icon.setImageResource(R.drawable.icon);
+                icon.setImageResource(R.mipmap.icon);
                 addView(icon);
                 
                 TextView label1 = new TextView(context);
@@ -1793,11 +1791,11 @@ public class Free42Activity extends Activity {
             skinName[0] = "Standard";
             // fall through
         case 2:
-            externalSkinName[0] = topStorageDir() + "/Free42/" + skinName[0];
+            externalSkinName[0] = "";
             // fall through
         case 3:
             skinName[1] = "Landscape";
-            externalSkinName[1] = topStorageDir() + "/Free42/" + skinName[1];
+            externalSkinName[1] = "";
             keyClicksLevel = 3;
             // fall through
         case 4:
@@ -2003,10 +2001,6 @@ public class Free42Activity extends Activity {
     
     public void playSound(int index, int duration) {
         soundPool.play(soundIds[index], 1f, 1f, 0, 0, 1f);
-    }
-    
-    private static String topStorageDir() {
-        return Environment.getExternalStorageDirectory().getAbsolutePath();
     }
     
 
@@ -2618,8 +2612,7 @@ public class Free42Activity extends Activity {
     
     private boolean checkStorageAccess2() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
-            if (android.os.Build.VERSION.SDK_INT >= 19 /* KitKat; 4.4 */)
-                new File(MY_STORAGE_DIR).mkdirs();
+            getExternalFilesDir(null).mkdirs();
             return true;
         }
         ActivityCompat.requestPermissions(this, new String[] { Manifest.permission.WRITE_EXTERNAL_STORAGE }, MY_PERMISSIONS_REQUEST_ACCESS_FINE_LOCATION);
