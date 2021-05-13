@@ -939,6 +939,11 @@ void keydown_command_entry(int shift, int key) {
                 if (itemindex == -1) {
                     squeak();
                     return;
+                } else if (itemindex < 0) {
+                    set_cat_section(itemindex == -2 ? CATSECT_EXT_0_CMP : CATSECT_EXT_X_CMP);
+                    move_cat_row(0);
+                    redisplay();
+                    return;
                 }
                 if (catsect == CATSECT_PGM || catsect == CATSECT_PGM_ONLY) {
                     if (labels[itemindex].length == 0) {
@@ -1016,6 +1021,11 @@ void keydown_command_entry(int shift, int key) {
                     || catsect == CATSECT_EXT_STK
                     || catsect == CATSECT_EXT_MISC) {
                 set_cat_section(CATSECT_EXT);
+                redisplay();
+            } else if (catsect == CATSECT_EXT_0_CMP
+                    || catsect == CATSECT_EXT_X_CMP) {
+                set_cat_section(CATSECT_EXT_PRGM);
+                set_cat_row(2);
                 redisplay();
             } else {
                 pending_command = CMD_CANCELLED;
@@ -1363,7 +1373,7 @@ void keydown_command_entry(int shift, int key) {
             if (shift && c >= 'A' && c <= 'Z')
                 c += 'a' - 'A';
             handle_char:
-            if (incomplete_length < 7)
+            if (incomplete_length < (incomplete_argtype == ARG_XSTR ? 22 : 7))
                 incomplete_str[incomplete_length++] = c;
             if (m != NULL)
                 set_menu(MENULEVEL_COMMAND, m->parent);
@@ -1434,7 +1444,7 @@ void keydown_command_entry(int shift, int key) {
                 default: goto nocharkey1;
             }
         }
-        if (incomplete_length < 7)
+        if (incomplete_length < (incomplete_argtype == ARG_XSTR ? 22 : 7))
             incomplete_str[incomplete_length++] = c;
         /* incomplete_alpha can be 0 at this point if
          * the command is CMD_LBL. */
@@ -1532,7 +1542,10 @@ void keydown_command_entry(int shift, int key) {
                             set_menu(MENULEVEL_COMMAND, MENU_NONE);
                     } else if (incomplete_argtype == ARG_PRGM)
                         set_catalog_menu(CATSECT_PGM_ONLY);
-                    else
+                    else if (incomplete_argtype == ARG_XSTR) {
+                        pending_command = CMD_NULL;
+                        finish_command_entry(false);
+                    } else
                         goto out_of_alpha;
                     redisplay();
                 } else if (mode_commandmenu == MENU_CATALOG
@@ -1551,6 +1564,12 @@ void keydown_command_entry(int shift, int key) {
                                 || catsect == CATSECT_EXT_STK
                                 || catsect == CATSECT_EXT_MISC)) {
                     set_catalog_menu(CATSECT_EXT);
+                    redisplay();
+                } else if (mode_commandmenu == MENU_CATALOG
+                        && ((catsect = get_cat_section()) == CATSECT_EXT_0_CMP
+                                || catsect == CATSECT_EXT_X_CMP)) {
+                    set_catalog_menu(CATSECT_EXT_PRGM);
+                    set_cat_row(2);
                     redisplay();
                 } else {
                     pending_command = CMD_NULL;
@@ -1582,7 +1601,9 @@ void keydown_command_entry(int shift, int key) {
                         set_catalog_menu(CATSECT_MAT_ONLY);
                 } else if (incomplete_argtype == ARG_PRGM)
                     set_catalog_menu(CATSECT_PGM_ONLY);
-                else {
+                else if (incomplete_argtype == ARG_XSTR) {
+                    /* Stay in ALPHA mode */
+                } else {
                     out_of_alpha:
                     if (incomplete_ind
                             || incomplete_argtype != ARG_RVAR)
@@ -1633,7 +1654,9 @@ void keydown_command_entry(int shift, int key) {
                             && catsect != CATSECT_EXT_BASE
                             && catsect != CATSECT_EXT_PRGM
                             && catsect != CATSECT_EXT_STK
-                            && catsect != CATSECT_EXT_MISC)) {
+                            && catsect != CATSECT_EXT_MISC
+                            && catsect != CATSECT_EXT_0_CMP
+                            && catsect != CATSECT_EXT_X_CMP)) {
                     set_menu(MENULEVEL_COMMAND, MENU_ALPHA1);
                     redisplay();
                     return;
@@ -1683,11 +1706,16 @@ void keydown_command_entry(int shift, int key) {
                 finish_command_entry(false);
                 return;
             } else {
-                pending_command_arg.type =
-                        incomplete_ind ? ARGTYPE_IND_STR : ARGTYPE_STR;
+                if (incomplete_argtype == ARG_XSTR) {
+                    pending_command_arg.type = ARGTYPE_XSTR;
+                    pending_command_arg.val.xstr = incomplete_str;
+                } else {
+                    pending_command_arg.type =
+                            incomplete_ind ? ARGTYPE_IND_STR : ARGTYPE_STR;
+                    for (i = 0; i < incomplete_length; i++)
+                        pending_command_arg.val.text[i] = incomplete_str[i];
+                }
                 pending_command_arg.length = incomplete_length;
-                for (i = 0; i < incomplete_length; i++)
-                    pending_command_arg.val.text[i] = incomplete_str[i];
 
                 if (!incomplete_ind && incomplete_command == CMD_XEQ)
                     finish_xeq();
@@ -2093,6 +2121,7 @@ void keydown_normal_mode(int shift, int key) {
                     } else {
                         switch (varmenu_role) {
                             case 0: /* Plain ol' VARMENU */
+                            case 3: /* VARMNU1 */
                                 pending_command =
                                     mode_varmenu ? CMD_VMEXEC : CMD_VMSTO;
                                 break;
@@ -2133,7 +2162,13 @@ void keydown_normal_mode(int shift, int key) {
             }
             if (key == KEY_EXIT) {
                 set_menu(MENULEVEL_APP, MENU_NONE);
-                pending_command = CMD_CANCELLED;
+                if (varmenu_role == 3) {
+                    pending_command = CMD_VMEXEC;
+                    pending_command_arg.type = ARGTYPE_STR;
+                    pending_command_arg.length = 0;
+                } else {
+                    pending_command = CMD_CANCELLED;
+                }
                 return;
             }
         }
@@ -2385,14 +2420,21 @@ void keydown_normal_mode(int shift, int key) {
                         pending_command_arg.val.text[i] =
                                                 labels[labelindex].name[i];
                 } else if (catsect == CATSECT_FCN
-                        || catsect >= CATSECT_EXT_TIME && catsect <= CATSECT_EXT_MISC) {
+                        || catsect >= CATSECT_EXT_TIME && catsect <= CATSECT_EXT_X_CMP) {
                     int cmd = get_cat_item(menukey);
-                    if (cmd == -1)
+                    if (cmd == -1) {
                         if (flags.f.prgm_mode) {
                             pending_command = CMD_NULL;
                             return;
                         } else
                             cmd = CMD_NULL;
+                    } else if (cmd < 0) {
+                        set_cat_section(cmd == -2 ? CATSECT_EXT_0_CMP : CATSECT_EXT_X_CMP);
+                        move_cat_row(0);
+                        redisplay();
+                        pending_command = CMD_NULL;
+                        return;
+                    }
                     if (level == MENULEVEL_TRANSIENT
                             || !mode_plainmenu_sticky)
                         set_menu(level, MENU_NONE);
@@ -2543,7 +2585,11 @@ void keydown_normal_mode(int shift, int key) {
                 else if (catsect >= CATSECT_EXT_TIME
                         && catsect <= CATSECT_EXT_MISC)
                     set_cat_section(CATSECT_EXT);
-                else
+                else if (catsect == CATSECT_EXT_0_CMP
+                        || catsect == CATSECT_EXT_X_CMP) {
+                    set_cat_section(CATSECT_EXT_PRGM);
+                    set_cat_row(2);
+                } else
                     set_menu(level, MENU_NONE);
             } else {
                 const menu_spec *m = menus + menu;

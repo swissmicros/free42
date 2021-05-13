@@ -646,7 +646,7 @@ int incomplete_length;
 int incomplete_maxdigits;
 int incomplete_argtype;
 int incomplete_num;
-char incomplete_str[7];
+char incomplete_str[22];
 int4 incomplete_saved_pc;
 int4 incomplete_saved_highlight_row;
 
@@ -668,6 +668,11 @@ int matedit_prev_appmenu;
 char input_name[11];
 int input_length;
 arg_struct input_arg;
+
+/* ERRMSG/ERRNO */
+int lasterr = 0;
+int lasterr_length;
+char lasterr_text[22];
 
 /* BASE application */
 int baseapp = 0;
@@ -771,8 +776,11 @@ bool no_keystrokes_yet;
  * Version 33: 3.0    Big stack; parameterized RTNERR
  * Version 34: 3.0    Long strings
  * Version 35: 3.0    Changing 'int' to 'bool' where appropriate
+ * Version 36-38:     Plus42 stuff
+ * Version 39: 3.0.3  ERRMSG/ERRNO
+ * Version 40: 3.0.3  Longer incomplete_str buffer
  */
-#define FREE42_VERSION 35
+#define FREE42_VERSION 40
 
 
 /*******************/
@@ -2325,6 +2333,12 @@ int get_command_length(int prgm_index, int4 pc) {
         case ARGTYPE_DOUBLE:
             pc2 += sizeof(phloat);
             break;
+        case ARGTYPE_XSTR: {
+            int xl = prgm->text[pc2++];
+            xl += prgm->text[pc2++] << 8;
+            pc2 += xl;
+            break;
+        }
     }
     if (have_orig_num)
         while (prgm->text[pc2++]);
@@ -2400,6 +2414,14 @@ void get_next_command(int4 *pc, int *command, arg_struct *arg, int find_target, 
             unsigned char *b = (unsigned char *) &arg->val_d;
             for (int i = 0; i < (int) sizeof(phloat); i++)
                 *b++ = prgm->text[(*pc)++];
+            break;
+        }
+        case ARGTYPE_XSTR: {
+            int xstr_len = prgm->text[(*pc)++];
+            xstr_len += prgm->text[(*pc)++] << 8;
+            arg->length = xstr_len;
+            arg->val.xstr = (const char *) (prgm->text + *pc);
+            (*pc) += xstr_len;
             break;
         }
     }
@@ -2588,6 +2610,7 @@ void delete_command(int4 pc) {
 void store_command(int4 pc, int command, arg_struct *arg, const char *num_str) {
     unsigned char buf[100];
     int bufptr = 0;
+    int xstr_len;
     int i;
     int4 pos;
     prgm_struct *prgm = prgms + current_prgm;
@@ -2744,7 +2767,7 @@ void store_command(int4 pc, int command, arg_struct *arg, const char *num_str) {
             break;
         case ARGTYPE_STR:
         case ARGTYPE_IND_STR: {
-            buf[bufptr++] = arg->length;
+            buf[bufptr++] = (unsigned char) arg->length;
             for (i = 0; i < arg->length; i++)
                 buf[bufptr++] = arg->val.text[i];
             break;
@@ -2756,6 +2779,18 @@ void store_command(int4 pc, int command, arg_struct *arg, const char *num_str) {
             unsigned char *b = (unsigned char *) &arg->val_d;
             for (int i = 0; i < (int) sizeof(phloat); i++)
                 buf[bufptr++] = *b++;
+            break;
+        }
+        case ARGTYPE_XSTR: {
+            xstr_len = arg->length;
+            if (xstr_len > 65535)
+                xstr_len = 65535;
+            buf[bufptr++] = xstr_len;
+            buf[bufptr++] = xstr_len >> 8;
+            // Not storing the text in 'buf' because it may not fit;
+            // we'll handle that separately when copying the buffer
+            // into the program.
+            bufptr += xstr_len;
             break;
         }
     }
@@ -2777,7 +2812,7 @@ void store_command(int4 pc, int command, arg_struct *arg, const char *num_str) {
 
     if (bufptr + prgm->size > prgm->capacity) {
         unsigned char *newtext;
-        prgm->capacity += 512;
+        prgm->capacity += bufptr + 512;
         newtext = (unsigned char *) mallocU(prgm->capacity);
         // TODO - handle memory allocation failure
         for (pos = 0; pos < pc; pos++)
@@ -2791,8 +2826,13 @@ void store_command(int4 pc, int command, arg_struct *arg, const char *num_str) {
         for (pos = prgm->size - 1; pos >= pc; pos--)
             prgm->text[pos + bufptr] = prgm->text[pos];
     }
-    for (pos = 0; pos < bufptr; pos++)
-        prgm->text[pc + pos] = buf[pos];
+    if (arg->type == ARGTYPE_XSTR) {
+        int instr_len = bufptr - xstr_len;
+        memcpy(prgm->text + pc, buf, instr_len);
+        memcpy(prgm->text + pc + instr_len, arg->val.xstr, xstr_len);
+    } else {
+        memcpy(prgm->text + pc, buf, bufptr);
+    }
     prgm->size += bufptr;
     if (command != CMD_END && flags.f.printer_exists && (flags.f.trace_print || flags.f.normal_print))
         print_program_line(current_prgm, pc);
@@ -2814,6 +2854,97 @@ void store_command_after(int4 *pc, int command, arg_struct *arg, const char *num
     else if (prgms[current_prgm].text[*pc] != CMD_END)
         *pc += get_command_length(current_prgm, *pc);
     store_command(*pc, command, arg, num_str);
+}
+
+static bool ensure_prgm_space(int n) {
+    prgm_struct *prgm = prgms + current_prgm;
+    if (prgm->size + n <= prgm->capacity)
+        return true;
+    int4 newcapacity = prgm->size + n;
+    unsigned char *newtext = (unsigned char *) realloc(prgm->text, newcapacity);
+    if (newtext == NULL)
+        return false;
+    prgm->text = newtext;
+    prgm->capacity = newcapacity;
+    return true;
+}
+
+int x2line() {
+    switch (stack[sp]->type) {
+        case TYPE_REAL: {
+            if (!ensure_prgm_space(2 + sizeof(phloat)))
+                return ERR_INSUFFICIENT_MEMORY;
+            vartype_real *r = (vartype_real *) stack[sp];
+            arg_struct arg;
+            arg.type = ARGTYPE_DOUBLE;
+            arg.val_d = r->x;
+            store_command_after(&pc, CMD_NUMBER, &arg, NULL);
+            return ERR_NONE;
+        }
+        case TYPE_COMPLEX: {
+            if (!ensure_prgm_space(6 + 2 * sizeof(phloat)))
+                return ERR_INSUFFICIENT_MEMORY;
+            vartype_complex *c = (vartype_complex *) stack[sp];
+            arg_struct arg;
+            arg.type = ARGTYPE_DOUBLE;
+            arg.val_d = c->re;
+            store_command_after(&pc, CMD_NUMBER, &arg, NULL);
+            arg.type = ARGTYPE_DOUBLE;
+            arg.val_d = c->im;
+            store_command_after(&pc, CMD_NUMBER, &arg, NULL);
+            arg.type = ARGTYPE_NONE;
+            store_command_after(&pc, CMD_COMPLEX, &arg, NULL);
+            return ERR_NONE;
+        }
+        case TYPE_STRING: {
+            vartype_string *s = (vartype_string *) stack[sp];
+            int len = s->length;
+            if (len > 65535)
+                len = 65535;
+            if (!ensure_prgm_space(4 + len))
+                return ERR_INSUFFICIENT_MEMORY;
+            arg_struct arg;
+            arg.type = ARGTYPE_XSTR;
+            arg.length = len;
+            arg.val.xstr = s->txt();
+            store_command_after(&pc, CMD_XSTR, &arg, NULL);
+            return ERR_NONE;
+        }
+        default:
+            return ERR_INTERNAL_ERROR;
+    }
+}
+
+int a2line() {
+    if (reg_alpha_length == 0) {
+        squeak();
+        return ERR_NONE;
+    }
+    if (!ensure_prgm_space(reg_alpha_length + ((reg_alpha_length - 2) / 14 + 1) * 3))
+        return ERR_INSUFFICIENT_MEMORY;
+    const char *p = reg_alpha;
+    int len = reg_alpha_length;
+    int maxlen = 15;
+    while (len > 0) {
+        int len2 = len;
+        if (len2 > maxlen)
+            len2 = maxlen;
+        arg_struct arg;
+        arg.type = ARGTYPE_STR;
+        if (maxlen == 15) {
+            arg.length = len2;
+            memcpy(arg.val.text, p, len2);
+        } else {
+            arg.length = len2 + 1;
+            arg.val.text[0] = 127;
+            memcpy(arg.val.text + 1, p, len2);
+        }
+        store_command_after(&pc, CMD_STRING, &arg, NULL);
+        p += len2;
+        len -= len2;
+        maxlen = 14;
+    }
+    return ERR_NONE;
 }
 
 static int pc_line_convert(int4 loc, int loc_is_pc) {
@@ -2970,14 +3101,7 @@ int push_rtn_addr(int prgm, int4 pc) {
     return ERR_NONE;
 }
 
-int push_indexed_matrix(const char *name, int len) {
-    if (matedit_mode == 0 || matedit_mode == 2)
-        return ERR_NONE;
-    if (!string_equals(name, len, matedit_name, matedit_length))
-        return ERR_NONE;
-    if (matedit_mode == 3)
-        return ERR_RESTRICTED_OPERATION;
-    
+int push_indexed_matrix() {
     if (rtn_level == 0) {
         if (rtn_level_0_has_matrix_entry)
             return ERR_NONE;
@@ -2993,7 +3117,7 @@ int push_indexed_matrix(const char *name, int len) {
         rtn_sp += 2;
         rtn_stack_matrix_name_entry e1;
         int dlen;
-        string_copy(e1.name, &dlen, name, len);
+        string_copy(e1.name, &dlen, matedit_name, matedit_length);
         e1.length = dlen;
         memcpy(&rtn_stack[rtn_sp - 1], &e1, sizeof(e1));
         rtn_stack_matrix_ij_entry e2;
@@ -3016,7 +3140,7 @@ int push_indexed_matrix(const char *name, int len) {
         rtn_stack[rtn_sp - 1].set_has_matrix(true);
         rtn_stack_matrix_name_entry e1;
         int dlen;
-        string_copy(e1.name, &dlen, name, len);
+        string_copy(e1.name, &dlen, matedit_name, matedit_length);
         e1.length = dlen;
         memcpy(&rtn_stack[rtn_sp - 2], &e1, sizeof(e1));
         rtn_stack_matrix_ij_entry e2;
@@ -3499,6 +3623,42 @@ int rtn_with_error(int err) {
     return err;
 }
 
+/* When IJ is pushed because INDEX or EDITN are applied to a matrix more local
+ * than the indexed matrix, it is possible for the pushed matrix to be deleted
+ * before IJ are popped. Ideally, this should be handled by making sure that
+ * the matrix named by the pushed name is actually the same one as currently
+ * found by that name, but that would require saving additional state to the
+ * stack. So, we use this simple check instead, which may not always prevent
+ * the wrong matrix from ending up indexed, but will prevent crashes due to
+ * accessing nonexistent matrices or to accessing the indexed matrix out of
+ * range.
+ */
+static void validate_matedit() {
+    if (matedit_mode != 1 && matedit_mode != 3)
+        return;
+    int idx = lookup_var(matedit_name, matedit_length);
+    if (idx == -1) {
+        fail:
+        matedit_mode = 0;
+        return;
+    }
+    vartype *v = vars[idx].value;
+    int4 rows, cols;
+    if (v->type == TYPE_REALMATRIX) {
+        vartype_realmatrix *rm = (vartype_realmatrix *) v;
+        rows = rm->rows;
+        cols = rm->columns;
+    } else if (v->type == TYPE_COMPLEXMATRIX) {
+        vartype_complexmatrix *cm = (vartype_complexmatrix *) v;
+        rows = cm->rows;
+        cols = cm->columns;
+    } else {
+        goto fail;
+    }
+    if (matedit_i >= rows || matedit_j >= cols)
+        goto fail;
+}
+
 void pop_rtn_addr(int *prgm, int4 *pc, bool *stop) {
     remove_locals();
     if (rtn_level == 0) {
@@ -3517,6 +3677,7 @@ void pop_rtn_addr(int *prgm, int4 *pc, bool *stop) {
             matedit_i = e2.i;
             matedit_j = e2.j;
             matedit_mode = 1;
+            validate_matedit();
         }
     } else {
         rtn_sp--;
@@ -3874,6 +4035,7 @@ bool read_arg(arg_struct *arg, bool old) {
     if (state_is_portable) {
         if (!read_char((char *) &arg->type))
             return false;
+        char c;
         switch (arg->type) {
             case ARGTYPE_NONE:
                 return true;
@@ -3887,8 +4049,13 @@ bool read_arg(arg_struct *arg, bool old) {
                 return read_char(&arg->val.stk);
             case ARGTYPE_STR:
             case ARGTYPE_IND_STR:
-                return read_char((char *) &arg->length)
-                && fread(arg->val.text, 1, arg->length, gfile) == arg->length;
+                // Serializing 'length' as a char for backward compatibility.
+                // Values > 255 only happen for XSTR, and those are never
+                // serialized.
+                if (!read_char(&c))
+                    return false;
+                arg->length = c & 255;
+                return fread(arg->val.text, 1, arg->length, gfile) == arg->length;
             case ARGTYPE_COMMAND:
                 return read_int(&arg->val.cmd);
             case ARGTYPE_LCLBL:
@@ -3987,9 +4154,17 @@ bool read_arg(arg_struct *arg, bool old) {
 }
 
 bool write_arg(const arg_struct *arg) {
-    if (!write_char(arg->type))
+    int type = arg->type;
+    if (type == ARGTYPE_XSTR)
+        // This type is always used immediately, so no need to persist it;
+        // also, persisting it would be difficult, since this variant uses
+        // a pointer to the actual text, which is context-dependent and
+        // would be impossible to restore.
+        type = ARGTYPE_NONE;
+
+    if (!write_char(type))
         return false;
-    switch (arg->type) {
+    switch (type) {
         case ARGTYPE_NONE:
             return true;
         case ARGTYPE_NUM:
@@ -4002,7 +4177,7 @@ bool write_arg(const arg_struct *arg) {
             return write_char(arg->val.stk);
         case ARGTYPE_STR:
         case ARGTYPE_IND_STR:
-            return write_char(arg->length)
+            return write_char((char) arg->length)
                 && fwrite(arg->val.text, 1, arg->length, gfile) == arg->length;
         case ARGTYPE_COMMAND:
             return write_int(arg->val.cmd);
@@ -4175,7 +4350,8 @@ static bool load_state2(bool *clear, bool *too_new) {
     if (!read_int(&incomplete_maxdigits)) return false;
     if (!read_int(&incomplete_argtype)) return false;
     if (!read_int(&incomplete_num)) return false;
-    if (fread(incomplete_str, 1, 7, gfile) != 7) return false;
+    int isl = ver < 40 ? 7 : 22;
+    if (fread(incomplete_str, 1, isl, gfile) != isl) return false;
     if (!read_int4(&incomplete_saved_pc)) return false;
     if (!read_int4(&incomplete_saved_highlight_row)) return false;
 
@@ -4194,6 +4370,14 @@ static bool load_state2(bool *clear, bool *too_new) {
     if (fread(input_name, 1, 11, gfile) != 11) return false;
     if (!read_int(&input_length)) return false;
     if (!read_arg(&input_arg, ver < 9)) return false;
+
+    if (ver < 39) {
+        lasterr = 0;
+    } else {
+        if (!read_int(&lasterr)) return false;
+        if (!read_int(&lasterr_length)) return false;
+        if (fread(lasterr_text, 1, 22, gfile) != 22) return false;
+    }
 
     if (!read_int(&baseapp)) return false;
 
@@ -4344,7 +4528,7 @@ void save_state() {
     if (!write_int(incomplete_maxdigits)) return;
     if (!write_int(incomplete_argtype)) return;
     if (!write_int(incomplete_num)) return;
-    if (fwrite(incomplete_str, 1, 7, gfile) != 7) return;
+    if (fwrite(incomplete_str, 1, 22, gfile) != 22) return;
     if (!write_int4(pc2line(incomplete_saved_pc))) return;
     if (!write_int4(incomplete_saved_highlight_row)) return;
 
@@ -4363,6 +4547,10 @@ void save_state() {
     if (fwrite(input_name, 1, 11, gfile) != 11) return;
     if (!write_int(input_length)) return;
     if (!write_arg(&input_arg)) return;
+
+    if (!write_int(lasterr)) return;
+    if (!write_int(lasterr_length)) return;
+    if (fwrite(lasterr_text, 1, 22, gfile) != 22) return;
 
     if (!write_int(baseapp)) return;
 

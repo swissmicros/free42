@@ -53,10 +53,15 @@ int docmd_breset(arg_struct *arg);
 int docmd_nop(arg_struct *arg);
 int docmd_fma(arg_struct *arg);
 int docmd_func(arg_struct *arg);
+int docmd_errmsg(arg_struct *arg);
+int docmd_errno(arg_struct *arg);
 int docmd_rtnyes(arg_struct *arg);
 int docmd_rtnno(arg_struct *arg);
 int docmd_rtnerr(arg_struct *arg);
 int docmd_strace(arg_struct *arg);
+int docmd_varmnu1(arg_struct *arg);
+int docmd_x2line(arg_struct *arg);
+int docmd_a2line(arg_struct *arg);
 
 int docmd_4stk(arg_struct *arg);
 int docmd_l4stk(arg_struct *arg);
@@ -87,5 +92,7 @@ int docmd_0_lt_nn(arg_struct *arg);
 int docmd_0_gt_nn(arg_struct *arg);
 int docmd_0_le_nn(arg_struct *arg);
 int docmd_0_ge_nn(arg_struct *arg);
+
+int docmd_xstr(arg_struct *arg);
 
 #endif

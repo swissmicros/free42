@@ -199,11 +199,11 @@ bool core_hex_menu() {
     return get_front_menu() == MENU_BASE_A_THRU_F;
 }
 
-static int ascii2hp(char *dst, const char *src, int maxchars);
+static int ascii2hp(char *dst, int dstlen, const char *src, int srclen = -1);
 
 bool core_keydown_command(const char *name, bool *enqueued, int *repeat) {
     char hpname[70];
-    int len = ascii2hp(hpname, name, 63);
+    int len = ascii2hp(hpname, 63, name);
     int cmd = find_builtin(hpname, len, false);
     if (cmd == CMD_NONE) {
         set_shift(false);
@@ -572,7 +572,7 @@ bool core_keyup() {
         if ((flags.f.trace_print || flags.f.normal_print)
                 && flags.f.printer_exists) {
             if (cmd == CMD_LBL)
-                print_text(NULL, 0, 1);
+                print_text(NULL, 0, true);
             print_program_line(current_prgm, oldpc);
         }
         mode_disable_stack_lift = false;
@@ -1073,6 +1073,33 @@ static void export_hp42s(int index) {
                 } else if (cmd == CMD_XROM) {
                     cmdbuf[cmdlen++] = (char) (0xA0 + ((arg.val.num >> 8) & 7));
                     cmdbuf[cmdlen++] = (char) arg.val.num;
+                } else if (cmd == CMD_XSTR) {
+                    int len = arg.length;
+                    if (len == 0) {
+                        cmdbuf[cmdlen++] = (char) 0xF2;
+                        cmdbuf[cmdlen++] = (char) 0xA7;
+                        cmdbuf[cmdlen++] = (char) 0x41;
+                    } else {
+                        /* Writing directly to 'buf' here, not using 'cmdbuf', */
+                        /* since XSTR can be very long and may not fit in one  */
+                        /* piece.                                              */
+                        const char *ptr = arg.val.xstr;
+                        while (len > 0) {
+                            if (buflen + 16 > 1000 - 50) {
+                                if (raw_write(buf, buflen) != buflen)
+                                    goto done;
+                                buflen = 0;
+                            }
+                            int slen = len <= 13 ? len : 13;
+                            buf[buflen++] = (char) (0xF2 + slen);
+                            buf[buflen++] = (char) 0xA7;
+                            buf[buflen++] = (char) (slen < len ? 0x49 : 0x41);
+                            memcpy(buf + buflen, ptr, slen);
+                            buflen += slen;
+                            ptr += slen;
+                            len -= slen;
+                        }
+                    }
                 } else {
                     /* Shouldn't happen */
                     continue;
@@ -1161,7 +1188,7 @@ static void export_hp42s(int index) {
                 /* Illegal command */
                 continue;
         }
-        if (buflen + cmdlen > 1000) {
+        if (buflen + cmdlen > 1000 - 50) {
             if (raw_write(buf, buflen) != buflen)
                 goto done;
             buflen = 0;
@@ -1269,6 +1296,11 @@ int4 core_program_size(int prgm_index) {
                         size += 4;
                 } else if (cmd == CMD_XROM) {
                     size += 2;
+                } else if (cmd == CMD_XSTR) {
+                    int n = (arg.length + 12) / 13;
+                    if (n == 0)
+                        n = 1;
+                    size += arg.length + n * 3;
                 } else {
                     /* Shouldn't happen */
                     continue;
@@ -1705,40 +1737,40 @@ static int hp42ext[] = {
     CMD_0_GE_NN | 0x1000,
 
     /* 30-3F */
-    CMD_PRMVAR | 0x2000,
-    CMD_NULL   | 0x4000,
-    CMD_NULL   | 0x4000,
-    CMD_NULL   | 0x4000,
-    CMD_NULL   | 0x4000,
-    CMD_NULL   | 0x4000,
-    CMD_NULL   | 0x4000,
-    CMD_NULL   | 0x4000,
-    CMD_NULL   | 0x4000,
-    CMD_NULL   | 0x4000,
-    CMD_NULL   | 0x4000,
-    CMD_NULL   | 0x4000,
-    CMD_NULL   | 0x4000,
-    CMD_NULL   | 0x4000,
-    CMD_NULL   | 0x4000,
-    CMD_NULL   | 0x4000,
+    CMD_PRMVAR  | 0x2000,
+    CMD_VARMNU1 | 0x2000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
 
     /* 40-4F */
-    CMD_PRMVAR | 0x0000,
-    CMD_NULL   | 0x4000,
-    CMD_NULL   | 0x4000,
-    CMD_NULL   | 0x4000,
-    CMD_NULL   | 0x4000,
-    CMD_NULL   | 0x4000,
-    CMD_NULL   | 0x4000,
-    CMD_NULL   | 0x4000,
-    CMD_PRMVAR | 0x1000,
-    CMD_NULL   | 0x4000,
-    CMD_NULL   | 0x4000,
-    CMD_NULL   | 0x4000,
-    CMD_NULL   | 0x4000,
-    CMD_NULL   | 0x4000,
-    CMD_NULL   | 0x4000,
-    CMD_NULL   | 0x4000,
+    CMD_PRMVAR  | 0x0000,
+    CMD_XSTR    | 0x0000,
+    CMD_VARMNU1 | 0x0000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
+    CMD_PRMVAR  | 0x1000,
+    CMD_XSTR    | 0x1000,
+    CMD_VARMNU1 | 0x1000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
+    CMD_NULL    | 0x4000,
 
     /* 50-5F */
     CMD_NULL | 0x4000,
@@ -2043,6 +2075,8 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
     }
 
     char numbuf[50];
+    char *xstr_buf = NULL;
+    int xstr_len = 0;
 
     while (!done_flag) {
         skip:
@@ -2298,7 +2332,28 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
                                                 : ARGTYPE_IND_STR;
                         str_len = byte1 - 0x0F1;
                         extra_extension = false;
-                        goto do_string;
+                        if (cmd != CMD_XSTR)
+                            goto do_string;
+                        // XSTR is stored as a sequence of instructions, since
+                        // it may encode a string of up to 65535 characters, while
+                        // instructions are limited to 16 bytes, giving a payload
+                        // of up to 13 characters per instruction.
+                        char *newbuf = (char *) realloc(xstr_buf, xstr_len + str_len);
+                        if (newbuf == NULL)
+                            goto done;
+                        xstr_buf = newbuf;
+                        while (str_len-- > 0) {
+                            int b = raw_getc();
+                            if (b == EOF)
+                                goto done;
+                            xstr_buf[xstr_len++] = b;
+                        }
+                        if (arg.type == ARGTYPE_IND_STR)
+                            continue;
+                        arg.type = ARGTYPE_XSTR;
+                        arg.length = xstr_len;
+                        arg.val.xstr = xstr_buf;
+                        goto store;
                     } else if (flag == 2) {
                         int ind;
                         if (byte1 != 0x0F2)
@@ -2429,6 +2484,9 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
             pending_end = true;
         } else {
             store_command_after(&pc, cmd, &arg, numbuf);
+            free(xstr_buf);
+            xstr_buf = NULL;
+            xstr_len = 0;
         }
     }
 
@@ -2442,6 +2500,7 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
 
     if (raw_file_name != NULL)
         raw_close("import");
+    free(xstr_buf);
 }
 
 static int real2buf(char *buf, phloat x) {
@@ -2756,10 +2815,10 @@ static bool parse_phloat(const char *p, int len, phloat *res) {
         return false;
 }
 
-/* NOTE: The destination buffer should be able to store maxchars + 4
+/* NOTE: The destination buffer should be able to store dstlen + 4
  * characters, because of how we parse [LF] and [ESC].
  */
-static int ascii2hp(char *dst, const char *src, int maxchars) {
+static int ascii2hp(char *dst, int dstlen, const char *src, int srclen /* = -1 */) {
     int srcpos = 0, dstpos = 0;
     // state machine for detecting [LF] and [ESC]:
     // 0: ''
@@ -2771,8 +2830,8 @@ static int ascii2hp(char *dst, const char *src, int maxchars) {
     // 6: '[ESC'
     int state = 0;
     bool afterCR = false;
-    while (dstpos < maxchars + (state == 0 ? 1 : 4)) {
-        char c = src[srcpos++];
+    while (dstpos < dstlen + (state == 0 ? 1 : 4)) {
+        char c = srclen == -1 || srcpos < srclen ? src[srcpos++] : 0;
         retry:
         if (c == 0)
             break;
@@ -2798,7 +2857,7 @@ static int ascii2hp(char *dst, const char *src, int maxchars) {
                 continue;
             }
             while (len-- > 0) {
-                c = src[srcpos++];
+                c = srclen == -1 || srcpos < srclen ? src[srcpos++] : 0;
                 if ((c & 0xc0) != 0x80)
                     // Unexpected non-continuation byte
                     goto retry;
@@ -2980,7 +3039,7 @@ static int ascii2hp(char *dst, const char *src, int maxchars) {
         }
         dst[dstpos++] = (char) code;
     }
-    return dstpos > maxchars ? maxchars : dstpos;
+    return dstpos > dstlen ? dstlen : dstpos;
 }
 
 struct text_alias {
@@ -3261,8 +3320,8 @@ static void paste_programs(const char *buf) {
     bool after_end = true;
     bool done = false;
     int pos = 0;
-    char asciibuf[1024];
-    char hpbuf[1027];
+    char hpbuf_s[259];
+    char *hpbuf = NULL;
     int cmd;
     arg_struct arg;
     char numbuf[50];
@@ -3278,10 +3337,20 @@ static void paste_programs(const char *buf) {
             goto line_done;
         // We now have a line between 'pos' and 'end', length 'end - pos'.
         // Convert to HP-42S encoding:
+        int alen;
+        alen = end - pos;
+        if (alen > 255) {
+            hpbuf = (char *) malloc(alen + 4);
+            if (hpbuf == NULL) {
+                display_error(ERR_INSUFFICIENT_MEMORY, false);
+                redisplay();
+                return;
+            }
+        } else {
+            hpbuf = hpbuf_s;
+        }
         int hpend;
-        strncpy(asciibuf, buf + pos, end - pos);
-        asciibuf[end - pos] = 0;
-        hpend = ascii2hp(hpbuf, asciibuf, 1023);
+        hpend = ascii2hp(hpbuf, alen, buf + pos, alen);
         // Perform additional translations, to support various 42S-to-text
         // and 41-to-text conversion schemes:
         hpend = text2hp(hpbuf, hpend);
@@ -3542,6 +3611,22 @@ static void paste_programs(const char *buf) {
                 arg.type = ARGTYPE_STR;
                 arg.length = len;
                 memcpy(arg.val.text, hpbuf + hppos + 1, len);
+                goto store;
+            } else if (cmd == CMD_XSTR) {
+                int q1 = -1, q2 = -1;
+                for (int i = hppos; i < hpend; i++) {
+                    if (hpbuf[i] == '"') {
+                        if (q1 == -1)
+                            q1 = i;
+                        else
+                            q2 = i;
+                    }
+                }
+                if (q2 == -1)
+                    goto line_done;
+                arg.type = ARGTYPE_XSTR;
+                arg.length = q2 - q1 - 1;
+                arg.val.xstr = hpbuf + q1 + 1;
                 goto store;
             } else if (cmd != CMD_NONE) {
                 int flags;
@@ -3841,6 +3926,10 @@ static void paste_programs(const char *buf) {
             goto store;
         }
         pos = end + 1;
+        if (hpbuf != hpbuf_s) {
+            free(hpbuf);
+            hpbuf = NULL;
+        }
     }
 }
 
@@ -3853,7 +3942,7 @@ void core_paste(const char *buf) {
         paste_programs(buf);
     } else if (alpha_active()) {
         char hpbuf[48];
-        int len = ascii2hp(hpbuf, buf, 44);
+        int len = ascii2hp(hpbuf, 44, buf);
         int tlen = len + reg_alpha_length;
         if (tlen > 44) {
             int off = tlen - 44;
@@ -3908,27 +3997,18 @@ void core_paste(const char *buf) {
         } else if (rows == 1 && cols == 1) {
             // Scalar
             int len = (int) strlen(buf);
-            char *asciibuf = (char *) malloc(len + 1);
-            if (asciibuf == NULL) {
-                display_error(ERR_INSUFFICIENT_MEMORY, false);
-                redisplay();
-                return;
-            }
-            strcpy(asciibuf, buf);
-            if (len > 0 && asciibuf[len - 1] == '\n') {
-                asciibuf[--len] = 0;
-                if (len > 0 && asciibuf[len - 1] == '\r')
-                    asciibuf[--len] = 0;
+            if (len > 0 && buf[len - 1] == '\n') {
+                len--;
+                if (len > 0 && buf[len - 1] == '\r')
+                    len--;
             }
             char *hpbuf = (char *) malloc(len + 4);
             if (hpbuf == NULL) {
-                free(asciibuf);
                 display_error(ERR_INSUFFICIENT_MEMORY, false);
                 redisplay();
                 return;
             }
-            len = ascii2hp(hpbuf, asciibuf, len);
-            free(asciibuf);
+            len = ascii2hp(hpbuf, len, buf, len);
             v = parse_base(hpbuf, len);
             if (v == NULL) {
                 phloat re, im;
@@ -3968,17 +4048,8 @@ void core_paste(const char *buf) {
                 redisplay();
                 return;
             }
-            char *asciibuf = (char *) malloc(max_cell_size + 1);
-            if (asciibuf == NULL) {
-                free(data);
-                free(is_string);
-                display_error(ERR_INSUFFICIENT_MEMORY, false);
-                redisplay();
-                return;
-            }
             char *hpbuf = (char *) malloc(max_cell_size + 5);
             if (hpbuf == NULL) {
-                free(asciibuf);
                 free(data);
                 free(is_string);
                 display_error(ERR_INSUFFICIENT_MEMORY, false);
@@ -3992,15 +4063,13 @@ void core_paste(const char *buf) {
                 c = buf[pos++];
                 if (c == 0 || c == '\t' || c == '\r' || c == '\n') {
                     int cellsize = pos - spos - 1;
-                    memcpy(asciibuf, buf + spos, cellsize);
                     if (c == '\r') {
                         c = '\n';
                         if (buf[pos] == '\n')
                             pos++;
                     }
+                    int hplen = ascii2hp(hpbuf, cellsize, buf + spos, cellsize);
                     spos = pos;
-                    asciibuf[cellsize] = 0;
-                    int hplen = ascii2hp(hpbuf, asciibuf, cellsize);
                     phloat re, im;
                     int slen;
                     int type = parse_scalar(hpbuf, hplen, true, &re, &im, &slen);
@@ -4022,7 +4091,6 @@ void core_paste(const char *buf) {
                                 if (newdata == NULL) {
                                     nomem:
                                     free(data);
-                                    free(asciibuf);
                                     free(hpbuf);
                                     display_error(ERR_INSUFFICIENT_MEMORY, false);
                                     redisplay();
@@ -4104,7 +4172,6 @@ void core_paste(const char *buf) {
                     break;
             }
 
-            free(asciibuf);
             free(hpbuf);
             if (is_string != NULL) {
                 vartype_realmatrix *rm = (vartype_realmatrix *)
@@ -4161,12 +4228,13 @@ void core_paste(const char *buf) {
                 v = (vartype *) cm;
             }
         }
-        mode_number_entry = false;
         if (recall_result(v) != ERR_NONE) {
             display_error(ERR_INSUFFICIENT_MEMORY, false);
             redisplay();
             return;
         }
+        mode_number_entry = false;
+        mode_varmenu = false;
         flags.f.stack_lift_disable = 0;
         flags.f.message = 0;
         flags.f.two_line_message = 0;
@@ -4301,7 +4369,7 @@ static void continue_running() {
         get_next_command(&pc, &cmd, &arg, 1, NULL);
         if (flags.f.trace_print && flags.f.printer_exists) {
             if (cmd == CMD_LBL)
-                print_text(NULL, 0, 1);
+                print_text(NULL, 0, true);
             print_program_line(current_prgm, oldpc);
         }
         mode_disable_stack_lift = false;
@@ -4501,7 +4569,8 @@ void start_incomplete_command(int cmd_id) {
     incomplete_command = cmd_id;
     incomplete_ind = false;
     if (argtype == ARG_NAMED || argtype == ARG_PRGM
-            || argtype == ARG_RVAR || argtype == ARG_MAT)
+            || argtype == ARG_RVAR || argtype == ARG_MAT
+            || argtype == ARG_XSTR)
         incomplete_alpha = true;
     else
         incomplete_alpha = false;
@@ -4523,7 +4592,7 @@ void start_incomplete_command(int cmd_id) {
     else if (argtype == ARG_MKEY)
         set_menu(MENULEVEL_COMMAND, MENU_BLANK);
     else if (argtype == ARG_VAR) {
-        if (mode_alphamenu != MENU_NONE)
+        if (mode_alphamenu != MENU_NONE || mode_plainmenu != MENU_NONE)
             set_catalog_menu(CATSECT_VARS_ONLY);
         else if (mode_appmenu == MENU_VARMENU)
             mode_commandmenu = MENU_VARMENU;
@@ -4534,7 +4603,9 @@ void start_incomplete_command(int cmd_id) {
     } else if (argtype == ARG_NAMED)
         set_catalog_menu(CATSECT_VARS_ONLY);
     else if (argtype == ARG_REAL) {
-        if (mode_appmenu == MENU_VARMENU)
+        if (mode_alphamenu != MENU_NONE || mode_plainmenu != MENU_NONE)
+            set_catalog_menu(CATSECT_REAL_ONLY);
+        else if (mode_appmenu == MENU_VARMENU)
             mode_commandmenu = MENU_VARMENU;
         else if (mode_appmenu == MENU_INTEG_PARAMS)
             mode_commandmenu = MENU_INTEG_PARAMS;
@@ -4559,7 +4630,7 @@ void start_incomplete_command(int cmd_id) {
         }
     } else if (argtype == ARG_LBL || argtype == ARG_PRGM)
         set_catalog_menu(CATSECT_PGM_ONLY);
-    else if (cmd_id == CMD_LBL)
+    else if (cmd_id == CMD_LBL || cmd_id == CMD_XSTR)
         set_menu(MENULEVEL_COMMAND, MENU_ALPHA1);
     redisplay();
 }
@@ -4741,6 +4812,15 @@ void set_old_pc(int4 pc) {
     oldpc = pc;
 }
 
+static void set_last_err(int error) {
+    if (error <= RTNERR_MAX) {
+        lasterr = error;
+    } else {
+        lasterr = -1;
+        string_copy(lasterr_text, &lasterr_length, errors[error].text, errors[error].length);
+    }
+}
+
 static int handle_error(int error) {
     if (mode_running) {
         if (error == ERR_RUN)
@@ -4764,6 +4844,7 @@ static int handle_error(int error) {
         } else if (error != ERR_NONE && error != ERR_YES) {
             if (flags.f.error_ignore && error != ERR_SUSPICIOUS_OFF) {
                 flags.f.error_ignore = 0;
+                set_last_err(error);
                 return 1;
             }
             if (solve_active() && (error == ERR_OUT_OF_RANGE
@@ -4807,6 +4888,7 @@ static int handle_error(int error) {
         } else {
             if (flags.f.error_ignore) {
                 flags.f.error_ignore = 0;
+                set_last_err(error);
                 goto noerr;
             }
             if (solve_active() && (error == ERR_OUT_OF_RANGE
@@ -4833,6 +4915,7 @@ static int handle_error(int error) {
             flags.f.stack_lift_disable = mode_disable_stack_lift;
         else if (flags.f.error_ignore) {
             flags.f.error_ignore = 0;
+            set_last_err(error);
             error = ERR_NONE;
         }
         if (error != ERR_NONE && error != ERR_STOP)

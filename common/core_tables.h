@@ -432,62 +432,68 @@
 #define CMD_STOFLAG     382
 /* User-defined functions */
 #define CMD_FUNC        383
-#define CMD_RTNYES      384
-#define CMD_RTNNO       385
-#define CMD_RTNERR      386
-#define CMD_STRACE      387
+#define CMD_ERRMSG      384
+#define CMD_ERRNO       385
+#define CMD_RTNYES      386
+#define CMD_RTNNO       387
+#define CMD_RTNERR      388
+#define CMD_STRACE      389
 /* Big Stack */
-#define CMD_4STK        388
-#define CMD_L4STK       389
-#define CMD_NSTK        390
-#define CMD_LNSTK       391
-#define CMD_DEPTH       392
-#define CMD_DROPN       393
-#define CMD_DUP         394
-#define CMD_DUPN        395
-#define CMD_PICK        396
-#define CMD_UNPICK      397
-#define CMD_RDNN        398
-#define CMD_RUPN        399
+#define CMD_4STK        390
+#define CMD_L4STK       391
+#define CMD_NSTK        392
+#define CMD_LNSTK       393
+#define CMD_DEPTH       394
+#define CMD_DROPN       395
+#define CMD_DUP         396
+#define CMD_DUPN        397
+#define CMD_PICK        398
+#define CMD_UNPICK      399
+#define CMD_RDNN        400
+#define CMD_RUPN        401
 /* Miscellaneous */
-#define CMD_NOP         400
-#define CMD_FMA         401
-#define CMD_PGMMENU     402
+#define CMD_NOP         402
 /* (Skipping 403 because of single-byte equality checks with CMD_END) */
-#define CMD_PMEXEC      404
-#define CMD_PRMVAR      405
+#define CMD_FMA         404
+#define CMD_PGMMENU     405
+#define CMD_PMEXEC      406
+#define CMD_PRMVAR      407
+#define CMD_VARMNU1     408
+#define CMD_X2LINE      409
+#define CMD_A2LINE      410
 /* String & List Functions */
-#define CMD_XASTO       406
-#define CMD_LXASTO      407
-#define CMD_APPEND      408
-#define CMD_EXTEND      409
-#define CMD_SUBSTR      410
-#define CMD_LENGTH      411
-#define CMD_HEAD        412
-#define CMD_REV         413
-#define CMD_POS         414
-#define CMD_S_TO_N      415
-#define CMD_N_TO_S      416
-#define CMD_C_TO_N      417
-#define CMD_N_TO_C      418
-#define CMD_LIST_T      419
-#define CMD_NEWLIST     420
-#define CMD_NEWSTR      421
+#define CMD_XSTR        411
+#define CMD_XASTO       412
+#define CMD_LXASTO      413
+#define CMD_APPEND      414
+#define CMD_EXTEND      415
+#define CMD_SUBSTR      416
+#define CMD_LENGTH      417
+#define CMD_HEAD        418
+#define CMD_REV         419
+#define CMD_POS         420
+#define CMD_S_TO_N      421
+#define CMD_N_TO_S      422
+#define CMD_C_TO_N      423
+#define CMD_N_TO_C      424
+#define CMD_LIST_T      425
+#define CMD_NEWLIST     426
+#define CMD_NEWSTR      427
 /* Generalized Comparisons */
-#define CMD_X_EQ_NN     422
-#define CMD_X_NE_NN     423
-#define CMD_X_LT_NN     424
-#define CMD_X_GT_NN     425
-#define CMD_X_LE_NN     426
-#define CMD_X_GE_NN     427
-#define CMD_0_EQ_NN     428
-#define CMD_0_NE_NN     429
-#define CMD_0_LT_NN     430
-#define CMD_0_GT_NN     431
-#define CMD_0_LE_NN     432
-#define CMD_0_GE_NN     433
+#define CMD_X_EQ_NN     428
+#define CMD_X_NE_NN     429
+#define CMD_X_LT_NN     430
+#define CMD_X_GT_NN     431
+#define CMD_X_LE_NN     432
+#define CMD_X_GE_NN     433
+#define CMD_0_EQ_NN     434
+#define CMD_0_NE_NN     435
+#define CMD_0_LT_NN     436
+#define CMD_0_GT_NN     437
+#define CMD_0_LE_NN     438
+#define CMD_0_GE_NN     439
 
-#define CMD_SENTINEL    434
+#define CMD_SENTINEL    440
 
 
 /* command_spec.argtype */
@@ -507,7 +513,8 @@
 #define ARG_PRGM     12 /* Alpha label (CATSECT_PGM) */
 #define ARG_RVAR     13 /* Variable (real only) (MVAR, INTEG, SOLVE) */
 #define ARG_MAT      14 /* Variable (matrix only) (EDITN, INDEX) */
-#define ARG_OTHER    15 /* Weirdos */
+#define ARG_XSTR     15 /* Long string (XSTR) */
+#define ARG_OTHER    16 /* Weirdos */
 
 
 /* command_spec.flags */
@@ -541,11 +548,12 @@
 #define ARGTYPE_LCLBL     9
 #define ARGTYPE_DOUBLE   10
 #define ARGTYPE_LBLINDEX 11
+#define ARGTYPE_XSTR     12
 
 
 struct arg_struct {
     unsigned char type;
-    unsigned char length;
+    unsigned short length;
     int4 target;
     union {
         int4 num;
@@ -553,6 +561,7 @@ struct arg_struct {
         char stk;
         int cmd; /* For backward compatibility only! */
         char lclbl;
+        const char *xstr;
     } val;
     // This used to be a member of the 'val' union, but once I changed it
     // from 'double' to 'phloat', that was no longer possible.

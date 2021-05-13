@@ -20,11 +20,20 @@ int prgmline2buf(char *buf, int len, int4 line, int highlight,
                         int cmd, arg_struct *arg,
                         bool shift_left = false,
                         bool highlight_final_end = true);
-*/
+
 int prgmline2buf(char *buf, int len, int4 line, int highlight,
                         int cmd, arg_struct *arg, const char *orig_num,
                         bool shift_left = false,
                         bool highlight_final_end = true);
+
+... and changed again:
+*/
+
+int prgmline2buf(char *buf, int len, int4 line, int highlight,
+                        int cmd, arg_struct *arg, const char *orig_num,
+                        bool shift_left = false,
+                        bool highlight_final_end = true,
+                        char **xstr = NULL);
 
 
 

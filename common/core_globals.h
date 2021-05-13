@@ -75,6 +75,8 @@ extern FILE *gfile;
 #define ERR_INVALID_CONTEXT        37
 #define ERR_NAME_TOO_LONG          38
 
+#define RTNERR_MAX 8
+
 struct error_spec {
     const char *text;
     int length;
@@ -428,7 +430,7 @@ extern int incomplete_length;
 extern int incomplete_maxdigits;
 extern int incomplete_argtype;
 extern int incomplete_num;
-extern char incomplete_str[7];
+extern char incomplete_str[22];
 extern int4 incomplete_saved_pc;
 extern int4 incomplete_saved_highlight_row;
 
@@ -452,6 +454,8 @@ extern int4 incomplete_saved_highlight_row;
 #define CATSECT_EXT_PRGM 17
 #define CATSECT_EXT_STK 18
 #define CATSECT_EXT_MISC 19
+#define CATSECT_EXT_0_CMP 20
+#define CATSECT_EXT_X_CMP 21
 
 /* Command line handling temporaries */
 extern char cmdline[100];
@@ -471,6 +475,11 @@ extern int matedit_prev_appmenu;
 extern char input_name[11];
 extern int input_length;
 extern arg_struct input_arg;
+
+/* ERRMSG/ERRNO */
+extern int lasterr;
+extern int lasterr_length;
+extern char lasterr_text[22];
 
 /* BASE application */
 extern int baseapp;
@@ -516,13 +525,15 @@ void rebuild_label_table();
 void delete_command(int4 pc);
 void store_command(int4 pc, int command, arg_struct *arg, const char *num_str);
 void store_command_after(int4 *pc, int command, arg_struct *arg, const char *num_str);
+int x2line();
+int a2line();
 int4 pc2line(int4 pc);
 int4 line2pc(int4 line);
 int4 find_local_label(const arg_struct *arg);
 int find_global_label(const arg_struct *arg, int *prgm, int4 *pc);
 int find_global_label_index(const arg_struct *arg, int *idx);
 int push_rtn_addr(int prgm, int4 pc);
-int push_indexed_matrix(const char *name, int len);
+int push_indexed_matrix();
 int push_func_state(int n);
 int push_stack_state(bool big);
 int pop_func_state(bool error);
