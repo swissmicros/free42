@@ -813,7 +813,7 @@ int docmd_wsize(arg_struct *arg) {
 #ifdef BCD_MATH
     if (x >= 65 || x < 1)
 #else
-    if (x >= 53 || x < 1)
+    if (x >= 54 || x < 1)
 #endif
         return ERR_INVALID_DATA;
     mode_wsize = to_int(x);
@@ -966,7 +966,7 @@ int docmd_varmnu1(arg_struct *arg) {
     int err = docmd_varmenu(arg);
     if (err == ERR_NONE) {
         mode_varmenu = true;
-        varmenu_role = 3;
+        varmenu_role = program_running() ? 3 : 0;
     }
     return err;
 }
@@ -977,6 +977,22 @@ int docmd_x2line(arg_struct *arg) {
 
 int docmd_a2line(arg_struct *arg) {
     return a2line();
+}
+
+int docmd_rcomplx(arg_struct *arg) {
+    bool p = flags.f.polar;
+    flags.f.polar = 0;
+    int err = docmd_complex(arg);
+    flags.f.polar = p;
+    return err;
+}
+
+int docmd_pcomplx(arg_struct *arg) {
+    bool p = flags.f.polar;
+    flags.f.polar = 1;
+    int err = docmd_complex(arg);
+    flags.f.polar = p;
+    return err;
 }
 
 /////////////////////
@@ -1332,7 +1348,7 @@ struct temp_vartype {
         if (err == ERR_NONE && require_real) {
             if (v->type == TYPE_STRING)
                 err = ERR_ALPHA_DATA_IS_INVALID;
-            if (v->type != TYPE_REAL)
+            else if (v->type != TYPE_REAL)
                 err = ERR_INVALID_TYPE;
         }
     }

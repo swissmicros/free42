@@ -3951,6 +3951,11 @@ void core_paste(const char *buf) {
         }
         memcpy(reg_alpha + reg_alpha_length, hpbuf, len);
         reg_alpha_length += len;
+        if (len > 0) {
+            flags.f.alpha_data_input = 1;
+            if (flags.f.trace_print && flags.f.printer_exists)
+                docmd_pra(NULL);
+        }
     } else {
         int rows = 0, cols = 0;
         int col = 1;
@@ -4236,9 +4241,11 @@ void core_paste(const char *buf) {
         mode_number_entry = false;
         mode_varmenu = false;
         flags.f.stack_lift_disable = 0;
-        flags.f.message = 0;
-        flags.f.two_line_message = 0;
+        if (v->type == TYPE_REAL || v->type == TYPE_COMPLEX)
+            flags.f.numeric_data_input = 1;
     }
+    flags.f.message = 0;
+    flags.f.two_line_message = 0;
     redisplay();
 }
 
@@ -4355,7 +4362,7 @@ void do_interactive(int command) {
 
 static void continue_running() {
     int error;
-    while (!shell_wants_cpu()) {
+    do {
         int cmd;
         arg_struct arg;
         oldpc = pc;
@@ -4384,7 +4391,7 @@ static void continue_running() {
             return;
         if (mode_getkey)
             return;
-    }
+    } while (!shell_wants_cpu());
 }
 
 struct synonym_spec {

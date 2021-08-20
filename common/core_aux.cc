@@ -446,7 +446,7 @@ void core_set_printer_delay(unsigned int val) {
 }
 
 // Temporary version hack - Version info isn't available in Free42 interface :(
-#include "../windows/VERSION.rc"
+#include "../windows/VERSION.h"
 
 const char * free42_version_str() {
   return FREE42_VERSION_1;

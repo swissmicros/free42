@@ -1588,26 +1588,27 @@ static int ext_prgm_cat[] = {
 #if defined(ANDROID) || defined(IPHONE)
 #ifdef FREE42_FPTEST
 static int ext_misc_cat[] = {
-    CMD_A2LINE,  CMD_FMA,    CMD_STRACE, CMD_X2LINE, CMD_ACCEL, CMD_LOCAT, 
-    CMD_HEADING, CMD_FPTEST, CMD_NULL,   CMD_NULL,   CMD_NULL,  CMD_NULL
+    CMD_A2LINE, CMD_FMA,   CMD_PCOMPLX, CMD_RCOMPLX, CMD_STRACE, CMD_X2LINE,
+    CMD_ACCEL,  CMD_LOCAT, CMD_HEADING, CMD_FPTEST,  CMD_NULL,   CMD_NULL
 };
 #define MISC_CAT_ROWS 2
 #else
 static int ext_misc_cat[] = {
-    CMD_A2LINE,  CMD_FMA,  CMD_STRACE, CMD_X2LINE, CMD_ACCEL, CMD_LOCAT,
-    CMD_HEADING, CMD_NULL, CMD_NULL,   CMD_NULL,   CMD_NULL,  CMD_NULL
+    CMD_A2LINE, CMD_FMA,   CMD_PCOMPLX, CMD_RCOMPLX, CMD_STRACE, CMD_X2LINE,
+    CMD_ACCEL,  CMD_LOCAT, CMD_HEADING, CMD_NULL,    CMD_NULL,   CMD_NULL
 };
 #define MISC_CAT_ROWS 2
 #endif
 #else
 #ifdef FREE42_FPTEST
 static int ext_misc_cat[] = {
-    CMD_A2LINE, CMD_FMA, CMD_STRACE, CMD_X2LINE, CMD_FPTEST, CMD_NULL
+    CMD_A2LINE, CMD_FMA,  CMD_PCOMPLX, CMD_RCOMPLX, CMD_STRACE, CMD_X2LINE,
+    CMD_FPTEST, CMD_NULL, CMD_NULL,    CMD_NULL,    CMD_NULL,   CMD_NULL
 };
-#define MISC_CAT_ROWS 1
+#define MISC_CAT_ROWS 2
 #else
 static int ext_misc_cat[] = {
-    CMD_A2LINE, CMD_FMA, CMD_STRACE, CMD_X2LINE, CMD_NULL, CMD_NULL
+    CMD_A2LINE, CMD_FMA, CMD_PCOMPLX, CMD_RCOMPLX, CMD_STRACE, CMD_X2LINE
 };
 #define MISC_CAT_ROWS 1
 #endif
@@ -1851,6 +1852,9 @@ void display_mem() {
     buflen = uint2string(bytes, buf, 16);
     draw_string(0, 1, buf, buflen);
     draw_string(buflen + 1, 1, "Bytes", 5);
+#ifdef ARM
+    thell_draw_menu_key(-3, 0, NULL, 0);
+#endif
     flush_display();
 }
 
@@ -2056,6 +2060,7 @@ void redisplay() {
     {
         if (!core_menu())
             return;
+        thell_draw_menu_key(-1, 0, NULL, 0);
     } else {
 #endif
     if (flags.f.message)
@@ -2271,6 +2276,10 @@ void redisplay() {
         }
         avail_rows = 1;
     }
+
+#ifdef ARM
+    thell_draw_menu_key(-2, 0, NULL, 0);
+#endif
 
     if (!flags.f.prgm_mode &&
             (mode_command_entry || pending_command != CMD_NONE)) {
