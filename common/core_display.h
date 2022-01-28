@@ -36,6 +36,7 @@ void tone(int n);
 void draw_char(int x, int y, char c);
 const unsigned char *get_char(char c);
 void draw_string(int x, int y, const char *s, int length);
+int special_menu_key(int which);
 void clear_row(int row);
 
 void display_prgm_line(int row, int line_offset);
@@ -63,6 +64,7 @@ struct textbuf {
 
 void tb_write(textbuf *tb, const char *data, size_t size);
 void tb_write_null(textbuf *tb);
+void tb_indent(textbuf *tb, int indent);
 void tb_print_current_program(textbuf *tb);
 
 #define MENULEVEL_COMMAND   0

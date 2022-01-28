@@ -461,13 +461,19 @@ int docmd_null(arg_struct *arg) {
 }
 
 int docmd_asto(arg_struct *arg) {
+    int temp_alpha_length = reg_alpha_length;
+    if (reg_alpha_length > 6)
+        reg_alpha_length = 6;
+    int err = docmd_xasto(arg);
+    reg_alpha_length = temp_alpha_length;
+    return err;
+}
+
+int docmd_xasto(arg_struct *arg) {
     /* Using STO to do the dirty work. Just need a bit of special care
      * in case the destination is ST X or IND ST X.
      */
-    int len = reg_alpha_length;
-    if (len > 6)
-        len = 6;
-    vartype *s = new_string(reg_alpha, len);
+    vartype *s = new_string(reg_alpha, reg_alpha_length);
     if (s == NULL)
         return ERR_INSUFFICIENT_MEMORY;
     if (arg->type == ARGTYPE_STK && arg->val.stk == 'X') {
@@ -944,19 +950,9 @@ int docmd_to_hms(arg_struct *arg) {
 
 int docmd_to_rec(arg_struct *arg) {
     if (stack[sp]->type == TYPE_REAL) {
-        if (stack[sp - 1]->type == TYPE_REAL || stack[sp - 1]->type == TYPE_COMPLEX) {
-            /* Note: the strange behavior re: real number in X, and
-             * complex number in Y, is for bug-compatibility with the
-             * real HP-42S. It's not very useful, but it doesn't really
-             * hurt either, I suppose. If I ever implement an "enhanced"
-             * Free42 mode, I'll probably make that combination of
-             * arguments return ERR_INVALID_TYPE, or at least offer the
-             * option of selecting that behavior.
-             */
+        if (stack[sp - 1]->type == TYPE_REAL) {
             phloat r = ((vartype_real *) stack[sp])->x;
-            phloat phi = stack[sp - 1]->type == TYPE_REAL
-                            ? ((vartype_real *) stack[sp - 1])->x
-                            : ((vartype_complex *) stack[sp - 1])->re;
+            phloat phi = ((vartype_real *) stack[sp - 1])->x;
             phloat x, y;
             vartype *vx, *vy;
             generic_p2r(r, phi, &x, &y);
@@ -973,14 +969,6 @@ int docmd_to_rec(arg_struct *arg) {
         } else if (stack[sp - 1]->type == TYPE_STRING)
             return ERR_ALPHA_DATA_IS_INVALID;
         else
-            /* The original HP-42S has a bug here: it accepts real and complex
-             * matrices, and also complex numbers, in Y, when X is real.
-             * I allow the Y-is-complex while X-is-real behavior (see above),
-             * but the Y-is-matrix case does not yield anything useful or even
-             * recognizable on the real HP-42S, so I feel I'm not going to
-             * break anything (that wasn't broken to begin with) by returning
-             * an error message here.
-             */
             return ERR_INVALID_TYPE;
     } else if (stack[sp]->type == TYPE_COMPLEX) {
         vartype_complex *c = (vartype_complex *) stack[sp];
@@ -1000,19 +988,9 @@ int docmd_to_rec(arg_struct *arg) {
 
 int docmd_to_pol(arg_struct *arg) {
     if (stack[sp]->type == TYPE_REAL) {
-        if (stack[sp - 1]->type == TYPE_REAL || stack[sp - 1]->type == TYPE_COMPLEX) {
-            /* Note: the strange behavior re: real number in X, and
-             * complex number in Y, is for bug-compatibility with the
-             * real HP-42S. It's not very useful, but it doesn't really
-             * hurt either, I suppose. If I ever implement an "enhanced"
-             * Free42 mode, I'll probably make that combination of
-             * arguments return ERR_INVALID_TYPE, or at least offer the
-             * option of selecting that behavior.
-             */
+        if (stack[sp - 1]->type == TYPE_REAL) {
             phloat x = ((vartype_real *) stack[sp])->x;
-            phloat y = stack[sp - 1]->type == TYPE_REAL
-                            ? ((vartype_real *) stack[sp - 1])->x
-                            : ((vartype_complex *) stack[sp - 1])->re;
+            phloat y = ((vartype_real *) stack[sp - 1])->x;
             phloat r, phi;
             vartype *vx, *vy;
             generic_r2p(x, y, &r, &phi);
@@ -1035,14 +1013,6 @@ int docmd_to_pol(arg_struct *arg) {
         } else if (stack[sp - 1]->type == TYPE_STRING)
             return ERR_ALPHA_DATA_IS_INVALID;
         else
-            /* The original HP-42S has a bug here: it accepts real and complex
-             * matrices, and also complex numbers, in Y, when X is real.
-             * I allow the Y-is-complex while X-is-real behavior (see above),
-             * but the Y-is-matrix case does not yield anything useful or even
-             * recognizable on the real HP-42S, so I feel I'm not going to
-             * break anything (that wasn't broken to begin with) by returning
-             * an error message here.
-             */
             return ERR_INVALID_TYPE;
     } else if (stack[sp]->type == TYPE_COMPLEX) {
         vartype_complex *c = (vartype_complex *) stack[sp];
@@ -1109,7 +1079,7 @@ static int mappable_rnd_r(phloat x, phloat *y) {
             int neg = t < 0;
             if (neg)
                 t = -t;
-            if (t > 1e20)
+            if (t >= ALWAYS_INT_FROM)
                 *y = x;
             else {
                 t = floor(t * rnd_multiplier + 0.5) / rnd_multiplier;

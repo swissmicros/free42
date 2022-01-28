@@ -133,7 +133,6 @@ extern const error_spec errors[];
 /*********/
 
 #define MENU_NONE          -1
-#define MENU_SHORTCUT      -2
 #define MENU_ALPHA1         0
 #define MENU_ALPHA2         1
 #define MENU_ALPHA_ABCDE1   2
@@ -412,6 +411,7 @@ extern int mode_goose;
 extern bool mode_time_clktd;
 extern bool mode_time_clk24;
 extern int mode_wsize;
+extern bool mode_menu_caps;
 
 extern phloat entered_number;
 extern int entered_string_length;
@@ -447,15 +447,17 @@ extern int4 incomplete_saved_highlight_row;
 #define CATSECT_PGM_SOLVE 10
 #define CATSECT_PGM_INTEG 11
 #define CATSECT_PGM_MENU 12
-#define CATSECT_EXT 13
+#define CATSECT_EXT_1 13
 #define CATSECT_EXT_TIME 14
 #define CATSECT_EXT_XFCN 15
 #define CATSECT_EXT_BASE 16
 #define CATSECT_EXT_PRGM 17
-#define CATSECT_EXT_STK 18
-#define CATSECT_EXT_MISC 19
-#define CATSECT_EXT_0_CMP 20
-#define CATSECT_EXT_X_CMP 21
+#define CATSECT_EXT_STR 18
+#define CATSECT_EXT_STK 19
+#define CATSECT_EXT_2 20
+#define CATSECT_EXT_MISC 21
+#define CATSECT_EXT_0_CMP 22
+#define CATSECT_EXT_X_CMP 23
 
 /* Command line handling temporaries */
 extern char cmdline[100];
@@ -526,7 +528,7 @@ void delete_command(int4 pc);
 void store_command(int4 pc, int command, arg_struct *arg, const char *num_str);
 void store_command_after(int4 *pc, int command, arg_struct *arg, const char *num_str);
 int x2line();
-int a2line();
+int a2line(bool append);
 int4 pc2line(int4 pc);
 int4 line2pc(int4 line);
 int4 find_local_label(const arg_struct *arg);

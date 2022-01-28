@@ -1,3 +1,34 @@
+2021-12-26: release 3.0.9
+
+* Fixed handling of single-character strings in programs.
+  This was broken in the previous release.
+
+2021-12-23: release 3.0.8
+
+* Auto-repeat for XSTR, and ALPHA arguments in general.
+* Windows, MacOS, and Linux versions: Keyboard mapping for CursorLeft to ←,
+  Shift-CursorLeft to <← and ↑, CursorRight to →, Shift-CursorRight to →> and
+  ↓, and Delete to DEL, in menus.
+* Android version: Fixed blurry print-out on certain devices.
+
+2021-11-07: release 3.0.7
+
+* A2LINE now handles strings that start with characters 127-255 in a more
+  sensible manner. Also, added A2+LINE function for generating appended
+  strings, since the old trick of using a string starting with character 127 no
+  longer works.
+* More accurate complex TAN and TANH.
+* RND did not handle large numbers correctly, failing to round off as many
+  digits as necessary in certain cases. Fixed.
+* Σ+ and Σ- always wanted two arguments, even in NSTK mode, when X contained a
+  real matrix. Fixed.
+* Copy and Paste now handle list objects.
+
+2021-07-27: release 3.0.6
+
+* Added string and list functions. See the Free42 web site for details.
+* Added lowercase letters to the menu font.
+
 2021-07-01: release 3.0.5
 
 * L4STK could crash, due to an incorrect LNSTK fix in 3.0.2. Fixed.

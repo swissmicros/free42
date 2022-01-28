@@ -50,6 +50,10 @@
  */
 #define UNIM 0x00
 
+// Note about XROM numbers:
+// The Free42 extensions use
+// XROM 31,01-59 (a7c1-a7fb) (Data Logger ROM)
+
 const command_spec cmd_array[] =
 {
     { /* CLX */        docmd_clx,         "CLX",                 0x00, 0x00, 0x00, 0x77,  3, ARG_NONE,   1, ALLT },
@@ -196,8 +200,8 @@ const command_spec cmd_array[] =
     { /* MAN */        docmd_man,         "MAN",                 0x00, 0x00, 0xa7, 0x5b,  3, ARG_NONE,   0, NA_T },
     { /* NORM */       docmd_norm,        "NORM",                0x00, 0x00, 0xa7, 0x5c,  4, ARG_NONE,   0, NA_T },
     { /* TRACE */      docmd_trace,       "TRACE",               0x00, 0x00, 0xa7, 0x5d,  5, ARG_NONE,   0, NA_T },
-    { /* SIGMAADD */   docmd_sigmaadd,    "\005+",               0x00, 0x00, 0x00, 0x47,  2, ARG_NONE,   2, FUNC },
-    { /* SIGMASUB */   docmd_sigmasub,    "\005-",               0x00, 0x00, 0x00, 0x48,  2, ARG_NONE,   2, FUNC },
+    { /* SIGMAADD */   docmd_sigmaadd,    "\005+",               0x00, 0x00, 0x00, 0x47,  2, ARG_NONE,   1, 0x05 },
+    { /* SIGMASUB */   docmd_sigmasub,    "\005-",               0x00, 0x00, 0x00, 0x48,  2, ARG_NONE,   1, 0x05 },
     { /* GTO */        docmd_gto,         "GTO",                 0x20, 0xa6, 0x00, 0x00,  3, ARG_LBL,    0, NA_T },
     { /* END */        docmd_rtn,         "END",                 0x20, 0x00, 0x00, 0x00,  3, ARG_NONE,   0, NA_T },
     { /* NUMBER */     docmd_number,      "",                    0x24, 0x00, 0x00, 0x00,  0, ARG_NONE,   0, NA_T },
@@ -490,27 +494,30 @@ const command_spec cmd_array[] =
     { /* VARMNU1 */    docmd_varmnu1,     "V\301\322MN\3251",    0x00, 0x42, 0xf2, 0x31,  7, ARG_PRGM,   0, NA_T },
     { /* X2LINE */     docmd_x2line,      "X2LINE",              0x42, 0x00, 0x00, 0x00,  6, ARG_NONE,   1, 0x13 },
     { /* A2LINE */     docmd_a2line,      "A2LINE",              0x42, 0x00, 0x00, 0x00,  6, ARG_NONE,   0, NA_T },
+    { /* A2PLINE */    docmd_a2pline,     "A2+LINE",             0x42, 0x00, 0x00, 0x00,  7, ARG_NONE,   0, NA_T },
     { /* RCOMPLX */    docmd_rcomplx,     "RC\317\315P\314X",    0x00, 0x00, 0xa7, 0xf8,  7, ARG_NONE,   0, NA_T },
     { /* PCOMPLX */    docmd_pcomplx,     "PC\317\315P\314X",    0x00, 0x00, 0xa7, 0xf9,  7, ARG_NONE,   0, NA_T },
+    { /* CAPS */       docmd_caps,        "CAPS",                0x00, 0x00, 0xa7, 0xfa,  4, ARG_NONE,   0, NA_T },
+    { /* MIXED */      docmd_mixed,       "Mixed",               0x00, 0x00, 0xa7, 0xfb,  5, ARG_NONE,   0, NA_T },
 
     /* String & List Functions */
     { /* XSTR */       docmd_xstr,        "XSTR",                0x20, 0x41, 0x00, 0x00,  4, ARG_XSTR,   0, NA_T },
-    { /* XASTO */      docmd_xrom,        "XASTO",               0x00, 0x01, 0xf2, 0x11,  5, ARG_VAR,    0, UNIM },
-    { /* LXASTO */     docmd_xrom,        "LXASTO",              0x00, 0x02, 0xf2, 0x12,  6, ARG_NAMED,  0, UNIM },
-    { /* APPEND */     docmd_xrom,        "APPEND",              0x00, 0x00, 0xa7, 0xe9,  6, ARG_NONE,   0, UNIM },
-    { /* EXTEND */     docmd_xrom,        "EXTEND",              0x00, 0x00, 0xa7, 0xea,  6, ARG_NONE,   0, UNIM },
-    { /* SUBSTR */     docmd_xrom,        "SUBSTR",              0x00, 0x00, 0xa7, 0xeb,  6, ARG_NONE,   0, UNIM },
-    { /* LENGTH */     docmd_xrom,        "LENGTH",              0x00, 0x00, 0xa7, 0xec,  6, ARG_NONE,   0, UNIM },
-    { /* HEAD */       docmd_xrom,        "HEAD",                0x00, 0x03, 0xf2, 0x13,  4, ARG_VAR,    0, UNIM },
-    { /* REV */        docmd_xrom,        "REV",                 0x00, 0x00, 0xa7, 0xed,  3, ARG_NONE,   0, UNIM },
-    { /* POS */        docmd_xrom,        "POS",                 0x00, 0x00, 0xa7, 0xee,  3, ARG_NONE,   0, UNIM },
-    { /* S_TO_N */     docmd_xrom,        "S\017N",              0x00, 0x00, 0xa7, 0xef,  3, ARG_NONE,   0, UNIM },
-    { /* N_TO_S */     docmd_xrom,        "N\017S",              0x00, 0x00, 0xa7, 0xf0,  3, ARG_NONE,   0, UNIM },
-    { /* C_TO_N */     docmd_xrom,        "C\017N",              0x00, 0x00, 0xa7, 0xf1,  3, ARG_NONE,   0, UNIM },
-    { /* N_TO_C */     docmd_xrom,        "N\017C",              0x00, 0x00, 0xa7, 0xf2,  3, ARG_NONE,   0, UNIM },
-    { /* LIST_T */     docmd_xrom,        "LIST?",               0x00, 0x00, 0xa7, 0xf3,  5, ARG_NONE,   0, UNIM },
-    { /* NEWLIST */    docmd_xrom,        "NEWLIST",             0x00, 0x00, 0xa7, 0xf4,  7, ARG_NONE,   0, UNIM },
-    { /* NEWSTR */     docmd_xrom,        "NEWSTR",              0x00, 0x00, 0xa7, 0xf5,  6, ARG_NONE,   0, UNIM },
+    { /* XASTO */      docmd_xasto,       "XASTO",               0x00, 0x01, 0xf2, 0x11,  5, ARG_VAR,    0, NA_T },
+    { /* LXASTO */     docmd_lxasto,      "LXASTO",              0x00, 0x02, 0xf2, 0x12,  6, ARG_NAMED,  0, NA_T },
+    { /* APPEND */     docmd_append,      "APPEND",              0x00, 0x00, 0xa7, 0xe9,  6, ARG_NONE,   2, ALLT },
+    { /* EXTEND */     docmd_extend,      "EXTEND",              0x00, 0x00, 0xa7, 0xea,  6, ARG_NONE,   2, ALLT },
+    { /* SUBSTR */     docmd_substr,      "SUBSTR",              0x00, 0x00, 0xa7, 0xeb,  6, ARG_NONE,   2, FUNC },
+    { /* LENGTH */     docmd_length,      "LENGTH",              0x00, 0x00, 0xa7, 0xec,  6, ARG_NONE,   1, 0x30 },
+    { /* HEAD */       docmd_head,        "HEAD",                0x00, 0x03, 0xf2, 0x13,  4, ARG_VAR,    0, NA_T },
+    { /* REV */        docmd_rev,         "REV",                 0x00, 0x00, 0xa7, 0xed,  3, ARG_NONE,   1, 0x30 },
+    { /* POS */        docmd_pos,         "POS",                 0x00, 0x00, 0xa7, 0xee,  3, ARG_NONE,   2, FUNC },
+    { /* S_TO_N */     docmd_s_to_n,      "S\017N",              0x00, 0x00, 0xa7, 0xef,  3, ARG_NONE,   1, 0x10 },
+    { /* N_TO_S */     docmd_n_to_s,      "N\017S",              0x00, 0x00, 0xa7, 0xf0,  3, ARG_NONE,   1, ALLT },
+    { /* C_TO_N */     docmd_c_to_n,      "C\017N",              0x00, 0x00, 0xa7, 0xf1,  3, ARG_NONE,   1, 0x10 },
+    { /* N_TO_C */     docmd_n_to_c,      "N\017C",              0x00, 0x00, 0xa7, 0xf2,  3, ARG_NONE,   1, 0x01 },
+    { /* LIST_T */     docmd_list_t,      "LIST?",               0x00, 0x00, 0xa7, 0xf3,  5, ARG_NONE,   1, ALLT },
+    { /* NEWLIST */    docmd_newlist,     "NEWLIST",             0x00, 0x00, 0xa7, 0xf4,  7, ARG_NONE,   0, NA_T },
+    { /* NEWSTR */     docmd_newstr,      "NEWSTR",              0x00, 0x00, 0xa7, 0xf5,  6, ARG_NONE,   0, NA_T },
 
     /* Generalized Comparisons */
     { /* X_EQ_NN */    docmd_x_eq_nn,     "X=?",                 0x00, 0x04, 0xf2, 0x14,  3, ARG_VAR,    1, ALLT },

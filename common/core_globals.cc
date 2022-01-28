@@ -270,8 +270,8 @@ const menu_spec menus[] = {
     { /* MENU_MODES5 */ MENU_NONE, MENU_MODES1, MENU_MODES4,
                       { { 0x2000 + CMD_4STK,    0, "" },
                         { 0x2000 + CMD_NSTK,    0, "" },
-                        { 0x1000 + CMD_NULL,    0, "" },
-                        { 0x1000 + CMD_NULL,    0, "" },
+                        { 0x2000 + CMD_CAPS,    0, "" },
+                        { 0x2000 + CMD_MIXED,   0, "" },
                         { 0x1000 + CMD_NULL,    0, "" },
                         { 0x1000 + CMD_NULL,    0, "" } } },
     { /* MENU_DISP */ MENU_NONE, MENU_NONE, MENU_NONE,
@@ -628,6 +628,7 @@ int mode_goose;
 bool mode_time_clktd;
 bool mode_time_clk24;
 int mode_wsize;
+bool mode_menu_caps;
 
 phloat entered_number;
 int entered_string_length;
@@ -779,8 +780,12 @@ bool no_keystrokes_yet;
  * Version 36-38:     Plus42 stuff
  * Version 39: 3.0.3  ERRMSG/ERRNO
  * Version 40: 3.0.3  Longer incomplete_str buffer
+ * Version 41: 3.0.3  Plus42 stuff
+ * Version 42: 3.0.6  CAPS/Mixed for menus
+ * Version 43: 3.0.7  Plus42 stuff
+ * Version 44: 3.0.8  cursor left, cursor right, del key handling
  */
-#define FREE42_VERSION 40
+#define FREE42_VERSION 44
 
 
 /*******************/
@@ -1629,6 +1634,8 @@ static bool persist_globals() {
         goto done;
     if (!write_int(mode_wsize))
         goto done;
+    if (!write_bool(mode_menu_caps))
+        goto done;
     if (fwrite(&flags, 1, sizeof(flags_struct), gfile) != sizeof(flags_struct))
         goto done;
     if (!write_int(prgms_count))
@@ -1816,6 +1823,13 @@ static bool unpersist_globals() {
         }
     } else
         mode_wsize = 36;
+    if (ver >= 42) {
+        if (!read_bool(&mode_menu_caps)) {
+            mode_menu_caps = false;
+            goto done;
+        }
+    } else
+        mode_menu_caps = false;
     if (fread(&flags, 1, sizeof(flags_struct), gfile)
             != sizeof(flags_struct))
         goto done;
@@ -2915,7 +2929,7 @@ int x2line() {
     }
 }
 
-int a2line() {
+int a2line(bool append) {
     if (reg_alpha_length == 0) {
         squeak();
         return ERR_NONE;
@@ -2925,11 +2939,20 @@ int a2line() {
     const char *p = reg_alpha;
     int len = reg_alpha_length;
     int maxlen = 15;
+
+    arg_struct arg;
+    if (append) {
+        maxlen = 14;
+    } else if (p[0] == 0x7f || (p[0] & 128) != 0) {
+        arg.type = ARGTYPE_NONE;
+        store_command_after(&pc, CMD_CLA, &arg, NULL);
+        maxlen = 14;
+    }
+
     while (len > 0) {
         int len2 = len;
         if (len2 > maxlen)
             len2 = maxlen;
-        arg_struct arg;
         arg.type = ARGTYPE_STR;
         if (maxlen == 15) {
             arg.length = len2;
@@ -3807,9 +3830,17 @@ bool unwind_stack_until_solve() {
     int prgm;
     int4 pc;
     bool stop;
+    int st_mode = -1;
     do {
+        get_saved_stack_mode(&st_mode);
         pop_rtn_addr(&prgm, &pc, &stop);
     } while (prgm != -2);
+    if (st_mode == 0) {
+        arg_struct dummy_arg;
+        docmd_4stk(&dummy_arg);
+    } else if (st_mode == 1) {
+        docmd_nstk(NULL);
+    }
     return stop;
 }
 
@@ -4758,6 +4789,7 @@ void hard_reset(int reason) {
     mode_time_clktd = false;
     mode_time_clk24 = shell_clk24();
     mode_wsize = 36;
+    mode_menu_caps = false;
 
     reset_math();
 

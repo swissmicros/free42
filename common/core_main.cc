@@ -91,18 +91,17 @@ void core_init(int read_saved_state, int4 version, const char *state_file_name, 
         // and over, and, on iOS and Android, needing to be deleted and
         // reinstalled.
         state_file_name_crash = (char *) malloc(strlen(state_file_name) + 24);
-        if (state_file_name_crash != NULL) {
-            uint4 date, time;
-            int weekday;
-            shell_get_time_date(&time, &date, &weekday);
-            sprintf(state_file_name_crash, "%s.%08u%08u.crash", state_file_name, date, time);
-            my_rename(state_file_name, state_file_name_crash);
-            gfile = my_fopen(state_file_name_crash, "rb");
-        } else
+        uint4 date, time;
+        int weekday;
+        shell_get_time_date(&time, &date, &weekday);
+        sprintf(state_file_name_crash, "%s.%08u%08u.crash", state_file_name, date, time);
+        my_rename(state_file_name, state_file_name_crash);
+        gfile = my_fopen(state_file_name_crash, "rb");
 #else
     if (read_saved_state == 1) {
+        gfile = my_fopen(state_file_name, "rb");
 #endif
-            gfile = my_fopen(state_file_name, "rb");
+
         if (gfile == NULL)
             read_saved_state = 0;
         else if (offset > 0)
@@ -121,19 +120,14 @@ void core_init(int read_saved_state, int4 version, const char *state_file_name, 
 #ifndef ARM
     if (state_file_name != NULL) {
         if (reason == 0) {
-            if (state_file_name_crash != NULL)
-                my_rename(state_file_name_crash, state_file_name);
+            my_rename(state_file_name_crash, state_file_name);
         } else {
-            char *tmp = (char *) malloc(strlen(state_file_name) + 9);
-            if (tmp != NULL) {
-                strcpy(tmp, state_file_name);
-                strcat(tmp, reason == 1 ? ".corrupt" : ".too_new");
-                if (state_file_name_crash != NULL)
-                    my_rename(state_file_name_crash, tmp);
-                else
-                    my_rename(state_file_name, tmp);
-                free(tmp);
-            }
+            char *tmp = (char *) malloc(strlen(state_file_name_crash) + 3);
+            strcpy(tmp, state_file_name_crash);
+            tmp[strlen(state_file_name_crash) - 6] = 0;
+            strcat(tmp, reason == 1 ? ".corrupt" : ".too_new");
+            my_rename(state_file_name_crash, tmp);
+            free(tmp);
         }
     }
     free(state_file_name_crash);
@@ -201,10 +195,14 @@ bool core_hex_menu() {
 
 static int ascii2hp(char *dst, int dstlen, const char *src, int srclen = -1);
 
+int core_special_menu_key(int which) {
+    return special_menu_key(which);
+}
+
 bool core_keydown_command(const char *name, bool *enqueued, int *repeat) {
     char hpname[70];
     int len = ascii2hp(hpname, 63, name);
-    int cmd = find_builtin(hpname, len, false);
+    int cmd = find_builtin(hpname, len);
     if (cmd == CMD_NONE) {
         set_shift(false);
         squeak();
@@ -1071,8 +1069,14 @@ static void export_hp42s(int index) {
                         goto non_string_suffix;
                     }
                 } else if (cmd == CMD_XROM) {
-                    cmdbuf[cmdlen++] = (char) (0xA0 + ((arg.val.num >> 8) & 7));
-                    cmdbuf[cmdlen++] = (char) arg.val.num;
+                    if (arg.type == ARGTYPE_NUM) {
+                        cmdbuf[cmdlen++] = (char) (0xA0 + ((arg.val.num >> 8) & 7));
+                        cmdbuf[cmdlen++] = (char) arg.val.num;
+                    } else {
+                        cmdbuf[cmdlen++] = (char) (0xF0 + arg.length);
+                        for (int i = 0; i < arg.length; i++)
+                            cmdbuf[cmdlen++] = arg.val.text[i];
+                    }
                 } else if (cmd == CMD_XSTR) {
                     int len = arg.length;
                     if (len == 0) {
@@ -1295,7 +1299,10 @@ int4 core_program_size(int prgm_index) {
                     else
                         size += 4;
                 } else if (cmd == CMD_XROM) {
-                    size += 2;
+                    if (arg.type == ARGTYPE_NUM)
+                        size += 2;
+                    else
+                        size += arg.length + 1;
                 } else if (cmd == CMD_XSTR) {
                     int n = (arg.length + 12) / 13;
                     if (n == 0)
@@ -2261,26 +2268,16 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
                 byte2 = raw_getc();
                 if (byte2 == EOF)
                     goto done;
-                if (byte1 == 0x0F1) {
-                    switch (byte2) {
-                        case 0x0D5: cmd = CMD_FIX; arg.val.num = 10; break;
-                        case 0x0D6: cmd = CMD_SCI; arg.val.num = 10; break;
-                        case 0x0D7: cmd = CMD_ENG; arg.val.num = 10; break;
-                        case 0x0E5: cmd = CMD_FIX; arg.val.num = 11; break;
-                        case 0x0E6: cmd = CMD_SCI; arg.val.num = 11; break;
-                        case 0x0E7: cmd = CMD_ENG; arg.val.num = 11; break;
-                        default: goto plain_string;
-                    }
-                    arg.type = ARGTYPE_NUM;
-                    goto store;
-                }
-                if ((byte2 & 0x080) == 0 || byte1 < 0x0F2) {
+                if ((byte2 & 0x080) == 0) {
                     /* String */
                     int i;
-                    plain_string:
+                    cmd = CMD_STRING;
+                    goto string_2;
+                    xrom_string:
+                    cmd = CMD_XROM;
+                    string_2:
                     str_len = byte1 - 0x0F0;
                     raw_ungetc(byte2);
-                    cmd = CMD_STRING;
                     arg.type = ARGTYPE_STR;
                     do_string:
                     for (i = 0; i < str_len; i++) {
@@ -2317,6 +2314,19 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
                     goto store;
                 } else {
                     /* Parameterized HP-42S extension */
+                    if (byte1 == 0x0F1) {
+                        switch (byte2) {
+                            case 0x0D5: cmd = CMD_FIX; arg.val.num = 10; break;
+                            case 0x0D6: cmd = CMD_SCI; arg.val.num = 10; break;
+                            case 0x0D7: cmd = CMD_ENG; arg.val.num = 10; break;
+                            case 0x0E5: cmd = CMD_FIX; arg.val.num = 11; break;
+                            case 0x0E6: cmd = CMD_SCI; arg.val.num = 11; break;
+                            case 0x0E7: cmd = CMD_ENG; arg.val.num = 11; break;
+                            default: goto xrom_string;
+                        }
+                        arg.type = ARGTYPE_NUM;
+                        goto store;
+                    }
                     if (byte2 == 0xa7) {
                         byte2 = raw_getc();
                         if (byte2 == EOF)
@@ -2357,7 +2367,7 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
                     } else if (flag == 2) {
                         int ind;
                         if (byte1 != 0x0F2)
-                            goto plain_string;
+                            goto xrom_string;
                         suffix = raw_getc();
                         if (suffix == EOF)
                             goto done;
@@ -2393,7 +2403,7 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
                             /* ASSIGN */
                             str_len = byte1 - 0x0F2;
                             if (str_len == 0)
-                                goto plain_string;
+                                goto xrom_string;
                             assign = 1;
                             cmd = CMD_ASGN01;
                             arg.type = ARGTYPE_STR;
@@ -2403,7 +2413,7 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
                             /* KEYG/KEYX name, KEYG/KEYX IND name */
                             str_len = byte1 - 0x0F2;
                             if (str_len == 0)
-                                goto plain_string;
+                                goto xrom_string;
                             cmd = byte2 == 0x0C2 || byte2 == 0x0CA
                                     ? CMD_KEY1X : CMD_KEY1G;
                             suffix = raw_getc();
@@ -2436,7 +2446,7 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
                         } else if (byte2 == 0x0E2 || byte2 == 0x0E3) {
                             /* KEYG/KEYX suffix */
                             if (byte1 != 0x0F3)
-                                goto plain_string;
+                                goto xrom_string;
                             suffix = raw_getc();
                             if (suffix == EOF)
                                 goto done;
@@ -2452,7 +2462,7 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
                             /* SIZE */
                             int sz;
                             if (byte1 != 0x0F3)
-                                goto plain_string;
+                                goto xrom_string;
                             suffix = raw_getc();
                             if (suffix == EOF)
                                 goto done;
@@ -2467,8 +2477,8 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
                             goto store;
                         }
                     } else /* flag == 4 */ {
-                        /* Illegal value; treat as plain string */
-                        goto plain_string;
+                        /* Unknown value; store as string XROM */
+                        goto xrom_string;
                     }
                 }
             }
@@ -2527,7 +2537,7 @@ static int complex2buf(char *buf, phloat re, phloat im, bool always_rect) {
     if (polar) {
         string2buf(buf, 99, &bufptr, " \342\210\240 ", 5);
     } else {
-        if (y >= 0)
+        if (y >= 0 || p_isinf(y) != 0 || p_isnan(y))
             buf[bufptr++] = '+';
     }
     bufptr += phloat2string(y, buf + bufptr, 99 - bufptr, 2, 0, 3, 0, MAX_MANT_DIGITS);
@@ -2540,18 +2550,158 @@ static int complex2buf(char *buf, phloat re, phloat im, bool always_rect) {
     return bufptr;
 }
 
+static void serialize_list(textbuf *tb, vartype_list *list, int indent) {
+    char buf[50];
+    tb_indent(tb, indent);
+    tb_write(tb, "{\n", 2);
+    indent += 2;
+    tb_indent(tb, indent);
+    int n = int2string(list->size, buf, 49);
+    tb_write(tb, buf, n);
+    tb_write(tb, "-Elem List\n", 11);
+    for (int i = 0; i < list->size; i++) {
+        vartype *elem = list->array->data[i];
+        switch (elem->type) {
+            case TYPE_NULL: {
+                tb_indent(tb, indent);
+                tb_write(tb, "null\n", 5);
+                break;
+            }
+            case TYPE_REAL: {
+                vartype_real *r = (vartype_real *) elem;
+                tb_indent(tb, indent);
+                n = real2buf(buf, r->x);
+                tb_write(tb, buf, n);
+                tb_write(tb, "\n", 1);
+                break;
+            }
+            case TYPE_COMPLEX: {
+                vartype_complex *c = (vartype_complex *) elem;
+                tb_indent(tb, indent);
+                n = complex2buf(buf, c->re, c->im, true);
+                tb_write(tb, buf, n);
+                tb_write(tb, "\n", 1);
+                break;
+            }
+            case TYPE_STRING: {
+                vartype_string *s = (vartype_string *) elem;
+                tb_indent(tb, indent);
+                tb_write(tb, "\"", 1);
+                const char *txt = s->txt();
+                char cbuf[5];
+                for (int j = 0; j < s->length; j++) {
+                    unsigned char c = txt[j];
+                    if (c == 10)
+                        c = 138;
+                    else if (c >= 130 && c != 138)
+                        c &= 127;
+                    if (c == '"') {
+                        tb_write(tb, "\\\"", 2);
+                    } else if (c == '\\') {
+                        tb_write(tb, "\\\\", 2);
+                    } else {
+                        n = hp2ascii(cbuf, (const char *) &c, 1);
+                        tb_write(tb, cbuf, n);
+                    }
+                }
+                tb_write(tb, "\"\n", 2);
+                break;
+            }
+            case TYPE_REALMATRIX: {
+                vartype_realmatrix *rm = (vartype_realmatrix *) elem;
+                tb_indent(tb, indent);
+                tb_write(tb, "[\n", 2);
+                indent += 2;
+                tb_indent(tb, indent);
+                n = int2string(rm->rows, buf, 49);
+                tb_write(tb, buf, n);
+                tb_write(tb, "x", 1);
+                n = int2string(rm->columns, buf, 49);
+                tb_write(tb, buf, n);
+                tb_write(tb, " Matrix\n", 8);
+                for (int j = 0; j < rm->rows * rm->columns; j++) {
+                    tb_indent(tb, indent);
+                    if (rm->array->is_string[j]) {
+                        tb_write(tb, "\"", 1);
+                        char *text;
+                        int4 len;
+                        get_matrix_string(rm, j, &text, &len);
+                        char cbuf[5];
+                        for (int k = 0; k < len; k++) {
+                            unsigned char c = text[k];
+                            if (c == 10)
+                                c = 138;
+                            else if (c >= 130 && c != 138)
+                                c &= 127;
+                            if (c == '"') {
+                                tb_write(tb, "\\\"", 2);
+                            } else if (c == '\\') {
+                                tb_write(tb, "\\\\", 2);
+                            } else {
+                                n = hp2ascii(cbuf, (const char *) &c, 1);
+                                tb_write(tb, cbuf, n);
+                            }
+                        }
+                        tb_write(tb, "\"\n", 2);
+                    } else {
+                        n = real2buf(buf, rm->array->data[j]);
+                        tb_write(tb, buf, n);
+                        tb_write(tb, "\n", 1);
+                    }
+                }
+                indent -= 2;
+                tb_indent(tb, indent);
+                tb_write(tb, "]\n", 2);
+                break;
+            }
+            case TYPE_COMPLEXMATRIX: {
+                vartype_complexmatrix *cm = (vartype_complexmatrix *) elem;
+                tb_indent(tb, indent);
+                tb_write(tb, "[\n", 2);
+                indent += 2;
+                tb_indent(tb, indent);
+                n = int2string(cm->rows, buf, 49);
+                tb_write(tb, buf, n);
+                tb_write(tb, "x", 1);
+                n = int2string(cm->columns, buf, 49);
+                tb_write(tb, buf, n);
+                tb_write(tb, " Cpx Matrix\n", 12);
+                for (int j = 0; j < cm->rows * cm->columns * 2; j += 2) {
+                    tb_indent(tb, indent);
+                    n = complex2buf(buf, cm->array->data[j], cm->array->data[j + 1], true);
+                    tb_write(tb, buf, n);
+                    tb_write(tb, "\n", 1);
+                }
+                indent -= 2;
+                tb_indent(tb, indent);
+                tb_write(tb, "]\n", 2);
+                break;
+            }
+            case TYPE_LIST: {
+                serialize_list(tb, (vartype_list *) elem, indent);
+                break;
+            }
+        }
+    }
+    indent -= 2;
+    tb_indent(tb, indent);
+    tb_write(tb, "}\n", 2);
+}
+
 char *core_copy() {
     if (mode_interruptible != NULL)
         stop_interruptible();
     set_running(false);
 
+    textbuf tb;
+    tb.buf = NULL;
+    tb.size = 0;
+    tb.capacity = 0;
+    tb.fail = false;
+
     if (flags.f.prgm_mode) {
-        textbuf tb;
-        tb.buf = NULL;
-        tb.size = 0;
-        tb.capacity = 0;
-        tb.fail = false;
         tb_print_current_program(&tb);
+        textbuf_finish:
         tb_write_null(&tb);
         if (tb.fail) {
             free(tb.buf);
@@ -2590,11 +2740,6 @@ char *core_copy() {
         vartype_realmatrix *rm = (vartype_realmatrix *) stack[sp];
         phloat *data = rm->array->data;
         char *is_string = rm->array->is_string;
-        textbuf tb;
-        tb.buf = NULL;
-        tb.size = 0;
-        tb.capacity = 0;
-        tb.fail = false;
         char buf[50];
         int n = 0;
         for (int r = 0; r < rm->rows; r++) {
@@ -2622,22 +2767,10 @@ char *core_copy() {
             if (r < rm->rows - 1)
                 tb_write(&tb, "\n", 1);
         }
-        tb_write_null(&tb);
-        if (tb.fail) {
-            free(tb.buf);
-            display_error(ERR_INSUFFICIENT_MEMORY, false);
-            redisplay();
-            return NULL;
-        } else
-            return tb.buf;
+        goto textbuf_finish;
     } else if (stack[sp]->type == TYPE_COMPLEXMATRIX) {
         vartype_complexmatrix *cm = (vartype_complexmatrix *) stack[sp];
         phloat *data = cm->array->data;
-        textbuf tb;
-        tb.buf = NULL;
-        tb.size = 0;
-        tb.capacity = 0;
-        tb.fail = false;
         char buf[100];
         int n = 0;
         for (int r = 0; r < cm->rows; r++) {
@@ -2651,21 +2784,32 @@ char *core_copy() {
             if (r < cm->rows - 1)
                 tb_write(&tb, "\n", 1);
         }
-        tb_write_null(&tb);
-        if (tb.fail) {
-            free(tb.buf);
-            display_error(ERR_INSUFFICIENT_MEMORY, false);
-            redisplay();
-            return NULL;
-        } else
-            return tb.buf;
+        goto textbuf_finish;
+    } else if (stack[sp]->type == TYPE_LIST) {
+        serialize_list(&tb, (vartype_list *) stack[sp], 0);
+        goto textbuf_finish;
     } else {
         // Shouldn't happen: unrecognized data type
         return NULL;
     }
 }
 
+const char *STR_INF = "<Infinity>";
+const char *STR_NEG_INF = "<-Infinity>";
+const char *STR_NAN = "<Not a Number>";
+
 static int scan_number(const char *buf, int len, int pos) {
+    if (buf[pos] == '<' || len > 1 && (buf[pos] == '-' || buf[pos] == '+') && buf[pos + 1] == '<') {
+        int off = buf[pos] == '<' ? 0 : 1;
+        if (len >= 10 + off && strncmp(buf + pos + off, STR_INF, 10) == 0)
+            return pos + off + 10;
+        else if (len >= 11 + off && strncmp(buf + pos + off, STR_NEG_INF, 11) == 0)
+            return pos + off + 11;
+        else if (len >= 14 + off && strncmp(buf + pos + off, STR_NAN, 14) == 0)
+            return pos + off + 14;
+        else
+            return pos;
+    }
     // 0: before number
     // 1: in mantissa, before decimal
     // 2: in mantissa, after decimal
@@ -2724,6 +2868,22 @@ static int scan_number(const char *buf, int len, int pos) {
 }
 
 static bool parse_phloat(const char *p, int len, phloat *res) {
+    if (p[0] == '<' || len > 1 && (p[0] == '-' || p[0] == '+') && p[1] == '<') {
+        int off = p[0] == '<' ? 0 : 1;
+        bool neg = p[0] == '-';
+        if (len >= 10 + off && strncmp(p + off, STR_INF, 10) == 0) {
+            goto return_inf;
+        } else if (len >= 11 + off && strncmp(p + off, STR_NEG_INF, 11) == 0) {
+            neg = !neg;
+            return_inf:
+            *res = (neg ? NEG_HUGE_PHLOAT : POS_HUGE_PHLOAT) * 2;
+            return true;
+        } else if (len >= 14 + off && strncmp(p + off, STR_NAN, 14) == 0) {
+            *res = NAN_PHLOAT;
+            return true;
+        } else
+            return false;
+    }
     // We can't pass the string on to string2phloat() unchanged, because
     // that function is picky: it does not allow '+' signs, and it does
     // not allow the mantissa to be more than 34 or 16 digits long (including
@@ -3473,7 +3633,7 @@ static void paste_programs(const char *buf) {
         if (lineno_start != -1 && hppos == prev_hppos)
             // No space following line number? Not acceptable.
             goto line_done;
-        if (hppos < hpend - 1 && hpbuf[hppos] == 127 && hpbuf[hppos + 1] == '"') {
+        if (hppos < hpend - 1 && (hpbuf[hppos] == 127 || hpbuf[hppos] == '+') && hpbuf[hppos + 1] == '"') {
             // Appended string
             hpbuf[hppos + 1] = 127;
             goto do_string;
@@ -3527,7 +3687,7 @@ static void paste_programs(const char *buf) {
                 goto store;
                 not_cx_comp:;
             }
-            cmd = find_builtin(hpbuf + hppos, cmd_end - hppos, false);
+            cmd = find_builtin(hpbuf + hppos, cmd_end - hppos);
             int tok_start, tok_end;
             int argtype;
             bool stk_allowed = true;
@@ -3823,6 +3983,33 @@ static void paste_programs(const char *buf) {
                     goto handle_string_arg;
                 }
                 int len = tok_end - tok_start;
+                if (len >= 4 && len <= 32 && len % 2 == 0 && hpbuf[tok_start] == '0' && hpbuf[tok_start + 1] == 'x') {
+                    // XROM 0xdeadbeef: used for strings whose first character has its high
+                    // bit set, putting it in the space of HP-42S extensions, but which do
+                    // not correspond to any actual known extension.
+                    char d = 0;
+                    arg.length = 0;
+                    for (int i = 2; i < len; i++) {
+                        char c = hpbuf[tok_start + i];
+                        if (c >= '0' && c <= '9')
+                            d += c - '0';
+                        else if (c >= 'A' && c <= 'F')
+                            d += c - 'A' + 10;
+                        else if (c >= 'a' && c <= 'f')
+                            d += c - 'a' + 10;
+                        else
+                            goto line_done;
+                        if ((i & 1) != 0) {
+                            arg.val.text[arg.length++] = d;
+                            d = 0;
+                        } else {
+                            d <<= 4;
+                        }
+                    }
+                    cmd = CMD_XROM;
+                    arg.type = ARGTYPE_STR;
+                    goto store;
+                }
                 if (len > 5)
                     goto line_done;
                 char xrombuf[6];
@@ -3933,6 +4120,229 @@ static void paste_programs(const char *buf) {
     }
 }
 
+static int get_token(const char *buf, int *pos, int *start) {
+    char c;
+    while (true) {
+        c = buf[*pos];
+        if (c == 0)
+            return 0;
+        if (c != ' ' && c != '\t' && c != '\n' && c != '\r' && c != '\f')
+            break;
+        (*pos)++;
+    }
+    *start = *pos;
+    if (c == '"') {
+        (*pos)++;
+        while (true) {
+            c = buf[*pos];
+            if (c == 0)
+                return *pos - *start;
+            if (c == '"') {
+                (*pos)++;
+                return *pos - *start;
+            }
+            if (c == '\\') {
+                (*pos)++;
+                c = buf[*pos];
+                if (c == 0)
+                    return *pos - *start;
+            }
+            (*pos)++;
+        }
+    } else {
+        while (true) {
+            c = buf[*pos];
+            if (c == 0 || c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f')
+                return *pos - *start;
+            if (c == '<') {
+                if (strncmp(buf + *pos, STR_INF, 10) == 0) {
+                    *pos += 10;
+                } else if (strncmp(buf + *pos, STR_NEG_INF, 11) == 0) {
+                    *pos += 11;
+                } else if (strncmp(buf + *pos, STR_NAN, 14) == 0) {
+                    *pos += 14;
+                } else
+                    (*pos)++;
+            } else
+                (*pos)++;
+        }
+    }
+}
+
+static int parse_int(const char *buf, int len) {
+    int r = 0;
+    for (int i = 0; i < len; i++) {
+        char c = buf[i];
+        if (c < '0' || c > '9')
+            return -1;
+        r = r * 10 + c - '0';
+    }
+    return r;
+}
+
+static char *parse_string(const char *buf, int len, int *slen) {
+    char *s = (char *) malloc(len - 2);
+    if (s == NULL)
+        return NULL;
+    int sl = 0;
+    for (int i = 1; i < len - 1; i++) {
+        char c = buf[i];
+        if (c == '\\')
+            c = buf[++i];
+        s[sl++] = c;
+    }
+    char *s2 = (char *) malloc(sl + 4);
+    if (s2 == NULL) {
+        free(s);
+        return NULL;
+    }
+    sl = ascii2hp(s2, sl, s, sl);
+    free(s);
+    *slen = sl;
+    return s2;
+}
+
+static vartype *deserialize_list(const char *buf, int *pos) {
+    int tstart;
+    int tlen = get_token(buf, pos, &tstart);
+    if (tlen != 1 || buf[tstart] != '{')
+        return NULL;
+    tlen = get_token(buf, pos, &tstart);
+    if (tlen < 6 || strncmp(buf + tstart + tlen - 5, "-Elem", 5) != 0)
+        return NULL;
+    int len = parse_int(buf + tstart, tlen - 5);
+    if (len == -1)
+        return NULL;
+    tlen = get_token(buf, pos, &tstart);
+    if (tlen != 4 || strncmp(buf + tstart, "List", 4) != 0)
+        return NULL;
+    vartype_list *list = (vartype_list *) new_list(len);
+    if (list == NULL)
+        return NULL;
+    for (int i = 0; i < len; i++) {
+        tlen = get_token(buf, pos, &tstart);
+        if (tlen == 0)
+            goto failure;
+        if (buf[tstart] == '{') {
+            if (tlen != 1)
+                goto failure;
+            (*pos)--;
+            vartype *e = deserialize_list(buf, pos);
+            if (e == NULL)
+                goto failure;
+            list->array->data[i] = e;
+        } else if (buf[tstart] == '[') {
+            if (tlen != 1)
+                goto failure;
+            tlen = get_token(buf, pos, &tstart);
+            if (tlen == 0)
+                goto failure;
+            int x = -1;
+            for (int j = 0; j < tlen; j++) {
+                if (buf[tstart + j] == 'x') {
+                    x = j;
+                    break;
+                }
+            }
+            if (x == -1 || x == 0 || x == tlen - 1)
+                goto failure;
+            int rows = parse_int(buf + tstart, x);
+            int cols = parse_int(buf + tstart + x + 1, tlen - x - 1);
+            if (rows == -1 || cols == -1)
+                goto failure;
+            bool cpx;
+            tlen = get_token(buf, pos, &tstart);
+            vartype *m;
+            if (tlen == 6 && strncmp(buf + tstart, "Matrix", 6) == 0) {
+                m = new_realmatrix(rows, cols);
+                if (m == NULL)
+                    goto failure;
+                cpx = false;
+            } else if (tlen == 3 && strncmp(buf + tstart, "Cpx", 3) == 0) {
+                tlen = get_token(buf, pos, &tstart);
+                if (tlen != 6 || strncmp(buf + tstart, "Matrix", 6) != 0)
+                    goto failure;
+                m = new_complexmatrix(rows, cols);
+                if (m == NULL)
+                    goto failure;
+                cpx = true;
+            } else
+                goto failure;
+            list->array->data[i] = m;
+            int cells = rows * cols;
+            for (int j = 0; j < cells; j++) {
+                tlen = get_token(buf, pos, &tstart);
+                if (tlen == 0)
+                    goto failure;
+                if (buf[tstart] == '"') {
+                    if (cpx)
+                        goto failure;
+                    int slen;
+                    char *s = parse_string(buf + tstart, tlen, &slen);
+                    if (s == NULL)
+                        return NULL;
+                    bool res = put_matrix_string((vartype_realmatrix *) m, j, s, slen);
+                    free(s);
+                    if (!res)
+                        goto failure;
+                } else {
+                    phloat re, im;
+                    int slen;
+                    int type = parse_scalar(buf + tstart, tlen, true, &re, &im, &slen);
+                    if (cpx) {
+                        if (type == TYPE_REAL)
+                            im = 0;
+                        else if (type != TYPE_COMPLEX)
+                            goto failure;
+                        vartype_complexmatrix *cm = (vartype_complexmatrix *) m;
+                        cm->array->data[j * 2] = re;
+                        cm->array->data[j * 2 + 1] = im;
+                    } else {
+                        if (type != TYPE_REAL)
+                            goto failure;
+                        vartype_realmatrix *rm = (vartype_realmatrix *) m;
+                        rm->array->data[j] = re;
+                    }
+                }
+            }
+            tlen = get_token(buf, pos, &tstart);
+            if (tlen != 1 || buf[tstart] != ']')
+                goto failure;
+        } else if (buf[tstart] == '"') {
+            int slen;
+            char *s = parse_string(buf + tstart, tlen, &slen);
+            if (s == NULL)
+                return NULL;
+            vartype *str = new_string(s, slen);
+            free(s);
+            if (str == NULL)
+                goto failure;
+            list->array->data[i] = str;
+        } else {
+            phloat re, im;
+            int slen;
+            int type = parse_scalar(buf + tstart, tlen, true, &re, &im, &slen);
+            vartype *v;
+            if (type == TYPE_REAL)
+                v = new_real(re);
+            else if (type == TYPE_COMPLEX)
+                v = new_complex(re, im);
+            else
+                goto failure;
+            if (v == NULL)
+                goto failure;
+            list->array->data[i] = v;
+        }
+    }
+    tlen = get_token(buf, pos, &tstart);
+    if (tlen != 1 || buf[tstart] != '}') {
+        failure:
+        free_vartype((vartype *) list);
+        return NULL;
+    } else
+        return (vartype *) list;
+}
+
 void core_paste(const char *buf) {
     if (mode_interruptible != NULL)
         stop_interruptible();
@@ -3963,6 +4373,14 @@ void core_paste(const char *buf) {
         int cell_size = 0;
         int pos = 0;
         char lastchar, c = 0;
+        vartype *v;
+        if (buf[0] == '{') {
+            // Try to parse a list; if unsuccessful, fall back on TSV parsing
+            int tpos = 0;
+            v = deserialize_list(buf, &tpos);
+            if (v != NULL)
+                goto parse_success;
+        }
         while (true) {
             lastchar = c;
             c = buf[pos++];
@@ -3996,7 +4414,6 @@ void core_paste(const char *buf) {
             if (max_cell_size < cell_size)
                 max_cell_size = cell_size;
         }
-        vartype *v;
         if (rows == 0) {
             return;
         } else if (rows == 1 && cols == 1) {
@@ -4233,6 +4650,7 @@ void core_paste(const char *buf) {
                 v = (vartype *) cm;
             }
         }
+        parse_success:
         if (recall_result(v) != ERR_NONE) {
             display_error(ERR_INSUFFICIENT_MEMORY, false);
             redisplay();
@@ -4439,15 +4857,28 @@ static synonym_spec hp41_synonyms[] =
     { "X<>Y?",  false, 5, CMD_X_NE_Y  },
     { "v",      false, 1, CMD_DOWN    },
     { "SST\016",true,  4, CMD_SST     },
+    { "X>=0?",  false, 5, CMD_X_GE_0  },
+    { "X>=Y?",  false, 5, CMD_X_GE_Y  },
+    { "S-N",    false, 3, CMD_S_TO_N  },
+    { "N-S",    false, 3, CMD_N_TO_S  },
+    { "C-N",    false, 3, CMD_C_TO_N  },
+    { "N-C",    false, 3, CMD_N_TO_C  },
+    { "X<>?",   false, 4, CMD_X_NE_NN },
+    { "X#?",    false, 3, CMD_X_NE_NN },
+    { "X<=?",   false, 4, CMD_X_LE_NN },
+    { "X>=?",   false, 4, CMD_X_GE_NN },
+    { "0<>?",   false, 4, CMD_0_NE_NN },
+    { "0#?",    false, 3, CMD_0_NE_NN },
+    { "0<=?",   false, 4, CMD_0_LE_NN },
+    { "0>=?",   false, 4, CMD_0_GE_NN },
     { "",       true,  0, CMD_NONE    }
 };
 
-int find_builtin(const char *name, int namelen, bool strict) {
+int find_builtin(const char *name, int namelen) {
     int i, j;
 
     for (i = 0; hp41_synonyms[i].cmd_id != CMD_NONE; i++) {
-        if (strict && !hp41_synonyms[i].is_orig
-                || namelen != hp41_synonyms[i].namelen)
+        if (namelen != hp41_synonyms[i].namelen)
             continue;
         for (j = 0; j < namelen; j++)
             if (name[j] != hp41_synonyms[i].name[j])
@@ -4457,12 +4888,7 @@ int find_builtin(const char *name, int namelen, bool strict) {
     }
 
     for (i = 0; true; i++) {
-        // Skip COPAN
-        if (i == CMD_OPENF)
-            i += 14;
-        // Skip String & List functions. These are only implemented in Plus42.
-        if (i == CMD_XASTO)
-            i += 16;
+        if (i == CMD_OPENF) i += 14; // Skip COPAN
         if (i == CMD_SENTINEL)
             break;
         if ((cmd_array[i].flags & FLAG_HIDDEN) != 0)
@@ -4728,7 +5154,7 @@ void finish_xeq() {
         cmd = CMD_NONE;
     else
         cmd = find_builtin(pending_command_arg.val.text,
-                           pending_command_arg.length, true);
+                           pending_command_arg.length);
 
     if (cmd == CMD_CLALLa) {
         mode_clall = true;

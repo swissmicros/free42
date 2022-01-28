@@ -1411,7 +1411,10 @@ public class Free42Activity extends Activity {
                 }
             }
             tmpBitmap.copyPixelsFromBuffer(tmpBuffer);
-            canvas.drawBitmap(tmpBitmap, new Rect(0, 0, src_width, src_height), clip, new Paint());
+            Paint p = new Paint();
+            p.setAntiAlias(false);
+            p.setFilterBitmap(false);
+            canvas.drawBitmap(tmpBitmap, new Rect(0, 0, src_width, src_height), clip, p);
             canvas.restore();
         }
         
@@ -2033,6 +2036,7 @@ public class Free42Activity extends Activity {
     private native boolean core_menu();
     //private native boolean core_alpha_menu();
     //private native boolean core_hex_menu();
+    //private native int core_special_menu_key(int which);
     private native boolean core_keydown(int key, BooleanHolder enqueued, IntHolder repeat, boolean immediate_return);
     private native boolean core_keydown_command(String cmd, BooleanHolder enqueued, IntHolder repeat, boolean immediate_return);
     private native int core_repeat();

@@ -179,7 +179,7 @@ static const unsigned char bigchars[130][5] =
         { 0x04, 0x08, 0x70, 0x08, 0x04 }
     };
 
-static const char smallchars[329] =
+static const char smallchars[407] =
     {
         0x00, 0x00, 0x00,
         0x5c,
@@ -278,10 +278,36 @@ static const char smallchars[329] =
         0x78, 0x14, 0x7c, 0x54,
         0x38, 0x38, 0x38,
         0x70, 0x2c, 0x70,
-        0x58, 0x24, 0x54, 0x48
+        0x58, 0x24, 0x54, 0x48,
+        0x30, 0x48, 0x78,
+        0x7c, 0x50, 0x70,
+        0x30, 0x48, 0x48,
+        0x70, 0x50, 0x7c,
+        0x30, 0x68, 0x58,
+        0x10, 0x7c, 0x14,
+        0xb0, 0xa8, 0x78,
+        0x7c, 0x10, 0x70,
+        0x74,
+        0x80, 0xf4,
+        0x7c, 0x10, 0x68,
+        0x7c, 0x40,
+        0x78, 0x08, 0x78, 0x08, 0x70,
+        0x78, 0x08, 0x70,
+        0x38, 0x48, 0x70,
+        0xf8, 0x28, 0x38,
+        0x38, 0x28, 0xf8,
+        0x70, 0x08, 0x08,
+        0x58, 0x58, 0x68,
+        0x08, 0x7c, 0x48,
+        0x38, 0x40, 0x78,
+        0x38, 0x60, 0x38,
+        0x38, 0x40, 0x30, 0x40, 0x38,
+        0x48, 0x30, 0x48,
+        0x98, 0xa0, 0x78,
+        0x68, 0x58, 0x58
     };
 
-static short smallchars_offset[99] =
+static short smallchars_offset[125] =
     {
           0,
           3,
@@ -381,7 +407,33 @@ static short smallchars_offset[99] =
         319,
         322,
         325,
-        329
+        329,
+        332,
+        335,
+        338,
+        341,
+        344,
+        347,
+        350,
+        353,
+        354,
+        356,
+        359,
+        361,
+        366,
+        369,
+        372,
+        375,
+        378,
+        381,
+        384,
+        387,
+        390,
+        393,
+        398,
+        401,
+        404,
+        407
     };
 
 static char smallchars_map[128] =
@@ -483,32 +535,32 @@ static char smallchars_map[128] =
         /*  94 */  62,
         /*  95 */  63,
         /*  96 */  64,
-        /*  97 */  33,
-        /*  98 */  34,
-        /*  99 */  35,
-        /* 100 */  36,
-        /* 101 */  37,
-        /* 102 */  38,
-        /* 103 */  39,
-        /* 104 */  40,
-        /* 105 */  41,
-        /* 106 */  42,
-        /* 107 */  43,
-        /* 108 */  44,
-        /* 109 */  45,
-        /* 110 */  46,
-        /* 111 */  47,
-        /* 112 */  48,
-        /* 113 */  49,
-        /* 114 */  50,
-        /* 115 */  51,
-        /* 116 */  52,
-        /* 117 */  53,
-        /* 118 */  54,
-        /* 119 */  55,
-        /* 120 */  56,
-        /* 121 */  57,
-        /* 122 */  58,
+        /*  97 */  98,
+        /*  98 */  99,
+        /*  99 */ 100,
+        /* 100 */ 101,
+        /* 101 */ 102,
+        /* 102 */ 103,
+        /* 103 */ 104,
+        /* 104 */ 105,
+        /* 105 */ 106,
+        /* 106 */ 107,
+        /* 107 */ 108,
+        /* 108 */ 109,
+        /* 109 */ 110,
+        /* 110 */ 111,
+        /* 111 */ 112,
+        /* 112 */ 113,
+        /* 113 */ 114,
+        /* 114 */ 115,
+        /* 115 */ 116,
+        /* 116 */ 117,
+        /* 117 */ 118,
+        /* 118 */ 119,
+        /* 119 */ 120,
+        /* 120 */ 121,
+        /* 121 */ 122,
+        /* 122 */ 123,
         /* 123 */  65,
         /* 124 */  66,
         /* 125 */  67,
@@ -548,6 +600,12 @@ static char progmenu_label[6][7];
 
 static int appmenu_exitcallback;
 
+/* Menu keys that should respond to certain hardware
+ * keyboard keys, in addition to the keymap:
+ * 0:none 1:left 2:shift-left 3:right 4:shift-right 5:del
+ */
+static char special_key[6] = { 0, 0, 0, 0, 0, 0 };
+
 
 /*******************************/
 /* Private function prototypes */
@@ -584,6 +642,8 @@ bool persist_display() {
     if (fwrite(display, 1, 272, gfile) != 272)
         return false;
     if (!write_int(appmenu_exitcallback)) return false;
+    if (fwrite(special_key, 1, 6, gfile) != 6)
+        return false;
     return true;
 }
 
@@ -622,6 +682,11 @@ bool unpersist_display(int version) {
         if (fread(display, 1, 272, gfile) != 272)
             return false;
         if (!read_int(&appmenu_exitcallback)) return false;
+        if (version >= 44) {
+            if (fread(special_key, 1, 6, gfile) != 6)
+                return false;
+        } else
+            memset(special_key, 0, 6);
     } else {
         int custommenu_cmd[3][6];
         is_dirty = false;
@@ -711,6 +776,7 @@ void clear_display() {
     for (i = 0; i < 272; i++)
         display[i] = 0;
     mark_dirty(0, 0, 16, 131);
+    memset(special_key, 0, 6);
 }
 
 void flush_display() {
@@ -965,6 +1031,8 @@ static void draw_key(int n, int highlight, int hide_meta,
             continue;
 
         c &= 127;
+        if (mode_menu_caps && c >= 'a' && c <= 'z')
+            c -= 32;
         m = smallchars_map[c];
         cw = smallchars_offset[m + 1] - smallchars_offset[m];
         if (swidth != 0)
@@ -988,6 +1056,8 @@ static void draw_key(int n, int highlight, int hide_meta,
         if (hide_meta && c >= 128)
             continue;
         c &= 127;
+        if (mode_menu_caps && c >= 'a' && c <= 'z')
+            c -= 32;
         m = smallchars_map[c];
         o = smallchars_offset[m];
         cw = smallchars_offset[m + 1] - o;
@@ -1002,6 +1072,37 @@ static void draw_key(int n, int highlight, int hide_meta,
         x++;
     }
     /* No need for mark_dirty(); fill_rect() took care of that already. */
+
+    /* Support for automatically mapping physical cursor left,
+     * cursor right, and delete keys, to menu keys with legends
+     * consisting of arrows, double-head arrows, or the word
+     * DEL.
+     */
+    if (string_equals(s, length, "\20", 1))
+        /* <- */
+        special_key[n] = 1;
+    else if (string_equals(s, length, "<\20", 2)
+          || string_equals(s, length, "^", 1))
+        /* <<- or up */
+        special_key[n] = 2;
+    else if (string_equals(s, length, "\17", 1))
+        /* -> */
+        special_key[n] = 3;
+    else if (string_equals(s, length, "\17>", 2)
+          || string_equals(s, length, "\16", 1))
+        /* ->> or down */
+        special_key[n] = 4;
+    else if (string_equals(s, length, "DEL", 3))
+        special_key[n] = 5;
+    else
+        special_key[n] = 0;
+}
+
+int special_menu_key(int which) {
+    for (int i = 0; i < 6; i++)
+        if (special_key[i] == which)
+            return i + 1;
+    return 0;
 }
 
 void clear_row(int row) {
@@ -1116,6 +1217,11 @@ void tb_write(textbuf *tb, const char *data, size_t size) {
         memcpy(tb->buf + tb->size, data, size);
         tb->size += size;
     }
+}
+
+void tb_indent(textbuf *tb, int indent) {
+    for (int i = 0; i < indent; i++)
+        tb_write(tb, " ", 1);
 }
 
 void tb_write_null(textbuf *tb) {
@@ -1409,6 +1515,11 @@ void display_command(int row) {
                                          labels[labelindex].length);
             char2buf(buf, 22, &bufptr, '"');
         }
+     } else if (pending_command_arg.type == ARGTYPE_XSTR) {
+         char2buf(buf, 22, &bufptr, '"');
+         string2buf(buf, 22, &bufptr, pending_command_arg.val.xstr,
+                    pending_command_arg.length);
+         char2buf(buf, 22, &bufptr, '"');
     } else /* ARGTYPE_LCLBL */ {
         char2buf(buf, 22, &bufptr, pending_command_arg.val.lclbl);
     }
@@ -1573,44 +1684,52 @@ static int ext_base_cat[] = {
     CMD_BRESET, CMD_BSIGNED, CMD_BWRAP, CMD_WSIZE, CMD_WSIZE_T, CMD_NULL
 };
 
-static int ext_stk_cat[] = {
-    CMD_4STK,   CMD_DEPTH, CMD_DROP, CMD_DROPN, CMD_DUP,  CMD_DUPN,
-    CMD_L4STK,  CMD_LNSTK, CMD_NSTK, CMD_PICK,  CMD_RUPN, CMD_RDNN,
-    CMD_UNPICK, CMD_NULL,  CMD_NULL, CMD_NULL,  CMD_NULL, CMD_NULL
-};
-
 static int ext_prgm_cat[] = {
     CMD_ERRMSG,  CMD_ERRNO,   CMD_FUNC,    CMD_GETKEY1, CMD_LASTO,   CMD_LSTO,
     CMD_NOP,     CMD_PGMMENU, CMD_PRMVAR,  CMD_RTNERR,  CMD_RTNNO,   CMD_RTNYES,
     CMD_SST_UP,  CMD_SST_RT,  CMD_VARMNU1, CMD_XSTR,    -2 /* 0? */, -3 /* X? */
 };
 
+static int ext_str_cat[] = {
+    CMD_APPEND, CMD_C_TO_N,  CMD_EXTEND, CMD_HEAD,   CMD_LENGTH, CMD_LIST_T,
+    CMD_LXASTO, CMD_NEWLIST, CMD_NEWSTR, CMD_N_TO_C, CMD_N_TO_S, CMD_POS,
+    CMD_REV,    CMD_SUBSTR,  CMD_S_TO_N, CMD_XASTO,  CMD_NULL,   CMD_NULL
+};
+
+static int ext_stk_cat[] = {
+    CMD_4STK,   CMD_DEPTH, CMD_DROP, CMD_DROPN, CMD_DUP,  CMD_DUPN,
+    CMD_L4STK,  CMD_LNSTK, CMD_NSTK, CMD_PICK,  CMD_RUPN, CMD_RDNN,
+    CMD_UNPICK, CMD_NULL,  CMD_NULL, CMD_NULL,  CMD_NULL, CMD_NULL
+};
+
 #if defined(ANDROID) || defined(IPHONE)
 #ifdef FREE42_FPTEST
 static int ext_misc_cat[] = {
-    CMD_A2LINE, CMD_FMA,   CMD_PCOMPLX, CMD_RCOMPLX, CMD_STRACE, CMD_X2LINE,
-    CMD_ACCEL,  CMD_LOCAT, CMD_HEADING, CMD_FPTEST,  CMD_NULL,   CMD_NULL
+    CMD_A2LINE,  CMD_A2PLINE, CMD_CAPS,   CMD_FMA,   CMD_MIXED, CMD_PCOMPLX,
+    CMD_RCOMPLX, CMD_STRACE,  CMD_X2LINE, CMD_ACCEL, CMD_LOCAT, CMD_HEADING,
+    CMD_FPTEST,  CMD_NULL,    CMD_NULL,   CMD_NULL,  CMD_NULL,  CMD_NULL
 };
-#define MISC_CAT_ROWS 2
+#define MISC_CAT_ROWS 3
 #else
 static int ext_misc_cat[] = {
-    CMD_A2LINE, CMD_FMA,   CMD_PCOMPLX, CMD_RCOMPLX, CMD_STRACE, CMD_X2LINE,
-    CMD_ACCEL,  CMD_LOCAT, CMD_HEADING, CMD_NULL,    CMD_NULL,   CMD_NULL
+    CMD_A2LINE,  CMD_A2PLINE, CMD_CAPS,   CMD_FMA,   CMD_MIXED, CMD_PCOMPLX,
+    CMD_RCOMPLX, CMD_STRACE,  CMD_X2LINE, CMD_ACCEL, CMD_LOCAT, CMD_HEADING
 };
 #define MISC_CAT_ROWS 2
 #endif
 #else
 #ifdef FREE42_FPTEST
 static int ext_misc_cat[] = {
-    CMD_A2LINE, CMD_FMA,  CMD_PCOMPLX, CMD_RCOMPLX, CMD_STRACE, CMD_X2LINE,
-    CMD_FPTEST, CMD_NULL, CMD_NULL,    CMD_NULL,    CMD_NULL,   CMD_NULL
+    CMD_A2LINE,  CMD_A2PLINE, CMD_CAPS,   CMD_FMA,    CMD_MIXED, CMD_PCOMPLX,
+    CMD_RCOMPLX, CMD_STRACE,  CMD_X2LINE, CMD_FPTEST, CMD_NULL,  CMD_NULL
 };
 #define MISC_CAT_ROWS 2
 #else
 static int ext_misc_cat[] = {
-    CMD_A2LINE, CMD_FMA, CMD_PCOMPLX, CMD_RCOMPLX, CMD_STRACE, CMD_X2LINE
+    CMD_A2LINE,  CMD_A2PLINE, CMD_CAPS,   CMD_FMA,  CMD_MIXED, CMD_PCOMPLX,
+    CMD_RCOMPLX, CMD_STRACE,  CMD_X2LINE, CMD_NULL, CMD_NULL,  CMD_NULL
 };
-#define MISC_CAT_ROWS 1
+#define MISC_CAT_ROWS 2
 #endif
 #endif
 
@@ -1635,19 +1754,22 @@ static void draw_catalog() {
         draw_key(5, 0, 0, "MEM", 3);
         mode_updown = true;
         shell_annunciators(1, -1, -1, -1, -1, -1);
-    } else if (catsect == CATSECT_EXT) {
-        draw_ext:
+    } else if (catsect == CATSECT_EXT_1) {
         draw_key(0, 0, 0, "TIME", 4);
         draw_key(1, 0, 0, "XFCN", 4);
         draw_key(2, 0, 0, "BASE", 4);
         draw_key(3, 0, 0, "PRGM", 4);
-        if (core_settings.allow_big_stack) {
-            draw_key(4, 0, 0, "STK", 3);
-            draw_key(5, 0, 0, "MISC", 4);
-        } else {
-            draw_key(4, 0, 0, "MISC", 4);
-            draw_key(5, 0, 0, "", 0);
-        }
+        draw_key(4, 0, 0, "STR", 3);
+        draw_key(5, 0, 0, "STK", 3);
+        mode_updown = true;
+        shell_annunciators(1, -1, -1, -1, -1, -1);
+    } else if (catsect == CATSECT_EXT_2) {
+        draw_key(0, 0, 0, "MISC", 4);
+        draw_key(1, 0, 0, "", 0);
+        draw_key(2, 0, 0, "", 0);
+        draw_key(3, 0, 0, "", 0);
+        draw_key(4, 0, 0, "", 0);
+        draw_key(5, 0, 0, "", 0);
         mode_updown = true;
         shell_annunciators(1, -1, -1, -1, -1, -1);
     } else if (catsect == CATSECT_PGM
@@ -1716,14 +1838,8 @@ static void draw_catalog() {
             case CATSECT_EXT_XFCN: subcat = ext_xfcn_cat; subcat_rows = 1; break;
             case CATSECT_EXT_BASE: subcat = ext_base_cat; subcat_rows = 1; break;
             case CATSECT_EXT_PRGM: subcat = ext_prgm_cat; subcat_rows = 3; break;
-            case CATSECT_EXT_STK:
-                if (!core_settings.allow_big_stack) {
-                    set_cat_section(CATSECT_EXT);
-                    goto draw_ext;
-                } else {
-                    subcat = ext_stk_cat; subcat_rows = 3;
-                    break;
-                }
+            case CATSECT_EXT_STR: subcat = ext_str_cat; subcat_rows = 3; break;
+            case CATSECT_EXT_STK: subcat = ext_stk_cat; subcat_rows = 3; break;
             case CATSECT_EXT_MISC: subcat = ext_misc_cat; subcat_rows = MISC_CAT_ROWS; break;
             case CATSECT_EXT_0_CMP: subcat = ext_0_cmp_cat; subcat_rows = 1; break;
             case CATSECT_EXT_X_CMP: subcat = ext_x_cmp_cat; subcat_rows = 1; break;
@@ -2115,8 +2231,6 @@ void redisplay() {
             draw_key(i, 0, 0, progmenu_label[i], progmenu_length[i]);
         avail_rows = 1;
     } else if (menu_id != MENU_NONE) {
-        if (!core_settings.allow_big_stack && menu_id == MENU_MODES5)
-            menu_id = mode_plainmenu = MENU_MODES1;
         const menu_spec *m = menus + menu_id;
         for (i = 0; i < 6; i++) {
             const menu_item_spec *mi = m->child + i;
@@ -2210,6 +2324,12 @@ void redisplay() {
                             break;
                         case CMD_NSTK:
                             is_flag = flags.f.big_stack;
+                            break;
+                        case CMD_CAPS:
+                            is_flag = mode_menu_caps;
+                            break;
+                        case CMD_MIXED:
+                            is_flag = !mode_menu_caps;
                             break;
                         case CMD_PON:
                             is_flag = flags.f.printer_exists;
@@ -2547,8 +2667,18 @@ int command2buf(char *buf, int len, int cmd, const arg_struct *arg) {
     if ((cmd_array[cmd].code1 & 0xf8) == 0xa0 && (cmd_array[cmd].flags & FLAG_HIDDEN) != 0) {
         xrom_arg = (cmd_array[cmd].code1 << 8) | cmd_array[cmd].code2;
         cmd = CMD_XROM;
-    } else if (cmd == CMD_XROM)
-        xrom_arg = arg->val.num;
+    } else if (cmd == CMD_XROM) {
+        if (arg->type == ARGTYPE_NUM) {
+            xrom_arg = arg->val.num;
+        } else {
+            string2buf(buf, len, &bufptr, "XROM 0x", 7);
+            for (int i = 0; i < arg->length; i++) {
+                char2buf(buf, len, &bufptr, "0123456789abcdef"[(arg->val.text[i] >> 4) & 15]);
+                char2buf(buf, len, &bufptr, "0123456789abcdef"[arg->val.text[i] & 15]);
+            }
+            return bufptr;
+        }
+    }
 
     const command_spec *cmdspec = &cmd_array[cmd];
     if (cmd >= CMD_ASGN01 && cmd <= CMD_ASGN18)
@@ -2793,12 +2923,14 @@ void set_catalog_menu(int section) {
         case CATSECT_FCN:
         case CATSECT_PGM:
         case CATSECT_PGM_ONLY:
-        case CATSECT_EXT:
+        case CATSECT_EXT_1:
         case CATSECT_EXT_TIME:
         case CATSECT_EXT_XFCN:
         case CATSECT_EXT_BASE:
         case CATSECT_EXT_PRGM:
+        case CATSECT_EXT_STR:
         case CATSECT_EXT_STK:
+        case CATSECT_EXT_2:
         case CATSECT_EXT_MISC:
         case CATSECT_EXT_0_CMP:
         case CATSECT_EXT_X_CMP:
@@ -2915,12 +3047,14 @@ void update_catalog() {
     switch (get_cat_section()) {
         case CATSECT_TOP:
         case CATSECT_FCN:
-        case CATSECT_EXT:
+        case CATSECT_EXT_1:
         case CATSECT_EXT_TIME:
         case CATSECT_EXT_XFCN:
         case CATSECT_EXT_BASE:
         case CATSECT_EXT_PRGM:
+        case CATSECT_EXT_STR:
         case CATSECT_EXT_STK:
+        case CATSECT_EXT_2:
         case CATSECT_EXT_MISC:
         case CATSECT_EXT_0_CMP:
         case CATSECT_EXT_X_CMP:
