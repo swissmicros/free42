@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -140,7 +140,7 @@ int main(int argc, char *argv[]) {
     fprintf(out, "/*************************************/\n");
     fprintf(out, "/* Sizes of skin layout descriptions */\n");
     fprintf(out, "/*************************************/\n\n");
-    
+
     fprintf(out, "extern const long skin_layout_size[] = {\n");
     for (i = 0; i < nskins; i++) {
         char fname[1024];

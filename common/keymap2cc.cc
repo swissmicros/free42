@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -71,7 +71,7 @@ int main(int argc, char *argv[]) {
     fprintf(out, "/***********************/\n");
     fprintf(out, "/* Size of keymap file */\n");
     fprintf(out, "/***********************/\n\n");
-    
+
     inp = fopen("keymap.txt", "rb");
     if (inp == NULL) {
         int err = errno;

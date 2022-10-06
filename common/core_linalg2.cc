@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -76,7 +76,7 @@ int lu_decomp_r(vartype_realmatrix *a, int4 *perm,
 }
 
 static int lu_decomp_r_worker(bool interrupted) {
-    
+
     lu_r_data_struct *dat = lu_r_data;
 
     phloat *a = dat->a->array->data;
@@ -260,7 +260,7 @@ int lu_decomp_c(vartype_complexmatrix *a, int4 *perm,
 }
 
 static int lu_decomp_c_worker(bool interrupted) {
-    
+
     lu_c_data_struct *dat = lu_c_data;
 
     phloat *a = dat->a->array->data;

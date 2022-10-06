@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -179,7 +179,7 @@ static const unsigned char bigchars[130][5] =
         { 0x04, 0x08, 0x70, 0x08, 0x04 }
     };
 
-static const char smallchars[407] =
+static const char smallchars[416] =
     {
         0x00, 0x00, 0x00,
         0x5c,
@@ -278,7 +278,7 @@ static const char smallchars[407] =
         0x78, 0x14, 0x7c, 0x54,
         0x38, 0x38, 0x38,
         0x70, 0x2c, 0x70,
-        0x58, 0x24, 0x54, 0x48,
+        0x7c, 0x7c, 0x38, 0x10,
         0x30, 0x48, 0x78,
         0x7c, 0x50, 0x70,
         0x30, 0x48, 0x48,
@@ -304,10 +304,12 @@ static const char smallchars[407] =
         0x38, 0x40, 0x30, 0x40, 0x38,
         0x48, 0x30, 0x48,
         0x98, 0xa0, 0x78,
-        0x68, 0x58, 0x58
+        0x68, 0x58, 0x58,
+        0x20, 0x70, 0x20, 0x3c,
+        0x7c, 0x54, 0x00, 0x78, 0x48,
     };
 
-static short smallchars_offset[125] =
+static short smallchars_offset[127] =
     {
           0,
           3,
@@ -433,7 +435,9 @@ static short smallchars_offset[125] =
         398,
         401,
         404,
-        407
+        407,
+        411,
+        416,
     };
 
 static char smallchars_map[128] =
@@ -451,7 +455,7 @@ static char smallchars_map[128] =
         /*  10 */  77,
         /*  11 */  78,
         /*  12 */  79,
-        /*  13 */   0,
+        /*  13 */ 124,
         /*  14 */  80,
         /*  15 */  81,
         /*  16 */  82,
@@ -465,7 +469,7 @@ static char smallchars_map[128] =
         /*  24 */  37,
         /*  25 */  94,
         /*  26 */  86,
-        /*  27 */  69,
+        /*  27 */ 125,
         /*  28 */  89,
         /*  29 */  90,
         /*  30 */  69,
@@ -1374,7 +1378,7 @@ void display_incomplete_command(int row) {
         bufptr += int2string(line, buf + bufptr, 40 - bufptr);
         char2buf(buf, 40, &bufptr, 6);
     }
-        
+
     if (incomplete_command == CMD_ASSIGNb) {
         string2buf(buf, 40, &bufptr, "ASSIGN \"", 8);
         string2buf(buf, 40, &bufptr, pending_command_arg.val.text,
@@ -1685,15 +1689,17 @@ static int ext_base_cat[] = {
 };
 
 static int ext_prgm_cat[] = {
-    CMD_ERRMSG,  CMD_ERRNO,   CMD_FUNC,    CMD_GETKEY1, CMD_LASTO,   CMD_LSTO,
-    CMD_NOP,     CMD_PGMMENU, CMD_PRMVAR,  CMD_RTNERR,  CMD_RTNNO,   CMD_RTNYES,
-    CMD_SST_UP,  CMD_SST_RT,  CMD_VARMNU1, CMD_XSTR,    -2 /* 0? */, -3 /* X? */
+    CMD_CPXMAT_T, CMD_ERRMSG,  CMD_ERRNO,   CMD_FUNC,    CMD_GETKEY1, CMD_LSTO,
+    CMD_LASTO,    CMD_LCLV,    CMD_NOP,     CMD_PGMMENU, CMD_PGMVAR,  CMD_RTNERR,
+    CMD_RTNNO,    CMD_RTNYES,  CMD_SKIP,    CMD_SST_UP,  CMD_SST_RT,  CMD_TYPE_T,
+    CMD_VARMNU1,  -2 /* 0? */, -3 /* X? */, CMD_NULL,    CMD_NULL,    CMD_NULL
 };
 
 static int ext_str_cat[] = {
-    CMD_APPEND, CMD_C_TO_N,  CMD_EXTEND, CMD_HEAD,   CMD_LENGTH, CMD_LIST_T,
-    CMD_LXASTO, CMD_NEWLIST, CMD_NEWSTR, CMD_N_TO_C, CMD_N_TO_S, CMD_POS,
-    CMD_REV,    CMD_SUBSTR,  CMD_S_TO_N, CMD_XASTO,  CMD_NULL,   CMD_NULL
+    CMD_APPEND,    CMD_C_TO_N, CMD_EXTEND, CMD_HEAD,    CMD_LENGTH, CMD_TO_LIST,
+    CMD_FROM_LIST, CMD_LIST_T, CMD_LXASTO, CMD_NEWLIST, CMD_NEWSTR, CMD_N_TO_C,
+    CMD_N_TO_S,    CMD_POS,    CMD_REV,    CMD_SUBSTR,  CMD_S_TO_N, CMD_XASTO,
+    CMD_XSTR,      CMD_XVIEW,  CMD_NULL,   CMD_NULL,    CMD_NULL,   CMD_NULL
 };
 
 static int ext_stk_cat[] = {
@@ -1705,29 +1711,30 @@ static int ext_stk_cat[] = {
 #if defined(ANDROID) || defined(IPHONE)
 #ifdef FREE42_FPTEST
 static int ext_misc_cat[] = {
-    CMD_A2LINE,  CMD_A2PLINE, CMD_CAPS,   CMD_FMA,   CMD_MIXED, CMD_PCOMPLX,
-    CMD_RCOMPLX, CMD_STRACE,  CMD_X2LINE, CMD_ACCEL, CMD_LOCAT, CMD_HEADING,
-    CMD_FPTEST,  CMD_NULL,    CMD_NULL,   CMD_NULL,  CMD_NULL,  CMD_NULL
+    CMD_A2LINE,  CMD_A2PLINE, CMD_A_THRU_F_2, CMD_CAPS,   CMD_FMA,   CMD_MIXED,
+    CMD_PCOMPLX, CMD_RCOMPLX, CMD_STRACE,     CMD_X2LINE, CMD_ACCEL, CMD_LOCAT,
+    CMD_HEADING, CMD_FPTEST,  CMD_NULL,       CMD_NULL,   CMD_NULL,  CMD_NULL
 };
 #define MISC_CAT_ROWS 3
 #else
 static int ext_misc_cat[] = {
-    CMD_A2LINE,  CMD_A2PLINE, CMD_CAPS,   CMD_FMA,   CMD_MIXED, CMD_PCOMPLX,
-    CMD_RCOMPLX, CMD_STRACE,  CMD_X2LINE, CMD_ACCEL, CMD_LOCAT, CMD_HEADING
+    CMD_A2LINE,  CMD_A2PLINE, CMD_A_THRU_F_2, CMD_CAPS,   CMD_FMA,   CMD_MIXED,
+    CMD_PCOMPLX, CMD_RCOMPLX, CMD_STRACE,     CMD_X2LINE, CMD_ACCEL, CMD_LOCAT,
+    CMD_HEADING, CMD_NULL,    CMD_NULL,       CMD_NULL,   CMD_NULL,  CMD_NULL
 };
-#define MISC_CAT_ROWS 2
+#define MISC_CAT_ROWS 3
 #endif
 #else
 #ifdef FREE42_FPTEST
 static int ext_misc_cat[] = {
-    CMD_A2LINE,  CMD_A2PLINE, CMD_CAPS,   CMD_FMA,    CMD_MIXED, CMD_PCOMPLX,
-    CMD_RCOMPLX, CMD_STRACE,  CMD_X2LINE, CMD_FPTEST, CMD_NULL,  CMD_NULL
+    CMD_A2LINE,  CMD_A2PLINE, CMD_A_THRU_F_2, CMD_CAPS,   CMD_FMA,    CMD_MIXED,
+    CMD_PCOMPLX, CMD_RCOMPLX, CMD_STRACE,     CMD_X2LINE, CMD_FPTEST, CMD_NULL
 };
 #define MISC_CAT_ROWS 2
 #else
 static int ext_misc_cat[] = {
-    CMD_A2LINE,  CMD_A2PLINE, CMD_CAPS,   CMD_FMA,  CMD_MIXED, CMD_PCOMPLX,
-    CMD_RCOMPLX, CMD_STRACE,  CMD_X2LINE, CMD_NULL, CMD_NULL,  CMD_NULL
+    CMD_A2LINE,  CMD_A2PLINE, CMD_A_THRU_F_2, CMD_CAPS,   CMD_FMA,  CMD_MIXED,
+    CMD_PCOMPLX, CMD_RCOMPLX, CMD_STRACE,     CMD_X2LINE, CMD_NULL, CMD_NULL
 };
 #define MISC_CAT_ROWS 2
 #endif
@@ -1837,8 +1844,8 @@ static void draw_catalog() {
             case CATSECT_EXT_TIME: subcat = ext_time_cat; subcat_rows = 3; break;
             case CATSECT_EXT_XFCN: subcat = ext_xfcn_cat; subcat_rows = 1; break;
             case CATSECT_EXT_BASE: subcat = ext_base_cat; subcat_rows = 1; break;
-            case CATSECT_EXT_PRGM: subcat = ext_prgm_cat; subcat_rows = 3; break;
-            case CATSECT_EXT_STR: subcat = ext_str_cat; subcat_rows = 3; break;
+            case CATSECT_EXT_PRGM: subcat = ext_prgm_cat; subcat_rows = 4; break;
+            case CATSECT_EXT_STR: subcat = ext_str_cat; subcat_rows = 4; break;
             case CATSECT_EXT_STK: subcat = ext_stk_cat; subcat_rows = 3; break;
             case CATSECT_EXT_MISC: subcat = ext_misc_cat; subcat_rows = MISC_CAT_ROWS; break;
             case CATSECT_EXT_0_CMP: subcat = ext_0_cmp_cat; subcat_rows = 1; break;
@@ -1960,12 +1967,12 @@ static void draw_catalog() {
 }
 
 void display_mem() {
-    uint4 bytes = shell_get_mem();
-    char buf[16];
+    uint8 bytes = shell_get_mem();
+    char buf[20];
     int buflen;
     clear_display();
     draw_string(0, 0, "Available Memory:", 17);
-    buflen = uint2string(bytes, buf, 16);
+    buflen = ulong2string(bytes, buf, 20);
     draw_string(0, 1, buf, buflen);
     draw_string(buflen + 1, 1, "Bytes", 5);
 #ifdef ARM
@@ -2017,6 +2024,7 @@ static int procrustean_phloat2string(phloat d, char *buf, int buflen) {
         if (zero_since != -1) {
             memmove(tbuf + zero_since, tbuf + epos, tbuflen - epos);
             tbuflen -= epos - zero_since;
+            epos = zero_since;
         }
         if (tbuflen <= buflen) {
             memcpy(buf, tbuf, tbuflen);
@@ -2681,14 +2689,20 @@ int command2buf(char *buf, int len, int cmd, const arg_struct *arg) {
     }
 
     const command_spec *cmdspec = &cmd_array[cmd];
-    if (cmd >= CMD_ASGN01 && cmd <= CMD_ASGN18)
+    if (cmd >= CMD_ASGN01 && cmd <= CMD_ASGN18) {
         string2buf(buf, len, &bufptr, "ASSIGN ", 7);
-    else
+    } else {
 #ifdef ARM
         cmdnam2buf(buf, len, &bufptr, cmdspec->name, cmdspec->name_length);
 #else
-        string2buf(buf, len, &bufptr, cmdspec->name, cmdspec->name_length);
+        for (int i = 0; i < cmdspec->name_length; i++) {
+            int c = (unsigned char) cmdspec->name[i];
+            if (c >= 130 && c != 138)
+                c &= 127;
+            char2buf(buf, len, &bufptr, c);
+        }
 #endif
+    }
 
     if (cmd == CMD_XROM) {
         int n = xrom_arg & 0x7FF;

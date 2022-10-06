@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -169,8 +169,10 @@ int arg_to_num(arg_struct *arg, int4 *num) {
 
 int recall_result_silently(vartype *v) {
     if (flags.f.stack_lift_disable) {
-        // sp guaranteed to be >= 0 in this case
-        free_vartype(stack[sp]);
+        if (sp == -1)
+            sp = 0;
+        else
+            free_vartype(stack[sp]);
     } else if (flags.f.big_stack) {
         if (!ensure_stack_capacity(1)) {
             free_vartype(v);
@@ -196,13 +198,14 @@ int recall_result(vartype *v) {
 
 int recall_two_results(vartype *x, vartype *y) {
     if (flags.f.big_stack) {
-        int off = flags.f.stack_lift_disable ? 1 : 2;
+        bool sld = flags.f.stack_lift_disable && sp != -1;
+        int off = sld ? 1 : 2;
         if (!ensure_stack_capacity(off)) {
             free_vartype(x);
             free_vartype(y);
             return ERR_INSUFFICIENT_MEMORY;
         }
-        if (flags.f.stack_lift_disable)
+        if (sld)
             free_vartype(stack[sp]);
         sp += off;
     } else {
@@ -773,7 +776,7 @@ int get_base() {
         return 10;
 }
 
-void set_base(int base) {
+void set_base(int base, bool a_thru_f) {
     int oldbase = 0;
     if (flags.f.base_bit0) oldbase += 1;
     if (flags.f.base_bit1) oldbase += 2;
@@ -788,7 +791,7 @@ void set_base(int base) {
     flags.f.base_bit1 = (base & 2) != 0;
     flags.f.base_bit2 = (base & 4) != 0;
     flags.f.base_bit3 = (base & 8) != 0;
-    if (mode_appmenu == MENU_BASE_A_THRU_F)
+    if (!a_thru_f && mode_appmenu == MENU_BASE_A_THRU_F)
         set_menu(MENULEVEL_APP, MENU_BASE);
 
     if (base != oldbase)
@@ -1045,7 +1048,7 @@ void print_wide(const char *left, int leftlen, const char *right, int rightlen) 
 void print_command(int cmd, const arg_struct *arg) {
     char buf[100];
     int bufptr = 0;
-    
+
     if (cmd == CMD_NULL && !deferred_print)
         return;
 
@@ -1543,6 +1546,18 @@ int int2string(int4 n, char *buf, int buflen) {
     } else
         u = n;
     return count + uint2string(u, buf + count, buflen - count);
+}
+
+int ulong2string(uint8 n, char *buf, int buflen) {
+    uint8 pt = 1;
+    int count = 0;
+    while (n / pt >= 10)
+        pt *= 10;
+    while (pt != 0) {
+        char2buf(buf, buflen, &count, (char) ('0' + (n / pt) % 10));
+        pt /= 10;
+    }
+    return count;
 }
 
 int vartype2string(const vartype *v, char *buf, int buflen, int max_mant_digits) {

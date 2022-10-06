@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -80,7 +80,7 @@ int linalg_div(const vartype *left, const vartype *right,
             linalg_div_left = left;
             linalg_div_result = res;
             return lu_decomp_r((vartype_realmatrix *) lu, perm,
-                                                div_rr_completion1); 
+                                                div_rr_completion1);
         } else {
             vartype_realmatrix *num = (vartype_realmatrix *) left;
             vartype_complexmatrix *denom = (vartype_complexmatrix *) right;
@@ -1129,7 +1129,7 @@ int linalg_det(const vartype *src, void (*completion)(int, vartype *)) {
         core_settings.matrix_singularmatrix = true;
 
         linalg_det_completion = completion;
-        return lu_decomp_r(ma, perm, det_r_completion); 
+        return lu_decomp_r(ma, perm, det_r_completion);
     } else /* src->type == TYPE_COMPLEXMATRIX */ {
         vartype_complexmatrix *ma = (vartype_complexmatrix *) src;
         n = ma->rows;
@@ -1160,7 +1160,7 @@ int linalg_det(const vartype *src, void (*completion)(int, vartype *)) {
         core_settings.matrix_singularmatrix = true;
 
         linalg_det_completion = completion;
-        return lu_decomp_c(ma, perm, det_c_completion); 
+        return lu_decomp_c(ma, perm, det_c_completion);
     }
 }
 

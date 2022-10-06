@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -675,7 +675,7 @@ int docmd_clp(arg_struct *arg) {
     return clear_prgm(arg);
 }
 
-int docmd_clv(arg_struct *arg) {
+static int clv_helper(arg_struct *arg, bool global) {
     int err;
     if (arg->type == ARGTYPE_IND_NUM
             || arg->type == ARGTYPE_IND_STK
@@ -690,11 +690,20 @@ int docmd_clv(arg_struct *arg) {
         if (matedit_mode == 3
                 && string_equals(arg->val.text, arg->length, matedit_name, matedit_length))
             return ERR_RESTRICTED_OPERATION;
-        purge_var(arg->val.text, arg->length);
+        if (!purge_var(arg->val.text, arg->length, global, !global))
+            return ERR_RESTRICTED_OPERATION;
         remove_shadow(arg->val.text, arg->length);
         return ERR_NONE;
     } else
         return ERR_INVALID_TYPE;
+}
+
+int docmd_clv(arg_struct *arg) {
+    return clv_helper(arg, true);
+}
+
+int docmd_lclv(arg_struct *arg) {
+    return clv_helper(arg, false);
 }
 
 int docmd_clst(arg_struct *arg) {
@@ -879,7 +888,7 @@ static int mappable_to_hr(phloat x, phloat *y) {
 #endif
     if (neg)
         x = -x;
-    
+
     if (x == x + 1)
         res = x;
     else {
@@ -1071,20 +1080,16 @@ int docmd_fp(arg_struct *arg) {
 static phloat rnd_multiplier;
 
 static int mappable_rnd_r(phloat x, phloat *y) {
-    if (flags.f.fix_or_all) {
-        if (flags.f.eng_or_all)
+    if (flags.f.fix_or_all && !flags.f.eng_or_all) {
+        phloat t = x;
+        int neg = t < 0;
+        if (neg)
+            t = -t;
+        if (t >= ALWAYS_INT_FROM)
             *y = x;
         else {
-            phloat t = x;
-            int neg = t < 0;
-            if (neg)
-                t = -t;
-            if (t >= ALWAYS_INT_FROM)
-                *y = x;
-            else {
-                t = floor(t * rnd_multiplier + 0.5) / rnd_multiplier;
-                *y = neg ? -t : t;
-            }
+            t = floor(t * rnd_multiplier + 0.5) / rnd_multiplier;
+            *y = neg ? -t : t;
         }
         return ERR_NONE;
     } else {
@@ -1132,11 +1137,16 @@ static int mappable_rnd_c(phloat xre, phloat xim, phloat *yre, phloat *yim) {
 int docmd_rnd(arg_struct *arg) {
     vartype *v;
     int err;
-    int digits = 0;
-    if (flags.f.digits_bit3) digits += 8;
-    if (flags.f.digits_bit2) digits += 4;
-    if (flags.f.digits_bit1) digits += 2;
-    if (flags.f.digits_bit0) digits += 1;
+    int digits;
+    if (flags.f.fix_or_all && flags.f.eng_or_all) {
+        digits = 11;
+    } else {
+        digits = 0;
+        if (flags.f.digits_bit3) digits += 8;
+        if (flags.f.digits_bit2) digits += 4;
+        if (flags.f.digits_bit1) digits += 2;
+        if (flags.f.digits_bit0) digits += 1;
+    }
     rnd_multiplier = pow(10.0, digits);
     err = map_unary(stack[sp], &v, mappable_rnd_r, mappable_rnd_c);
     if (err == ERR_NONE)

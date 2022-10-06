@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -45,9 +45,11 @@
 #ifdef WINDOWS
 FILE *my_fopen(const char *name, const char *mode);
 int my_rename(const char *oldname, const char *newname);
+int my_remove(const char *name);
 #else
 #define my_fopen fopen
 #define my_rename rename
+#define my_remove remove
 #endif
 
 
@@ -117,8 +119,9 @@ void core_init(int read_saved_state, int4 version, const char *state_file_name, 
     }
     if (gfile != NULL)
         fclose(gfile);
+
 #ifndef ARM
-    if (state_file_name != NULL) {
+    if (state_file_name_crash != NULL) {
         if (reason == 0) {
             my_rename(state_file_name_crash, state_file_name);
         } else {
@@ -129,8 +132,8 @@ void core_init(int read_saved_state, int4 version, const char *state_file_name, 
             my_rename(state_file_name_crash, tmp);
             free(tmp);
         }
+        free(state_file_name_crash);
     }
-    free(state_file_name_crash);
 #endif
 
     repaint_display();
@@ -146,11 +149,32 @@ void core_save_state(const char *state_file_name) {
     if (mode_interruptible != NULL)
         stop_interruptible();
     set_running(false);
+
+#ifdef ARM
     gfile = my_fopen(state_file_name, "wb");
     if (gfile != NULL) {
-        save_state();
+        bool success;
+        save_state(&success);
         fclose(gfile);
     }
+#else
+    char *state_file_name_crash = (char *) malloc(strlen(state_file_name) + 24);
+    uint4 date, time;
+    int weekday;
+    shell_get_time_date(&time, &date, &weekday);
+    sprintf(state_file_name_crash, "%s.%08u%08u.crash", state_file_name, date, time);
+
+    gfile = my_fopen(state_file_name_crash, "wb");
+    if (gfile != NULL) {
+        bool success;
+        save_state(&success);
+        fclose(gfile);
+        if (success) {
+            my_remove(state_file_name);
+            my_rename(state_file_name_crash, state_file_name);
+        }
+    }
+#endif
 }
 
 void core_cleanup() {
@@ -509,15 +533,6 @@ bool core_keyup() {
         if (pending_command == CMD_RUN || pending_command == CMD_SST
                 || pending_command == CMD_SST_UP || pending_command == CMD_SST_RT) {
             int err = generic_sto(&input_arg, 0);
-            if ((flags.f.trace_print || flags.f.normal_print)
-                    && flags.f.printer_exists) {
-                char lbuf[12], rbuf[100];
-                int llen, rlen;
-                string_copy(lbuf, &llen, input_name, input_length);
-                lbuf[llen++] = '=';
-                rlen = vartype2string(stack[sp], rbuf, 100);
-                print_wide(lbuf, llen, rbuf, rlen);
-            }
             input_length = 0;
             if (err != ERR_NONE) {
                 pending_command = CMD_NONE;
@@ -638,7 +653,7 @@ bool core_powercycle() {
             need_redisplay = true;
         mode_getkey = false;
     }
-    
+
     if (flags.f.big_stack && !core_settings.allow_big_stack) {
         arg_struct dummy_arg;
         docmd_4stk(&dummy_arg);
@@ -1050,7 +1065,7 @@ static void export_hp42s(int index) {
                             cmdbuf[cmdlen++] = cs->name[i];
                     }
                     cmdbuf[cmdlen++] = cmd - CMD_ASGN01;
-                } else if ((cmd >= CMD_KEY1G && cmd <= CMD_KEY9G) 
+                } else if ((cmd >= CMD_KEY1G && cmd <= CMD_KEY9G)
                             || (cmd >= CMD_KEY1X && cmd <= CMD_KEY9X)) {
                     int keyg = cmd <= CMD_KEY9G;
                     int keynum = cmd - (keyg ? CMD_KEY1G : CMD_KEY1X) + 1;
@@ -1292,7 +1307,7 @@ int4 core_program_size(int prgm_index) {
                          * anyway.
                          */
                         size += cmd_array[arg.val.cmd].name_length + 3;
-                } else if ((cmd >= CMD_KEY1G && cmd <= CMD_KEY9G) 
+                } else if ((cmd >= CMD_KEY1G && cmd <= CMD_KEY9G)
                             || (cmd >= CMD_KEY1X && cmd <= CMD_KEY9X)) {
                     if (arg.type == ARGTYPE_STR || arg.type == ARGTYPE_IND_STR)
                         size += arg.length + 3;
@@ -1507,7 +1522,7 @@ static int hp42tofree42[] = {
     CMD_TO_HR   | 0x0000,
     CMD_RND     | 0x0000,
     CMD_TO_OCT  | 0x0000,
-    
+
     /* 70-7F */
     CMD_CLSIGMA  | 0x0000,
     CMD_SWAP     | 0x0000,
@@ -1744,7 +1759,7 @@ static int hp42ext[] = {
     CMD_0_GE_NN | 0x1000,
 
     /* 30-3F */
-    CMD_PRMVAR  | 0x2000,
+    CMD_PGMVAR  | 0x2000,
     CMD_VARMNU1 | 0x2000,
     CMD_NULL    | 0x4000,
     CMD_NULL    | 0x4000,
@@ -1762,7 +1777,7 @@ static int hp42ext[] = {
     CMD_NULL    | 0x4000,
 
     /* 40-4F */
-    CMD_PRMVAR  | 0x0000,
+    CMD_PGMVAR  | 0x0000,
     CMD_XSTR    | 0x0000,
     CMD_VARMNU1 | 0x0000,
     CMD_NULL    | 0x4000,
@@ -1770,7 +1785,7 @@ static int hp42ext[] = {
     CMD_NULL    | 0x4000,
     CMD_NULL    | 0x4000,
     CMD_NULL    | 0x4000,
-    CMD_PRMVAR  | 0x1000,
+    CMD_PGMVAR  | 0x1000,
     CMD_XSTR    | 0x1000,
     CMD_VARMNU1 | 0x1000,
     CMD_NULL    | 0x4000,
@@ -1802,7 +1817,7 @@ static int hp42ext[] = {
     CMD_NULL | 0x4000,
     CMD_NULL | 0x4000,
     CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
+    CMD_LCLV | 0x2000,
     CMD_NULL | 0x4000,
     CMD_NULL | 0x4000,
     CMD_NULL | 0x4000,
@@ -1817,6 +1832,7 @@ static int hp42ext[] = {
 
     /* 70-7F */
     CMD_NULL | 0x4000,
+    CMD_LCLV | 0x0000,
     CMD_NULL | 0x4000,
     CMD_NULL | 0x4000,
     CMD_NULL | 0x4000,
@@ -1824,8 +1840,7 @@ static int hp42ext[] = {
     CMD_NULL | 0x4000,
     CMD_NULL | 0x4000,
     CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
+    CMD_LCLV | 0x1000,
     CMD_NULL | 0x4000,
     CMD_NULL | 0x4000,
     CMD_NULL | 0x4000,
@@ -2069,7 +2084,7 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
     int saved_normal = flags.f.normal_print;
     flags.f.trace_print = 0;
     flags.f.normal_print = 0;
-    
+
     if (num_progs > 0) {
         // Loading state file
         goto_dot_dot(true);
@@ -2513,8 +2528,8 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
     free(xstr_buf);
 }
 
-static int real2buf(char *buf, phloat x) {
-    int bufptr = phloat2string(x, buf, 49, 2, 0, 3, 0, MAX_MANT_DIGITS);
+static int real2buf(char *buf, phloat x, const char *format = NULL) {
+    int bufptr = phloat2string(x, buf, 49, 2, 0, 3, 0, MAX_MANT_DIGITS, format);
     /* Convert small-caps 'E' to regular 'e' */
     for (int i = 0; i < bufptr; i++)
         if (buf[i] == 24)
@@ -2522,7 +2537,7 @@ static int real2buf(char *buf, phloat x) {
     return bufptr;
 }
 
-static int complex2buf(char *buf, phloat re, phloat im, bool always_rect) {
+static int complex2buf(char *buf, phloat re, phloat im, bool always_rect, const char *format = NULL) {
     bool polar = !always_rect && flags.f.polar;
     phloat x, y;
     if (polar) {
@@ -2533,14 +2548,14 @@ static int complex2buf(char *buf, phloat re, phloat im, bool always_rect) {
         x = re;
         y = im;
     }
-    int bufptr = phloat2string(x, buf, 99, 2, 0, 3, 0, MAX_MANT_DIGITS);
+    int bufptr = phloat2string(x, buf, 99, 2, 0, 3, 0, MAX_MANT_DIGITS, format);
     if (polar) {
         string2buf(buf, 99, &bufptr, " \342\210\240 ", 5);
     } else {
         if (y >= 0 || p_isinf(y) != 0 || p_isnan(y))
             buf[bufptr++] = '+';
     }
-    bufptr += phloat2string(y, buf + bufptr, 99 - bufptr, 2, 0, 3, 0, MAX_MANT_DIGITS);
+    bufptr += phloat2string(y, buf + bufptr, 99 - bufptr, 2, 0, 3, 0, MAX_MANT_DIGITS, format);
     if (!polar)
         buf[bufptr++] = 'i';
     /* Convert small-caps 'E' to regular 'e' */
@@ -2720,14 +2735,16 @@ char *core_copy() {
         buf[0] = 0;
         return buf;
     } else if (stack[sp]->type == TYPE_REAL) {
+        const char *format = core_settings.localized_copy_paste ? number_format() : NULL;
         char *buf = (char *) malloc(50);
-        int bufptr = real2buf(buf, ((vartype_real *) stack[sp])->x);
+        int bufptr = real2buf(buf, ((vartype_real *) stack[sp])->x, format);
         buf[bufptr] = 0;
         return buf;
     } else if (stack[sp]->type == TYPE_COMPLEX) {
+        const char *format = core_settings.localized_copy_paste ? number_format() : NULL;
         char *buf = (char *) malloc(100);
         vartype_complex *c = (vartype_complex *) stack[sp];
-        int bufptr = complex2buf(buf, c->re, c->im, false);
+        int bufptr = complex2buf(buf, c->re, c->im, false, format);
         buf[bufptr] = 0;
         return buf;
     } else if (stack[sp]->type == TYPE_STRING) {
@@ -2737,6 +2754,7 @@ char *core_copy() {
         buf[bufptr] = 0;
         return buf;
     } else if (stack[sp]->type == TYPE_REALMATRIX) {
+        const char *format = core_settings.localized_copy_paste ? number_format() : NULL;
         vartype_realmatrix *rm = (vartype_realmatrix *) stack[sp];
         phloat *data = rm->array->data;
         char *is_string = rm->array->is_string;
@@ -2746,7 +2764,7 @@ char *core_copy() {
             for (int c = 0; c < rm->columns; c++) {
                 int bufptr;
                 if (is_string[n] == 0) {
-                    bufptr = real2buf(buf, data[n]);
+                    bufptr = real2buf(buf, data[n], format);
                     tb_write(&tb, buf, bufptr);
                 } else {
                     char *text;
@@ -2769,13 +2787,14 @@ char *core_copy() {
         }
         goto textbuf_finish;
     } else if (stack[sp]->type == TYPE_COMPLEXMATRIX) {
+        const char *format = core_settings.localized_copy_paste ? number_format() : NULL;
         vartype_complexmatrix *cm = (vartype_complexmatrix *) stack[sp];
         phloat *data = cm->array->data;
         char buf[100];
         int n = 0;
         for (int r = 0; r < cm->rows; r++) {
             for (int c = 0; c < cm->columns; c++) {
-                int bufptr = complex2buf(buf, data[n], data[n + 1], true);
+                int bufptr = complex2buf(buf, data[n], data[n + 1], true, format);
                 if (c < cm->columns - 1)
                     buf[bufptr++] = '\t';
                 tb_write(&tb, buf, bufptr);
@@ -2798,7 +2817,7 @@ const char *STR_INF = "<Infinity>";
 const char *STR_NEG_INF = "<-Infinity>";
 const char *STR_NAN = "<Not a Number>";
 
-static int scan_number(const char *buf, int len, int pos) {
+static int scan_number(const char *buf, int len, int pos, const char *format, bool no_sep = false) {
     if (buf[pos] == '<' || len > 1 && (buf[pos] == '-' || buf[pos] == '+') && buf[pos + 1] == '<') {
         int off = buf[pos] == '<' ? 0 : 1;
         if (len >= 10 + off && strncmp(buf + pos + off, STR_INF, 10) == 0)
@@ -2816,13 +2835,19 @@ static int scan_number(const char *buf, int len, int pos) {
     // 3: after E
     // 4: in exponent
     int state = 0;
-    char dec = flags.f.decimal_point ? '.' : ',';
-    char sep = flags.f.decimal_point ? ',' : '.';
+    char dec, sep;
+    if (format == NULL) {
+        dec = flags.f.decimal_point ? '.' : ',';
+        sep = flags.f.decimal_point ? ',' : '.';
+    } else {
+        dec = format[0];
+        sep = format[1];
+    }
     for (int p = pos; p < len; p++) {
         char c = buf[p];
         switch (state) {
             case 0:
-                if ((c >= '0' && c <= '9') || c == '+' || c == '-')
+                if (c >= '0' && c <= '9' || c == '+' || c == '-')
                     state = 1;
                 else if (c == dec)
                     state = 2;
@@ -2832,7 +2857,7 @@ static int scan_number(const char *buf, int len, int pos) {
                     return p;
                 break;
             case 1:
-                if ((c >= '0' && c <= '9') || c == sep || c == ' ')
+                if (c >= '0' && c <= '9' || !no_sep && (c == sep || c == ' '))
                     /* state = 1 */;
                 else if (c == dec)
                     state = 2;
@@ -2867,7 +2892,7 @@ static int scan_number(const char *buf, int len, int pos) {
     return len;
 }
 
-static bool parse_phloat(const char *p, int len, phloat *res) {
+static bool parse_phloat(const char *p, int len, phloat *res, const char *format) {
     if (p[0] == '<' || len > 1 && (p[0] == '-' || p[0] == '+') && p[1] == '<') {
         int off = p[0] == '<' ? 0 : 1;
         bool neg = p[0] == '-';
@@ -2901,8 +2926,14 @@ static bool parse_phloat(const char *p, int len, phloat *res) {
     bool in_int_mant = true;
     bool empty_mant = true;
     int i = 0, j = 0;
-    char decimal = flags.f.decimal_point ? '.' : ',';
-    char separator = flags.f.decimal_point ? ',' : '.';
+    char decimal, separator;
+    if (format == NULL) {
+        decimal = flags.f.decimal_point ? '.' : ',';
+        separator = flags.f.decimal_point ? ',' : '.';
+    } else {
+        decimal = format[0];
+        separator = format[1];
+    }
     while (i < 100 && j < len) {
         char c = p[j++];
         if (c == 0)
@@ -2915,7 +2946,7 @@ static bool parse_phloat(const char *p, int len, phloat *res) {
             in_mant = false;
         } else if (c == decimal) {
             in_int_mant = false;
-            buf[i++] = c;
+            buf[i++] = flags.f.decimal_point ? '.' : ',';
         } else if (c >= '0' && c <= '9') {
             if (in_mant) {
                 empty_mant = false;
@@ -3092,6 +3123,7 @@ static int ascii2hp(char *dst, int dstlen, const char *src, int srclen /* = -1 *
             case 0x2191: code =  94; break; // upward-pointing arrow
             case 0x22a2:                    // right tack sign (i41CX)
             case 0x22a6:                    // assertion sign (Emu42)
+            case 0x2212: code =  45; break; // minus sign
             case 0x251c: code = 127; break; // append sign
             case 0x028f: code = 129; break; // small-caps y
             case 0x240a: code = 138; break; // LF symbol
@@ -3127,7 +3159,7 @@ static int ascii2hp(char *dst, int dstlen, const char *src, int srclen /* = -1 *
                     continue;
                 }
                 break;
-            case 0x030a: 
+            case 0x030a:
                 if (dstpos > 0 && dst[dstpos - 1] == 'A') {
                     code = 20;
                     dstpos--;
@@ -3136,16 +3168,54 @@ static int ascii2hp(char *dst, int dstlen, const char *src, int srclen /* = -1 *
                     continue;
                 }
                 break;
+            case 0x20ac:
+                // euro symbol; expect it to be followed by two hex digits,
+                // encoding a character in the HP-42S character set. These
+                // are used by the reverse translation, hp2ascii(), for HP-42S
+                // characters that only have ambiguous translations.
+                if (srclen == -1 ? src[srcpos] != 0 && src[srcpos + 1] != 0 : srcpos + 1 < srclen) {
+                    char c1 = src[srcpos];
+                    char c2 = src[srcpos + 1];
+                    if (c1 >= '0' && c1 <= '9')
+                        c1 = c1 - '0';
+                    else if (c1 >= 'a' && c1 <= 'f')
+                        c1 = c1 - 'a' + 10;
+                    else if (c1 >= 'A' && c1 <= 'F')
+                        c1 = c1 - 'A' + 10;
+                    else
+                        goto noescape;
+                    if (c2 >= '0' && c2 <= '9')
+                        c2 = c2 - '0';
+                    else if (c2 >= 'a' && c2 <= 'f')
+                        c2 = c2 - 'a' + 10;
+                    else if (c2 >= 'A' && c2 <= 'F')
+                        c2 = c2 - 'A' + 10;
+                    else
+                        goto noescape;
+                    code = (c1 << 4) + c2;
+                    srcpos += 2;
+                } else {
+                    noescape:
+                    code = 31;
+                }
+                break;
             default:
                 // Anything outside of the printable ASCII range or LF or
                 // ESC is not representable, so we replace it with bullets,
-                // except for combining diacritics, which we skip, and tabs,
-                // which we treat as spaces.
-                if (code >= 0x0300 && code <= 0x036f) {
+                // except for combining diacritics and zero-width spaces,
+                // which we skip, and tabs and various other whitespace
+                // characters, which we treat as spaces.
+                if (code >= 0x0300 && code <= 0x036f || code >= 0x200b && code <= 0x200d) {
                     state = 0;
                     continue;
                 }
-                if (code == 9)
+                if (code >= 9 && code <= 13 // ASCII whitespace chars
+                        || code == 0x85 || code == 0xa0 // Latin-1 line break, non-break space
+                        || code >= 0x2000 && code <= 0x200a // Unicode spaces
+                        || code == 0x2028 // Unicode line separator
+                        || code == 0x2029 // Unicode paragraph separator
+                        || code == 0x202f // Narrow no-break space
+                        )
                     code = 32;
                 else if (code < 32 && code != 10 && code != 27 || code > 126)
                     code = 31;
@@ -3304,7 +3374,7 @@ static vartype *parse_base(const char *buf, int len) {
     return new_real((phloat) n);
 }
 
-static int parse_scalar(const char *buf, int len, bool strict, phloat *re, phloat *im, int *slen) {
+static int parse_scalar(const char *buf, int len, bool strict, phloat *re, phloat *im, int *slen, const char *format = NULL) {
     int i, s1, e1, s2, e2;
     bool polar = false;
     bool empty_im = false;
@@ -3315,7 +3385,7 @@ static int parse_scalar(const char *buf, int len, bool strict, phloat *re, phloa
     while (i < len && buf[i] == ' ')
         i++;
     s1 = i;
-    i = scan_number(buf, len, i);
+    i = scan_number(buf, len, i, format);
     e1 = i;
     if (e1 == s1)
         goto attempt_2;
@@ -3328,7 +3398,7 @@ static int parse_scalar(const char *buf, int len, bool strict, phloat *re, phloa
     while (i < len && buf[i] == ' ')
         i++;
     s2 = i;
-    i = scan_number(buf, len, i);
+    i = scan_number(buf, len, i, format);
     e2 = i;
     if (e2 == s2)
         goto attempt_2;
@@ -3345,10 +3415,10 @@ static int parse_scalar(const char *buf, int len, bool strict, phloat *re, phloa
     while (i < len && buf[i] == ' ')
         i++;
     s1 = i;
-    i = scan_number(buf, len, i);
+    i = scan_number(buf, len, i, format);
     e1 = i;
     s2 = i;
-    i = scan_number(buf, len, i);
+    i = scan_number(buf, len, i, format);
     e2 = i;
     if (i < len && (buf[i] == 'i' || buf[i] == 'j'))
         i++;
@@ -3390,7 +3460,7 @@ static int parse_scalar(const char *buf, int len, bool strict, phloat *re, phloa
     while (i < len && buf[i] == ' ')
         i++;
     s1 = i;
-    i = scan_number(buf, len, i);
+    i = scan_number(buf, len, i, format, true);
     e1 = i;
     if (e1 == s1)
         goto attempt_4;
@@ -3403,7 +3473,7 @@ static int parse_scalar(const char *buf, int len, bool strict, phloat *re, phloa
     while (i < len && buf[i] == ' ')
         i++;
     s2 = i;
-    i = scan_number(buf, len, i);
+    i = scan_number(buf, len, i, format, true);
     e2 = i;
     if (e2 == s2)
         goto attempt_4;
@@ -3421,11 +3491,11 @@ static int parse_scalar(const char *buf, int len, bool strict, phloat *re, phloa
     finish_complex:
     if (no_re)
         *re = 0;
-    else if (!parse_phloat(buf + s1, e1 - s1, re))
+    else if (!parse_phloat(buf + s1, e1 - s1, re, format))
         goto attempt_4;
     if (empty_im)
         *im = buf[s2] == '+' ? 1 : -1;
-    else if (!parse_phloat(buf + s2, e2 - s2, im))
+    else if (!parse_phloat(buf + s2, e2 - s2, im, format))
         goto attempt_4;
     if (polar)
         generic_p2r(*re, *im, re, im);
@@ -3437,7 +3507,7 @@ static int parse_scalar(const char *buf, int len, bool strict, phloat *re, phloa
     while (i < len && buf[i] == ' ')
         i++;
     s1 = i;
-    i = scan_number(buf, len, i);
+    i = scan_number(buf, len, i, format);
     e1 = i;
     if (e1 == s1)
         goto finish_string;
@@ -3447,7 +3517,7 @@ static int parse_scalar(const char *buf, int len, bool strict, phloat *re, phloa
         if (i < len)
             goto finish_string;
     }
-    if (parse_phloat(buf + s1, e1 - s1, re))
+    if (parse_phloat(buf + s1, e1 - s1, re, format))
         return TYPE_REAL;
 
     finish_string:
@@ -3659,10 +3729,17 @@ static void paste_programs(const char *buf) {
                 // No closing quote? Fishy, but let's just grab 15
                 // characters and hope for the best.
                 last_quote = i < 15 ? i : 15;
-            cmd = CMD_STRING;
-            arg.type = ARGTYPE_STR;
-            arg.length = last_quote;
-            memcpy(arg.val.text, hpbuf + hppos, arg.length);
+            if (last_quote == 0) {
+                cmd = CMD_NOP;
+                arg.type = ARGTYPE_NONE;
+            } else {
+                cmd = CMD_STRING;
+                arg.type = ARGTYPE_STR;
+                arg.length = last_quote;
+                memcpy(arg.val.text, hpbuf + hppos, arg.length);
+                if (arg.length > 0)
+                    arg.val.text[0] &= 127;
+            }
         } else {
             // Not a string; try to find command
             int cmd_end = hppos;
@@ -4435,7 +4512,8 @@ void core_paste(const char *buf) {
             if (v == NULL) {
                 phloat re, im;
                 int slen;
-                int type = parse_scalar(hpbuf, len, false, &re, &im, &slen);
+                const char *format = core_settings.localized_copy_paste ? number_format() : NULL;
+                int type = parse_scalar(hpbuf, len, false, &re, &im, &slen, format);
                 switch (type) {
                     case TYPE_REAL:
                         v = new_real(re);
@@ -4481,6 +4559,7 @@ void core_paste(const char *buf) {
             int pos = 0;
             int spos = 0;
             int p = 0, row = 0, col = 0;
+            const char *format = core_settings.localized_copy_paste ? number_format() : NULL;
             while (row < rows) {
                 c = buf[pos++];
                 if (c == 0 || c == '\t' || c == '\r' || c == '\n') {
@@ -4494,7 +4573,7 @@ void core_paste(const char *buf) {
                     spos = pos;
                     phloat re, im;
                     int slen;
-                    int type = parse_scalar(hpbuf, hplen, true, &re, &im, &slen);
+                    int type = parse_scalar(hpbuf, hplen, true, &re, &im, &slen, format);
                     if (is_string != NULL) {
                         switch (type) {
                             case TYPE_REAL:
@@ -4715,7 +4794,7 @@ void do_interactive(int command) {
         set_menu(MENULEVEL_ALPHA, MENU_NONE);
         redisplay();
         return;
-    } else if (command == CMD_CLV || command == CMD_PRV) {
+    } else if (command == CMD_CLV || command == CMD_PRV || command == CMD_LCLV) {
         if (!flags.f.prgm_mode && vars_count == 0) {
             display_error(ERR_NO_VARIABLES, false);
             redisplay();
@@ -4761,7 +4840,7 @@ void do_interactive(int command) {
             if (pc == -1)
                 pc = 0;
             else if (prgms[current_prgm].text[pc] != CMD_END)
-                pc += get_command_length(current_prgm, pc);       
+                pc += get_command_length(current_prgm, pc);
             prgm_highlight_row = 1;
             start_incomplete_command(command);
         }
@@ -5104,7 +5183,7 @@ void finish_command_entry(bool refresh) {
             prgm_highlight_row = 1;
             pending_command = CMD_NONE;
             redisplay();
-        } 
+        }
     } else {
         do_it_now:
         if (refresh)
@@ -5186,7 +5265,7 @@ void finish_xeq() {
             shell_delay(250);
             pending_command = CMD_NONE;
             set_menu(MENULEVEL_COMMAND, MENU_NONE);
-            if ((cmd == CMD_CLV || cmd == CMD_PRV)
+            if ((cmd == CMD_CLV || cmd == CMD_PRV || cmd == CMD_LCLV)
                     && !flags.f.prgm_mode && vars_count == 0) {
                 display_error(ERR_NO_VARIABLES, false);
                 pending_command = CMD_NONE;
@@ -5355,4 +5434,26 @@ static int handle_error(int error) {
             display_error(error, true);
         return 0;
     }
+}
+
+const char *number_format() {
+    const char *uf = shell_number_format();
+    static char df[9];
+    df[0] = 0;
+    int len = ascii2hp(df, 4, uf);
+    if (len >= 4)
+        df[4] = 0;
+    else
+        df[1] = 0;
+    // Sanity enforcement:
+    // Decimal must be '.' or ','; default to '.'
+    // Grouping char must be 0 (no grouping), '.', ',', '\'', or ' '; default to 0
+    // Primary and secondary group sizes must be between 1 and 9; default to no grouping
+    if (df[0] != ',')
+        df[0] = '.';
+    if (df[1] != 0 && df[1] != '.' && df[1] != ',' && df[1] != '\'' && df[1] != ' ')
+        df[1] = 0;
+    if (df[1] != 0 && !(df[2] >= '1' && df[2] <= '9' && df[3] >= '1' && df[3] <= '9'))
+        df[1] = 0;
+    return df;
 }

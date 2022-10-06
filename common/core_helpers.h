@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -62,7 +62,7 @@ int anum(const char *text, int len, phloat *res);
 int virtual_flag_handler(int flagop, int flagnum);
 
 int get_base();
-void set_base(int base);
+void set_base(int base, bool a_thru_f = false);
 int get_base_param(const vartype *v, int8 *n);
 int base_range_check(int8 *n, bool force_wrap);
 int effective_wsize();
@@ -101,6 +101,7 @@ void string2buf(char *buf, int buflen, int *bufptr, const char *s, int slen);
 void cmdnam2buf(char *buf, int buflen, int *bufptr, const char *s, int slen);
 int uint2string(uint4 n, char *buf, int buflen);
 int int2string(int4 n, char *buf, int buflen);
+int ulong2string(uint8 n, char *buf, int buflen);
 int vartype2string(const vartype *v, char *buf, int buflen, int max_mant_digits = 12);
 const char *phloat2program(phloat d);
 int easy_phloat2string(phloat d, char *buf, int buflen, int base_mode);

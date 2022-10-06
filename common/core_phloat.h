@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -176,7 +176,8 @@ extern phloat NAN_2_PHLOAT;
 void phloat_init();
 int phloat2string(phloat d, char *buf, int buflen,
                   int base_mode, int digits, int dispmode,
-                  int thousandssep, int max_mant_digits = 12);
+                  int thousandssep, int max_mant_digits = 12,
+                  const char *format = NULL);
 int string2phloat(const char *buf, int buflen, phloat *d);
 
 

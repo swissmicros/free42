@@ -111,18 +111,21 @@ END
 // Dialog
 //
 
-IDD_ABOUTBOX DIALOG DISCARDABLE  65499, 40, 225, 53
+IDD_ABOUTBOX DIALOG DISCARDABLE  65499, 40, 225, 78
 STYLE DS_MODALFRAME | WS_CAPTION | WS_SYSMENU
 CAPTION "About Free42"
 FONT 8, "System"
 BEGIN
     ICON            IDI_FREE42,IDC_STATIC,9,7,20,20
     LTEXT           FREE42_VERSION_1,IDC_STATIC,31,4,99,8,SS_NOPREFIX
-    LTEXT           "© 2004-2021 Thomas Okken",IDC_STATIC,31,17,98,8
+    LTEXT           "© 2004-2022 Thomas Okken",IDC_STATIC,31,17,98,8
     LTEXT           "https://thomasokken.com/free42/",
                     IDC_WEBSITELINK,31,27,191,8,SS_NOTIFY
     LTEXT           "https://thomasokken.com/free42/#doc",
                     IDC_FORUMLINK,31,37,191,8,SS_NOTIFY
+    LTEXT           "Plus42: Free42 Enhanced",IDC_STATIC,31,52,98,8
+    LTEXT           "https://thomasokken.com/plus42/",
+                    IDC_WEBSITELINK_PLUS42,31,62,191,8,SS_NOTIFY
     DEFPUSHBUTTON   "OK",IDOK,189,6,30,11,WS_GROUP
 END
 
@@ -143,17 +146,18 @@ BEGIN
     CONTROL         "Allow Big Stack (NSTK) mode",
                     IDC_ALLOW_BIG_STACK,"Button",BS_AUTOCHECKBOX | 
                     WS_TABSTOP,7,40,213,10
+    CONTROL         "Localized Copy && Paste",
+                    IDC_LOCALIZED_COPY_PASTE,"Button",BS_AUTOCHECKBOX | 
+                    WS_TABSTOP,7,51,213,10
     CONTROL         "Keep Free42 window always on top",IDC_ALWAYSONTOP,
-                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,51,128,10
-    CONTROL         "Map ""Calculator"" key to Free42",IDC_CALCULATOR_KEY,
                     "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,62,128,10
     CONTROL         "Write printer output to text file:",IDC_PRINTER_TXT,
                     "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,77,112,10
-    EDITTEXT        IDC_PRINTER_TXT_NAME,125,64,132,14,ES_AUTOHSCROLL
+    EDITTEXT        IDC_PRINTER_TXT_NAME,125,75,132,14,ES_AUTOHSCROLL
     PUSHBUTTON      "Browse...",IDC_PRINTER_TXT_BROWSE,265,75,50,14
     CONTROL         "Write printer output to GIF file:",IDC_PRINTER_GIF,
                     "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,95,110,10
-    EDITTEXT        IDC_PRINTER_GIF_NAME,125,82,132,14,ES_AUTOHSCROLL
+    EDITTEXT        IDC_PRINTER_GIF_NAME,125,93,132,14,ES_AUTOHSCROLL
     PUSHBUTTON      "Browse...",IDC_PRINTER_GIF_BROWSE,265,93,50,14
     LTEXT           "Maximum GIF height (pixels):",IDC_STATIC,124,114,90,8
     EDITTEXT        IDC_PRINTER_GIF_HEIGHT,217,111,40,14,ES_AUTOHSCROLL
@@ -295,7 +299,7 @@ BEGIN
             VALUE "FileDescription", "Free42\0"
             VALUE "FileVersion", FREE42_VERSION_2
             VALUE "InternalName", "Free42\0"
-            VALUE "LegalCopyright", "Copyright © 2004-2021 Thomas Okken\0"
+            VALUE "LegalCopyright", "Copyright © 2004-2022 Thomas Okken\0"
             //VALUE "LegalTrademarks", "\0"
             VALUE "OriginalFilename", "Free42.exe\0"
             //VALUE "PrivateBuild", "\0"

@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -129,7 +129,7 @@ int lookup_var(const char *name, int namelength);
 vartype *recall_var(const char *name, int namelength);
 bool ensure_var_space(int n);
 int store_var(const char *name, int namelength, vartype *value, bool local = false);
-void purge_var(const char *name, int namelength);
+bool purge_var(const char *name, int namelength, bool global = true, bool local = true);
 void purge_all_vars();
 bool vars_exist(int section);
 bool contains_strings(const vartype_realmatrix *rm);

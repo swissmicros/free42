@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -46,6 +46,7 @@ struct solve_state {
     int which;
     int toggle;
     int retry_counter;
+    int secant_impatience;
     phloat retry_value;
     phloat x1, x2, x3;
     phloat fx1, fx2;
@@ -108,12 +109,18 @@ bool persist_math() {
     if (fwrite(solve.var_name, 1, 7, gfile) != 7) return false;
     if (!write_int(solve.var_length)) return false;
     if (!write_int(solve.keep_running)) return false;
-    if (!write_int(solve.prev_prgm)) return false;
-    if (!write_int4(solve.prev_pc)) return false;
+    if (solve_active()) {
+        if (!write_int(solve.prev_prgm)) return false;
+        if (!write_int4(global_pc2line(solve.prev_prgm, solve.prev_pc))) return false;
+    } else {
+        if (!write_int(0)) return false;
+        if (!write_int4(0)) return false;
+    }
     if (!write_int(solve.state)) return false;
     if (!write_int(solve.which)) return false;
     if (!write_int(solve.toggle)) return false;
     if (!write_int(solve.retry_counter)) return false;
+    if (!write_int(solve.secant_impatience)) return false;
     if (!write_phloat(solve.retry_value)) return false;
     if (!write_phloat(solve.x1)) return false;
     if (!write_phloat(solve.x2)) return false;
@@ -145,8 +152,13 @@ bool persist_math() {
     if (fwrite(integ.var_name, 1, 7, gfile) != 7) return false;
     if (!write_int(integ.var_length)) return false;
     if (!write_int(integ.keep_running)) return false;
-    if (!write_int(integ.prev_prgm)) return false;
-    if (!write_int4(integ.prev_pc)) return false;
+    if (integ_active()) {
+        if (!write_int(integ.prev_prgm)) return false;
+        if (!write_int4(global_pc2line(integ.prev_prgm, integ.prev_pc))) return false;
+    } else {
+        if (!write_int(0)) return false;
+        if (!write_int4(0)) return false;
+    }
     if (!write_int(integ.state)) return false;
     if (!write_phloat(integ.llim)) return false;
     if (!write_phloat(integ.ulim)) return false;
@@ -186,10 +198,17 @@ bool unpersist_math(int ver, bool discard) {
         if (!read_int(&solve.keep_running)) return false;
         if (!read_int(&solve.prev_prgm)) return false;
         if (!read_int4(&solve.prev_pc)) return false;
+        if (solve_active())
+            solve.prev_pc = global_line2pc(solve.prev_prgm, solve.prev_pc);
         if (!read_int(&solve.state)) return false;
         if (!read_int(&solve.which)) return false;
         if (!read_int(&solve.toggle)) return false;
         if (!read_int(&solve.retry_counter)) return false;
+        if (ver < 45) {
+            solve.secant_impatience = 0;
+        } else {
+            if (!read_int(&solve.secant_impatience)) return false;
+        }
         if (!read_phloat(&solve.retry_value)) return false;
         if (!read_phloat(&solve.x1)) return false;
         if (!read_phloat(&solve.x2)) return false;
@@ -221,7 +240,7 @@ bool unpersist_math(int ver, bool discard) {
         } else {
             solve.prev_sp = -2;
         }
-        
+
         if (!read_int(&integ.version)) return false;
         if (fread(integ.prgm_name, 1, 7, gfile) != 7) return false;
         if (!read_int(&integ.prgm_length)) return false;
@@ -232,6 +251,8 @@ bool unpersist_math(int ver, bool discard) {
         if (!read_int(&integ.keep_running)) return false;
         if (!read_int(&integ.prev_prgm)) return false;
         if (!read_int4(&integ.prev_pc)) return false;
+        if (integ_active())
+            integ.prev_pc = global_line2pc(integ.prev_prgm, integ.prev_pc);
         if (!read_int(&integ.state)) return false;
         if (!read_phloat(&integ.llim)) return false;
         if (!read_phloat(&integ.ulim)) return false;
@@ -340,19 +361,18 @@ static int find_shadow(const char *name, int length) {
 }
 
 void put_shadow(const char *name, int length, phloat value) {
-    int i = find_shadow(name, length);
-    if (i == -1) {
-        for (i = 0; i < NUM_SHADOWS; i++)
-            if (solve.shadow_length[i] == 0)
-                goto do_insert;
-        /* No empty slots available. Remove slot 0 (the oldest) and
-         * move all subsequent ones down, freeing up slot NUM_SHADOWS - 1
-         */
-        for (i = 0; i < NUM_SHADOWS - 1; i++) {
-            string_copy(solve.shadow_name[i], &solve.shadow_length[i],
-                        solve.shadow_name[i + 1], solve.shadow_length[i + 1]);
-            solve.shadow_value[i] = solve.shadow_value[i + 1];
-        }
+    remove_shadow(name, length);
+    int i;
+    for (i = 0; i < NUM_SHADOWS; i++)
+        if (solve.shadow_length[i] == 0)
+            goto do_insert;
+    /* No empty slots available. Remove slot 0 (the oldest) and
+     * move all subsequent ones down, freeing up slot NUM_SHADOWS - 1
+     */
+    for (i = 0; i < NUM_SHADOWS - 1; i++) {
+        string_copy(solve.shadow_name[i], &solve.shadow_length[i],
+                    solve.shadow_name[i + 1], solve.shadow_length[i + 1]);
+        solve.shadow_value[i] = solve.shadow_value[i + 1];
     }
     do_insert:
     string_copy(solve.shadow_name[i], &solve.shadow_length[i], name, length);
@@ -369,13 +389,13 @@ int get_shadow(const char *name, int length, phloat *value) {
 
 void remove_shadow(const char *name, int length) {
     int i = find_shadow(name, length);
-    int j;
     if (i == -1)
         return;
-    for (j = i; j < NUM_SHADOWS - 1; j++) {
+    while (i < NUM_SHADOWS - 1) {
         string_copy(solve.shadow_name[i], &solve.shadow_length[i],
                     solve.shadow_name[i + 1], solve.shadow_length[i + 1]);
         solve.shadow_value[i] = solve.shadow_value[i + 1];
+        i++;
     }
     solve.shadow_length[NUM_SHADOWS - 1] = 0;
 }
@@ -461,6 +481,7 @@ int start_solve(const char *name, int length, phloat x1, phloat x2) {
     solve.second_f = POS_HUGE_PHLOAT;
     solve.last_disp_time = 0;
     solve.toggle = 1;
+    solve.secant_impatience = 0;
     solve.keep_running = !should_i_stop_at_this_level() && program_running();
     return call_solve_fn(1, 1);
 }
@@ -767,6 +788,16 @@ int return_to_solve(int failure, bool stop) {
                 }
                 return call_solve_fn(3, 4);
             } else if (solve.fx1 > 0 && solve.fx2 > 0) {
+                if (f > 0) {
+                    if (f > solve.best_f) {
+                        if (++solve.secant_impatience > 30) {
+                            solve.which = -1;
+                            return finish_solve(SOLVE_EXTREMUM);
+                        }
+                    } else {
+                        solve.secant_impatience = 0;
+                    }
+                }
                 if (solve.fx1 > solve.fx2) {
                     if (f >= solve.fx1 && solve.state != 5)
                         goto do_bisection;
@@ -779,6 +810,16 @@ int return_to_solve(int failure, bool stop) {
                     solve.fx2 = f;
                 }
             } else if (solve.fx1 < 0 && solve.fx2 < 0) {
+                if (f < 0) {
+                    if (-f > solve.best_f) {
+                        if (++solve.secant_impatience > 30) {
+                            solve.which = -1;
+                            return finish_solve(SOLVE_EXTREMUM);
+                        }
+                    } else {
+                        solve.secant_impatience = 0;
+                    }
+                }
                 if (solve.fx1 < solve.fx2) {
                     if (f <= solve.fx1 && solve.state != 5)
                         goto do_bisection;
@@ -990,7 +1031,7 @@ int return_to_solve(int failure, bool stop) {
             // extended-precision math for solver internals, or at least a
             // slightly smarter implementation of the midpoint calculation,
             // e.g. fall back on x3 = x1 + (x2 - x1) / 2 if x3 = (x1 + x2) / 2
-            // returns an incorrect result. 
+            // returns an incorrect result.
             if (solve.x3 <= solve.x1 || solve.x3 >= solve.x2) {
                 solve.which = -1;
                 return finish_solve(SOLVE_ROOT);
@@ -1170,7 +1211,7 @@ static int finish_integ() {
 int return_to_integ(bool stop) {
     if (stop)
         integ.keep_running = 0;
-    
+
     switch (integ.state) {
     case 0:
         return ERR_INTERNAL_ERROR;
@@ -1236,7 +1277,7 @@ int return_to_integ(bool stop) {
 
         if (++integ.n >= ROMB_MAX)
             return finish_integ(); // too many
-        
+
         goto loop1;
     default:
         return ERR_INTERNAL_ERROR;

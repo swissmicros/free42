@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -42,7 +42,7 @@
 #define FUNC 0xff
 
 /* Dummy value, to be used only when argcount = 0. Only used for actual
- * existing functions; for unimplemented functions, leave it at 0x00.
+ * existing functions; for unimplemented functions, use UNIM.
  */
 #define NA_T 0x00
 
@@ -449,13 +449,14 @@ const command_spec cmd_array[] =
     { /* BRESET */     docmd_breset,      "BR\305S\305T",        0x00, 0x00, 0xa7, 0xd8,  6, ARG_NONE,   0, NA_T },
     { /* GETKEY1 */    docmd_getkey1,     "G\305TK\305\3311",    0x00, 0x00, 0xa7, 0xd9,  7, ARG_NONE,   0, NA_T },
     { /* LASTO */      docmd_lasto,       "LASTO",               0x00, 0xf5, 0xf2, 0xc8,  5, ARG_NAMED,  0, NA_T },
+    { /* LCLV */       docmd_lclv,        "LCLV",                0x00, 0x71, 0xf2, 0x63,  4, ARG_NAMED,  0, NA_T },
 
     /* Useful X-Fcn functions missing from the 42S */
     { /* ANUM */       docmd_anum,        "ANUM",                0x00, 0x00, 0xa6, 0x42,  4, ARG_NONE,   0, NA_T },
     { /* X<>F */       docmd_x_swap_f,    "X<>F",                0x00, 0x00, 0xa6, 0x6e,  4, ARG_NONE,   1, 0x01 },
     { /* RCLFLAG */    docmd_rclflag,     "RCLFLAG",             0x00, 0x00, 0xa6, 0x60,  7, ARG_NONE,   0, NA_T },
     { /* STOFLAG */    docmd_stoflag,     "STOFLAG",             0x00, 0x00, 0xa6, 0x6d,  7, ARG_NONE,  -1, 0x00 },
-    
+
     /* User-defined functions */
     // Note: a7db-a7dd encode FUNC0-FUNC2, superseded by FUNC 00, FUNC 11, and
     // FUNC 21, and a7e0 encodes RTNERR without argument, and is superseded by
@@ -482,15 +483,15 @@ const command_spec cmd_array[] =
     { /* UNPICK */     docmd_unpick,      "UNPICK",              0x00, 0xf4, 0xf2, 0xa4,  6, ARG_NUM9,   0, NA_T },
     { /* RDNN */       docmd_rdnn,        "R\016N",              0x00, 0xf6, 0xf2, 0xa5,  3, ARG_NUM9,   0, NA_T },
     { /* RUPN */       docmd_rupn,        "R^N",                 0x00, 0xf7, 0xf2, 0xa6,  3, ARG_NUM9,   0, NA_T },
+    /* (Skipping 403 because of single-byte equality checks with CMD_END) */
+    { /* DUMMY */      NULL,              "",                    0x44, 0x00, 0x00, 0x00,  0, ARG_OTHER,  0, UNIM },
 
     /* Miscellaneous */
     { /* NOP */        docmd_nop,         "NOP",                 0x00, 0x00, 0x00, 0xf0,  3, ARG_NONE,   0, NA_T },
-    /* (Skipping 403 because of single-byte equality checks with CMD_END) */
-    { /* DUMMY */      NULL,              "",                    0x44, 0x00, 0x00, 0x00,  0, ARG_OTHER,  0, UNIM },
     { /* FMA */        docmd_fma,         "FMA",                 0x00, 0x00, 0xa7, 0xda,  3, ARG_NONE,   3, 0x01 },
     { /* PGMMENU */    docmd_pgmmenu,     "P\307\315M\305NU",    0x00, 0x00, 0xa7, 0xe8,  7, ARG_NONE,   0, NA_T },
     { /* PMEXEC */     NULL,              "",                    0x44, 0x00, 0x00, 0x00,  0, ARG_OTHER,  0, NA_T },
-    { /* PRMVAR */     docmd_prmvar,      "PRMVAR",              0x00, 0x40, 0xf2, 0x30,  6, ARG_PRGM,   0, NA_T },
+    { /* PGMVAR */     docmd_pgmvar,      "PGMVAR",              0x00, 0x40, 0xf2, 0x30,  6, ARG_PRGM,   0, NA_T },
     { /* VARMNU1 */    docmd_varmnu1,     "V\301\322MN\3251",    0x00, 0x42, 0xf2, 0x31,  7, ARG_PRGM,   0, NA_T },
     { /* X2LINE */     docmd_x2line,      "X2LINE",              0x42, 0x00, 0x00, 0x00,  6, ARG_NONE,   1, 0x13 },
     { /* A2LINE */     docmd_a2line,      "A2LINE",              0x42, 0x00, 0x00, 0x00,  6, ARG_NONE,   0, NA_T },
@@ -499,11 +500,16 @@ const command_spec cmd_array[] =
     { /* PCOMPLX */    docmd_pcomplx,     "PC\317\315P\314X",    0x00, 0x00, 0xa7, 0xf9,  7, ARG_NONE,   0, NA_T },
     { /* CAPS */       docmd_caps,        "CAPS",                0x00, 0x00, 0xa7, 0xfa,  4, ARG_NONE,   0, NA_T },
     { /* MIXED */      docmd_mixed,       "Mixed",               0x00, 0x00, 0xa7, 0xfb,  5, ARG_NONE,   0, NA_T },
+    { /* SKIP */       docmd_skip,        "SKIP",                0x00, 0x00, 0xa2, 0x74,  4, ARG_NONE,   0, NA_T },
+    { /* CPXMAT_T */   docmd_cpxmat_t,    "C\320\330M\301T?",    0x00, 0x00, 0xa2, 0x75,  7, ARG_NONE,   1, ALLT },
+    { /* TYPE_T */     docmd_type_t,      "TYP\305?",            0x00, 0x00, 0xa2, 0x76,  5, ARG_NONE,   1, ALLT },
+    { /* A_THRU_F_2 */ docmd_a_thru_f,    "A...F",               0x00, 0x00, 0xa7, 0x1b,  5, ARG_NONE,   0, NA_T },
 
     /* String & List Functions */
     { /* XSTR */       docmd_xstr,        "XSTR",                0x20, 0x41, 0x00, 0x00,  4, ARG_XSTR,   0, NA_T },
     { /* XASTO */      docmd_xasto,       "XASTO",               0x00, 0x01, 0xf2, 0x11,  5, ARG_VAR,    0, NA_T },
     { /* LXASTO */     docmd_lxasto,      "LXASTO",              0x00, 0x02, 0xf2, 0x12,  6, ARG_NAMED,  0, NA_T },
+    { /* XVIEW */      docmd_xview,       "XVIEW",               0x00, 0x00, 0xa7, 0x19,  5, ARG_NONE,   1, 0x10 },
     { /* APPEND */     docmd_append,      "APPEND",              0x00, 0x00, 0xa7, 0xe9,  6, ARG_NONE,   2, ALLT },
     { /* EXTEND */     docmd_extend,      "EXTEND",              0x00, 0x00, 0xa7, 0xea,  6, ARG_NONE,   2, ALLT },
     { /* SUBSTR */     docmd_substr,      "SUBSTR",              0x00, 0x00, 0xa7, 0xeb,  6, ARG_NONE,   2, FUNC },
@@ -518,6 +524,8 @@ const command_spec cmd_array[] =
     { /* LIST_T */     docmd_list_t,      "LIST?",               0x00, 0x00, 0xa7, 0xf3,  5, ARG_NONE,   1, ALLT },
     { /* NEWLIST */    docmd_newlist,     "NEWLIST",             0x00, 0x00, 0xa7, 0xf4,  7, ARG_NONE,   0, NA_T },
     { /* NEWSTR */     docmd_newstr,      "NEWSTR",              0x00, 0x00, 0xa7, 0xf5,  6, ARG_NONE,   0, NA_T },
+    { /* TO_LIST */    docmd_to_list,     "\017LIST",            0x00, 0x00, 0xa6, 0xfc,  5, ARG_NONE,   1, 0x01 },
+    { /* FROM_LIST */  docmd_from_list,   "LIST\017",            0x00, 0x00, 0xa6, 0xfd,  5, ARG_NONE,   1, 0x20 },
 
     /* Generalized Comparisons */
     { /* X_EQ_NN */    docmd_x_eq_nn,     "X=?",                 0x00, 0x04, 0xf2, 0x14,  3, ARG_VAR,    1, ALLT },
@@ -531,7 +539,11 @@ const command_spec cmd_array[] =
     { /* 0_LT_NN */    docmd_0_lt_nn,     "0<?",                 0x00, 0x24, 0xf2, 0x1c,  3, ARG_VAR,    0, NA_T },
     { /* 0_GT_NN */    docmd_0_gt_nn,     "0>?",                 0x00, 0x25, 0xf2, 0x1d,  3, ARG_VAR,    0, NA_T },
     { /* 0_LE_NN */    docmd_0_le_nn,     "0\011?",              0x00, 0x26, 0xf2, 0x1e,  3, ARG_VAR,    0, NA_T },
-    { /* 0_GE_NN */    docmd_0_ge_nn,     "0\013?",              0x00, 0x27, 0xf2, 0x1f,  3, ARG_VAR,    0, NA_T }
+    { /* 0_GE_NN */    docmd_0_ge_nn,     "0\013?",              0x00, 0x27, 0xf2, 0x1f,  3, ARG_VAR,    0, NA_T },
+
+    /* For Plus42 Compatibility */
+    { /* WIDTH */      docmd_width,       "WIDTH",               0x00, 0x00, 0xa2, 0x72,  5, ARG_NONE,   0, NA_T },
+    { /* HEIGHT */     docmd_height,      "HEIGHT",              0x00, 0x00, 0xa2, 0x73,  6, ARG_NONE,   0, NA_T },
 };
 
 /*
@@ -550,7 +562,7 @@ TODO: what about 1F (W ""), AF & B0 (SPARE)?
 Quick instruction length finder: 00-8F are 1 byte, except 1D-1F, which are
 followed by a string (Fn plus n bytes of text, for a total of n+2 bytes).
 90-BF are 2 bytes (but what about AF & B0 (SPARE)?)
-C0-CD: if byte 3 is Fn, then it's a global label with a total of n+3 bytes (the 
+C0-CD: if byte 3 is Fn, then it's a global label with a total of n+3 bytes (the
 string has an extra byte prepended which the 41C uses for key assignment); if
 byte 3 is not Fn (TODO: which values are allowed & what do they mean?) it is an
 END, 3 bytes.
@@ -732,7 +744,7 @@ MAT_T        A2 66
 DIM_T        A6 E7
 ASSIGNa      n/a
 ASSIGNb      n/a
-ASGN01       Fn C0 name 00 
+ASGN01       Fn C0 name 00
 ASGN02       Fn C0 name 01
 ASGN03       Fn C0 name 02
 ASGN04       Fn C0 name 03

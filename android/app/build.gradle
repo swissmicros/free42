@@ -9,12 +9,12 @@ android {
             keyPassword free42_keyPassword
         }
     }
-    compileSdkVersion 29
+    compileSdkVersion 30
     defaultConfig {
         minSdkVersion 14
         targetSdkVersion 30
-        versionCode 144
-        versionName "3.0.9"
+        versionCode 150
+        versionName "3.0.15"
     }
     buildTypes {
         debug {

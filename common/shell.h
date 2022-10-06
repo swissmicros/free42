@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -111,7 +111,7 @@ void shell_request_timeout3(int delay);
  *
  * Callback to get the amount of free memory in bytes.
  */
-uint4 shell_get_mem();
+uint8 shell_get_mem();
 
 /* shell_low_battery()
  *
@@ -146,13 +146,23 @@ int8 shell_random_seed();
  */
 uint4 shell_milliseconds();
 
-/* shell_decimal_point()
+/* shell_number_format()
  *
- * Returns 0 if the host's locale uses comma as the decimal separator;
- * returns 1 if it uses dot or anything else.
- * Used to initialize flag 28 on hard reset.
+ * Returns a UTF-8 encoded four-character string, describing the number
+ * formatting parameters for the current locale. The four characters are:
+ * 0: decimal (must be one of '.' or ',')
+ * 1: grouping character (must be one of '.', ',', '\'', or space)
+ * 2: primary grouping size
+ * 3: secondary grouping size
+ * The grouping sizes are encoded as ASCII digits. If there is no grouping,
+ * only the decimal character will be present, so the string will be only 1
+ * character long.
+ * The caller should not modify or free the string.
+ *
+ * The number formatting information is used for Copy and Paste of scalars and
+ * matrices, and to determine the initial setting of flag 28 on cold start.
  */
-bool shell_decimal_point();
+const char *shell_number_format();
 
 /* shell_date_format()
  *
@@ -201,7 +211,7 @@ void shell_print(const char *text, int length,
  * established international standards, the one exception being acceleration,
  * which it expresses in units of Earth gravities rather than the standard
  * m/s^2. TODO: what is the exact conversion factor used by the iPhone?
- * 
+ *
  * shell_get_acceleration: x, y, z in g's (see above). Looking at the device
  * in portrait orientation, positive x points to the right, positive y points
  * up, and positive z points toward the user.
@@ -239,7 +249,7 @@ bool shell_always_on(int always_on);
 void shell_get_time_date(uint4 *time, uint4 *date, int *weekday);
 
 /* shell_message()
- * 
+ *
  * Displays a modal pop-up message box.
  */
 void shell_message(const char *message);

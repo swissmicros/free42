@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -29,6 +29,7 @@
 #include "core_main.h"
 #include "core_sto_rcl.h"
 #include "core_variables.h"
+#include "core_aux.h"
 #include "shell.h"
 
 /////////////////////////////////////////////////////////////////
@@ -542,7 +543,7 @@ int docmd_date_plus(arg_struct *arg) {
     err = greg2jd(y, m, d, &jd);
     if (err != ERR_NONE)
         return err;
-    jd += to_int4(floor(days));
+    jd += to_int4(days < 0 ? -floor(-days) : floor(days));
     err = jd2greg(jd, &y, &m, &d);
     if (err != ERR_NONE)
         return err;
@@ -1015,6 +1016,22 @@ int docmd_mixed(arg_struct *arg) {
     return ERR_NONE;
 }
 
+int docmd_skip(arg_struct *arg) {
+    return ERR_NO;
+}
+
+int docmd_cpxmat_t(arg_struct *arg) {
+    return stack[sp]->type == TYPE_COMPLEXMATRIX ? ERR_YES : ERR_NO;
+}
+
+int docmd_type_t(arg_struct *arg) {
+    vartype *v = new_real(stack[sp]->type);
+    if (v == NULL)
+        return ERR_INSUFFICIENT_MEMORY;
+    unary_result(v);
+    return ERR_NONE;
+}
+
 /////////////////////
 ///// Big Stack /////
 /////////////////////
@@ -1049,8 +1066,6 @@ int docmd_4stk(arg_struct *arg) {
 }
 
 int docmd_l4stk(arg_struct *arg) {
-    if (!core_settings.allow_big_stack)
-        return ERR_BIG_STACK_DISABLED;
     if (!program_running())
         return ERR_RESTRICTED_OPERATION;
     return push_stack_state(false);
@@ -1072,8 +1087,6 @@ int docmd_lnstk(arg_struct *arg) {
 }
 
 int docmd_depth(arg_struct *arg) {
-    if (!core_settings.allow_big_stack)
-        return ERR_BIG_STACK_DISABLED;
     vartype *v = new_real(sp + 1);
     if (v == NULL)
         return ERR_INSUFFICIENT_MEMORY;
@@ -1081,8 +1094,6 @@ int docmd_depth(arg_struct *arg) {
 }
 
 int docmd_drop(arg_struct *arg) {
-    if (!core_settings.allow_big_stack)
-        return ERR_BIG_STACK_DISABLED;
     if (sp == -1)
         return ERR_NONE;
     free_vartype(stack[sp]);
@@ -1097,14 +1108,12 @@ int docmd_drop(arg_struct *arg) {
 }
 
 int docmd_dropn(arg_struct *arg) {
-    if (!core_settings.allow_big_stack)
-        return ERR_BIG_STACK_DISABLED;
     int4 n;
     int err = arg_to_num(arg, &n);
     if (err != ERR_NONE)
         return err;
     if (n > sp + 1)
-        return ERR_SIZE_ERROR;
+        return ERR_STACK_DEPTH_ERROR;
     for (int i = sp - n + 1; i <= sp; i++)
         free_vartype(stack[i]);
     if (flags.f.big_stack) {
@@ -1119,8 +1128,6 @@ int docmd_dropn(arg_struct *arg) {
 }
 
 int docmd_dup(arg_struct *arg) {
-    if (!core_settings.allow_big_stack)
-        return ERR_BIG_STACK_DISABLED;
     vartype *v = dup_vartype(stack[sp]);
     if (v == NULL)
         return ERR_INSUFFICIENT_MEMORY;
@@ -1135,15 +1142,13 @@ int docmd_dup(arg_struct *arg) {
 }
 
 int docmd_dupn(arg_struct *arg) {
-    if (!core_settings.allow_big_stack)
-        return ERR_BIG_STACK_DISABLED;
     int4 n;
     int err = arg_to_num(arg, &n);
     if (err != ERR_NONE)
         return err;
     if (flags.f.big_stack) {
         if (n > sp + 1)
-            return ERR_SIZE_ERROR;
+            return ERR_STACK_DEPTH_ERROR;
         if (!ensure_stack_capacity(n))
             return ERR_INSUFFICIENT_MEMORY;
         for (int i = 1; i <= n; i++) {
@@ -1173,11 +1178,11 @@ int docmd_dupn(arg_struct *arg) {
                 }
                 free_vartype(stack[REG_Z]);
                 free_vartype(stack[REG_T]);
-                stack[REG_Z] = v1;
-                stack[REG_T] = v0;
+                stack[REG_Z] = v0;
+                stack[REG_T] = v1;
                 break;
             default:
-                return ERR_SIZE_ERROR;
+                return ERR_STACK_DEPTH_ERROR;
         }
     }
     print_stack_trace();
@@ -1185,8 +1190,6 @@ int docmd_dupn(arg_struct *arg) {
 }
 
 int docmd_pick(arg_struct *arg) {
-    if (!core_settings.allow_big_stack)
-        return ERR_BIG_STACK_DISABLED;
     int4 n;
     int err = arg_to_num(arg, &n);
     if (err != ERR_NONE)
@@ -1195,7 +1198,7 @@ int docmd_pick(arg_struct *arg) {
         return ERR_NONEXISTENT;
     n--;
     if (n > sp)
-        return ERR_SIZE_ERROR;
+        return ERR_STACK_DEPTH_ERROR;
     vartype *v = dup_vartype(stack[sp - n]);
     if (v == NULL)
         return ERR_INSUFFICIENT_MEMORY;
@@ -1203,8 +1206,6 @@ int docmd_pick(arg_struct *arg) {
 }
 
 int docmd_unpick(arg_struct *arg) {
-    if (!core_settings.allow_big_stack)
-        return ERR_BIG_STACK_DISABLED;
     int4 n;
     int err = arg_to_num(arg, &n);
     if (err != ERR_NONE)
@@ -1213,7 +1214,7 @@ int docmd_unpick(arg_struct *arg) {
         return ERR_NONEXISTENT;
     n--;
     if (n > (flags.f.big_stack ? sp - 1 : sp))
-        return ERR_SIZE_ERROR;
+        return ERR_STACK_DEPTH_ERROR;
     // Note: UNPICK consumes X, i.e. drops it from the stack. This is unlike
     // any other STO-like function in Free42, but it is needed in order to make
     // PICK and UNPICK work as a pair like they do in the RPL calculators.
@@ -1234,14 +1235,12 @@ int docmd_unpick(arg_struct *arg) {
 }
 
 int docmd_rdnn(arg_struct *arg) {
-    if (!core_settings.allow_big_stack)
-        return ERR_BIG_STACK_DISABLED;
     int4 n;
     int err = arg_to_num(arg, &n);
     if (err != ERR_NONE)
         return err;
     if (n > sp + 1)
-        return ERR_SIZE_ERROR;
+        return ERR_STACK_DEPTH_ERROR;
     if (n > 1) {
         vartype *v = stack[sp];
         memmove(stack + sp - n + 2, stack + sp - n + 1, (n - 1) * sizeof(vartype *));
@@ -1252,14 +1251,12 @@ int docmd_rdnn(arg_struct *arg) {
 }
 
 int docmd_rupn(arg_struct *arg) {
-    if (!core_settings.allow_big_stack)
-        return ERR_BIG_STACK_DISABLED;
     int4 n;
     int err = arg_to_num(arg, &n);
     if (err != ERR_NONE)
         return err;
     if (n > sp + 1)
-        return ERR_SIZE_ERROR;
+        return ERR_STACK_DEPTH_ERROR;
     if (n > 1) {
         vartype *v = stack[sp - n + 1];
         memmove(stack + sp - n + 1, stack + sp - n + 2, (n - 1) * sizeof(vartype *));
@@ -1284,7 +1281,7 @@ int docmd_pgmmenu(arg_struct *arg) {
     return err;
 }
 
-int docmd_prmvar(arg_struct *arg) {
+int docmd_pgmvar(arg_struct *arg) {
     if (!flags.f.printer_enable && program_running())
         return ERR_NONE;
     if (!flags.f.printer_exists)
@@ -1959,6 +1956,119 @@ int docmd_newlist(arg_struct *arg) {
 
 int docmd_newstr(arg_struct *arg) {
     vartype *v = new_string("", 0);
+    if (v == NULL)
+        return ERR_INSUFFICIENT_MEMORY;
+    return recall_result(v);
+}
+
+int docmd_to_list(arg_struct *arg) {
+    phloat x = ((vartype_real *) stack[sp])->x;
+    if (x < 0)
+        x = -x;
+    if (x >= 2147483648.0)
+        return ERR_STACK_DEPTH_ERROR;
+    int4 n = to_int4(x);
+    if (n > sp)
+        return ERR_STACK_DEPTH_ERROR;
+    vartype_list *list = (vartype_list *) new_list(n);
+    if (list == NULL)
+        return ERR_INSUFFICIENT_MEMORY;
+    if (flags.f.big_stack) {
+        for (int i = 0; i < n; i++)
+            list->array->data[i] = stack[sp - n + i];
+        free_vartype(lastx);
+        lastx = stack[sp];
+        sp -= n;
+    } else {
+        vartype *zeroes[3];
+        for (int i = 0; i < n; i++) {
+            zeroes[i] = new_real(0);
+            if (zeroes[i] == NULL) {
+                while (i > 0)
+                    free_vartype(zeroes[--i]);
+                free_vartype((vartype *) list);
+                return ERR_INSUFFICIENT_MEMORY;
+            }
+        }
+        for (int i = 0; i < n; i++)
+            list->array->data[i] = stack[sp - n + i];
+        free_vartype(lastx);
+        lastx = stack[3];
+        for (int i = 3; i >= 0; i--) {
+            int j = i - n;
+            stack[i] = j >= 0 ? stack[j] : zeroes[i];
+        }
+    }
+    stack[sp] = (vartype *) list;
+    return ERR_NONE;
+}
+
+int docmd_from_list(arg_struct *arg) {
+    vartype_list *list = (vartype_list *) stack[sp];
+    int4 n = list->size;
+    if (!flags.f.big_stack && n > 3)
+        return ERR_STACK_DEPTH_ERROR;
+
+    // It would be nice if we could just put the list items
+    // on the stack, and then shallow-delete the list, but
+    // alas, there's LASTx. So, we start by creating a deep
+    // clone.
+    list = (vartype_list *) dup_vartype((vartype *) list);
+    vartype *size = new_real(n);
+    if (list == NULL || size == NULL || !disentangle((vartype *) list)) {
+        nomem:
+        free_vartype((vartype *) list);
+        free_vartype(size);
+        return ERR_INSUFFICIENT_MEMORY;
+    }
+
+    if (flags.f.big_stack) {
+        if (!ensure_stack_capacity(n))
+            goto nomem;
+        free_vartype(lastx);
+        lastx = stack[sp];
+        for (int i = 0; i < n; i++)
+            stack[sp++] = list->array->data[i];
+        stack[sp] = size;
+    } else {
+        free_vartype(lastx);
+        lastx = stack[3];
+        if (n > 0) {
+            for (int i = 0; i < 3; i++) {
+                int j = i - n;
+                if (j < 0)
+                    free_vartype(stack[i]);
+                else
+                    stack[j] = stack[i];
+            }
+            for (int i = 0; i < n; i++)
+                stack[3 - n + i] = list->array->data[i];
+        }
+        stack[3] = size;
+    }
+    free(list->array->data);
+    free(list->array);
+    free(list);
+    return ERR_NONE;
+}
+
+int docmd_width(arg_struct *arg) {
+#ifdef ARM
+    vartype *v = new_real(gr_MAXX());
+#else
+    vartype *v = new_real(131);
+#endif
+    if (v == NULL)
+        return ERR_INSUFFICIENT_MEMORY;
+    return recall_result(v);
+}
+
+int docmd_height(arg_struct *arg) {
+#ifdef ARM
+    vartype *v = new_real(gr_MAXY());
+#else
+    vartype *v = new_real(16);
+#endif
     if (v == NULL)
         return ERR_INSUFFICIENT_MEMORY;
     return recall_result(v);

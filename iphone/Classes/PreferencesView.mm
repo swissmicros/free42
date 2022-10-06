@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -31,10 +31,12 @@
 @synthesize matrixOutOfRangeSwitch;
 @synthesize autoRepeatSwitch;
 @synthesize allowBigStackSwitch;
+@synthesize localizedCopyPasteSwitch;
 @synthesize alwaysOnSwitch;
 @synthesize keyClicksSlider;
 @synthesize hapticFeedbackSlider;
 @synthesize orientationSelector;
+@synthesize swipeDirectionSelector;
 @synthesize maintainSkinAspectSwitch;
 @synthesize printToTextSwitch;
 @synthesize printToTextField;
@@ -73,10 +75,12 @@
     [matrixOutOfRangeSwitch setOn:core_settings.matrix_outofrange];
     [autoRepeatSwitch setOn:core_settings.auto_repeat];
     [allowBigStackSwitch setOn:core_settings.allow_big_stack];
+    [localizedCopyPasteSwitch setOn:core_settings.localized_copy_paste];
     [alwaysOnSwitch setOn:shell_always_on(-1)];
     [keyClicksSlider setValue:state.keyClicks];
     [hapticFeedbackSlider setValue:state.hapticFeedback];
     [orientationSelector setSelectedSegmentIndex:state.orientationMode];
+    [swipeDirectionSelector setSelectedSegmentIndex:state.swipeDirectionMode];
     [maintainSkinAspectSwitch setOn:state.maintainSkinAspect[[CalcView isPortrait] ? 0 : 1] != 0];
     [printToTextSwitch setOn:(state.printerToTxtFile != 0)];
     [printToTextField setText:[NSString stringWithUTF8String:state.printerTxtFileName]];
@@ -202,6 +206,7 @@
     core_settings.allow_big_stack = allowBigStackSwitch.on;
     if (oldBigStack != core_settings.allow_big_stack)
         core_update_allow_big_stack();
+    core_settings.localized_copy_paste = localizedCopyPasteSwitch.on;
     shell_always_on(alwaysOnSwitch.on);
     state.orientationMode = (int) orientationSelector.selectedSegmentIndex;
     int isPortrait = [CalcView isPortrait] ? 0 : 1;
@@ -213,6 +218,7 @@
         core_repaint_display();
         [CalcView repaint];
     }
+    state.swipeDirectionMode = (int) swipeDirectionSelector.selectedSegmentIndex;
     state.printerToTxtFile = printToTextSwitch.on;
     NSString *s = [printToTextField text];
     if ([s length] > 0 && ![[s lowercaseString] hasSuffix:@".txt"])

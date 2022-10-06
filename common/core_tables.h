@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -425,80 +425,91 @@
 /* memory becomes a private implementation detail.                           */
 #define CMD_GETKEY1     377
 #define CMD_LASTO       378
+#define CMD_LCLV        379
 /* Useful X-Fcn functions missing from the 42S */
-#define CMD_ANUM        379
-#define CMD_X_SWAP_F    380
-#define CMD_RCLFLAG     381
-#define CMD_STOFLAG     382
+#define CMD_ANUM        380
+#define CMD_X_SWAP_F    381
+#define CMD_RCLFLAG     382
+#define CMD_STOFLAG     383
 /* User-defined functions */
-#define CMD_FUNC        383
-#define CMD_ERRMSG      384
-#define CMD_ERRNO       385
-#define CMD_RTNYES      386
-#define CMD_RTNNO       387
-#define CMD_RTNERR      388
-#define CMD_STRACE      389
+#define CMD_FUNC        384
+#define CMD_ERRMSG      385
+#define CMD_ERRNO       386
+#define CMD_RTNYES      387
+#define CMD_RTNNO       388
+#define CMD_RTNERR      389
+#define CMD_STRACE      390
 /* Big Stack */
-#define CMD_4STK        390
-#define CMD_L4STK       391
-#define CMD_NSTK        392
-#define CMD_LNSTK       393
-#define CMD_DEPTH       394
-#define CMD_DROPN       395
-#define CMD_DUP         396
-#define CMD_DUPN        397
-#define CMD_PICK        398
-#define CMD_UNPICK      399
-#define CMD_RDNN        400
-#define CMD_RUPN        401
-/* Miscellaneous */
-#define CMD_NOP         402
+#define CMD_4STK        391
+#define CMD_L4STK       392
+#define CMD_NSTK        393
+#define CMD_LNSTK       394
+#define CMD_DEPTH       395
+#define CMD_DROPN       396
+#define CMD_DUP         397
+#define CMD_DUPN        398
+#define CMD_PICK        399
+#define CMD_UNPICK      400
+#define CMD_RDNN        401
+#define CMD_RUPN        402
 /* (Skipping 403 because of single-byte equality checks with CMD_END) */
-#define CMD_FMA         404
-#define CMD_PGMMENU     405
-#define CMD_PMEXEC      406
-#define CMD_PRMVAR      407
-#define CMD_VARMNU1     408
-#define CMD_X2LINE      409
-#define CMD_A2LINE      410
-#define CMD_A2PLINE     411
-#define CMD_RCOMPLX     412
-#define CMD_PCOMPLX     413
-#define CMD_CAPS        414
-#define CMD_MIXED       415
+/* Miscellaneous */
+#define CMD_NOP         404
+#define CMD_FMA         405
+#define CMD_PGMMENU     406
+#define CMD_PMEXEC      407
+#define CMD_PGMVAR      408
+#define CMD_VARMNU1     409
+#define CMD_X2LINE      410
+#define CMD_A2LINE      411
+#define CMD_A2PLINE     412
+#define CMD_RCOMPLX     413
+#define CMD_PCOMPLX     414
+#define CMD_CAPS        415
+#define CMD_MIXED       416
+#define CMD_SKIP        417
+#define CMD_CPXMAT_T    418
+#define CMD_TYPE_T      419
+#define CMD_A_THRU_F_2  420
 /* String & List Functions */
-#define CMD_XSTR        416
-#define CMD_XASTO       417
-#define CMD_LXASTO      418
-#define CMD_APPEND      419
-#define CMD_EXTEND      420
-#define CMD_SUBSTR      421
-#define CMD_LENGTH      422
-#define CMD_HEAD        423
-#define CMD_REV         424
-#define CMD_POS         425
-#define CMD_S_TO_N      426
-#define CMD_N_TO_S      427
-#define CMD_C_TO_N      428
-#define CMD_N_TO_C      429
-#define CMD_LIST_T      430
-#define CMD_NEWLIST     431
-#define CMD_NEWSTR      432
+#define CMD_XSTR        421
+#define CMD_XASTO       422
+#define CMD_LXASTO      423
+#define CMD_XVIEW       424
+#define CMD_APPEND      425
+#define CMD_EXTEND      426
+#define CMD_SUBSTR      427
+#define CMD_LENGTH      428
+#define CMD_HEAD        429
+#define CMD_REV         430
+#define CMD_POS         431
+#define CMD_S_TO_N      432
+#define CMD_N_TO_S      433
+#define CMD_C_TO_N      434
+#define CMD_N_TO_C      435
+#define CMD_LIST_T      436
+#define CMD_NEWLIST     437
+#define CMD_NEWSTR      438
+#define CMD_TO_LIST     439
+#define CMD_FROM_LIST   440
 /* Generalized Comparisons */
-#define CMD_X_EQ_NN     433
-#define CMD_X_NE_NN     434
-#define CMD_X_LT_NN     435
-#define CMD_X_GT_NN     436
-#define CMD_X_LE_NN     437
-#define CMD_X_GE_NN     438
-#define CMD_0_EQ_NN     439
-#define CMD_0_NE_NN     440
-#define CMD_0_LT_NN     441
-#define CMD_0_GT_NN     442
-#define CMD_0_LE_NN     443
-#define CMD_0_GE_NN     444
+#define CMD_X_EQ_NN     441
+#define CMD_X_NE_NN     442
+#define CMD_X_LT_NN     443
+#define CMD_X_GT_NN     444
+#define CMD_X_LE_NN     445
+#define CMD_X_GE_NN     446
+#define CMD_0_EQ_NN     447
+#define CMD_0_NE_NN     448
+#define CMD_0_LT_NN     449
+#define CMD_0_GT_NN     450
+#define CMD_0_LE_NN     451
+#define CMD_0_GE_NN     452
+/* For Plus42 compatibility */
+#define CMD_WIDTH       453
+#define CMD_HEIGHT      454
 
-#define CMD_SENTINEL    445
+#define CMD_SENTINEL    455
 
 
 /* command_spec.argtype */

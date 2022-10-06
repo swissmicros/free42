@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -25,6 +25,9 @@
 #include <shlobj.h>
 
 #include <set>
+
+#include <gdiplus.h>
+using namespace Gdiplus;
 
 #include "free42.h"
 #include "shell.h"
@@ -80,8 +83,8 @@ static char szPrintOutTitle[MAX_LOADSTRING];       // The print-out title bar te
 static char szMainWindowClass[MAX_LOADSTRING];     // The main window class
 static char szPrintOutWindowClass[MAX_LOADSTRING]; // The print-out window class
 
-static UINT timer = 0;
-static UINT timer3 = 0;
+static UINT_PTR timer = 0;
+static UINT_PTR timer3 = 0;
 static bool running = false;
 static bool enqueued = false;
 
@@ -109,7 +112,7 @@ static int keymap_length = 0;
 static keymap_entry *keymap = NULL;
 
 
-#define SHELL_VERSION 11
+#define SHELL_VERSION 13
 
 state_type state;
 static int placement_saved = 0;
@@ -137,7 +140,7 @@ static int ann_run = 0;
 static int ann_battery = 0;
 static int ann_g = 0;
 static int ann_rad = 0;
-static UINT ann_print_timer = 0;
+static UINT_PTR ann_print_timer = 0;
 
 
 // Forward declarations of functions included in this code module:
@@ -149,16 +152,15 @@ static LRESULT CALLBACK About(HWND, UINT, WPARAM, LPARAM);
 static LRESULT CALLBACK ExportProgram(HWND, UINT, WPARAM, LPARAM);
 static LRESULT CALLBACK Preferences(HWND, UINT, WPARAM, LPARAM);
 static void get_home_dir(wchar_t *path, int pathlen);
-static void mapCalculatorKey();
 static void copy();
 static void paste();
 static void Quit();
 
-static VOID CALLBACK repeater(HWND hwnd, UINT uMsg, UINT idEvent, DWORD dwTime);
-static VOID CALLBACK timeout1(HWND hwnd, UINT uMsg, UINT idEvent, DWORD dwTime);
-static VOID CALLBACK timeout2(HWND hwnd, UINT uMsg, UINT idEvent, DWORD dwTime);
-static VOID CALLBACK timeout3(HWND hwnd, UINT uMsg, UINT idEvent, DWORD dwTime);
-static VOID CALLBACK battery_checker(HWND hwnd, UINT uMsg, UINT idEvent, DWORD dwTime);
+static VOID CALLBACK repeater(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime);
+static VOID CALLBACK timeout1(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime);
+static VOID CALLBACK timeout2(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime);
+static VOID CALLBACK timeout3(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime);
+static VOID CALLBACK battery_checker(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime);
 
 static void show_printout();
 static void export_program();
@@ -205,6 +207,11 @@ int APIENTRY WinMain(HINSTANCE hInstance,
 
     MyRegisterClass(hInstance);
 
+    // GDI+ initialization
+    GdiplusStartupInput gdiplusStartupInput;
+    ULONG_PTR gdiplusToken;
+    GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
+
     // Perform application initialization:
     if (!InitInstance (hInstance, nCmdShow)) 
     {
@@ -230,6 +237,7 @@ int APIENTRY WinMain(HINSTANCE hInstance,
     }
 
     Quit();
+    GdiplusShutdown(gdiplusToken);
     return msg.wParam;
 }
 
@@ -495,18 +503,7 @@ static void shell_keydown() {
                         running = core_keydown(0, &enqueued, &repeat);
                 }
                 skin_display_set_enabled(true);
-                HDC hdc = GetDC(hMainWnd);
-                HDC memdc = CreateCompatibleDC(hdc);
-                skin_repaint_display(hdc, memdc);
-                skin_repaint_annunciator(hdc, memdc, 1, ann_updown);
-                skin_repaint_annunciator(hdc, memdc, 2, ann_shift);
-                skin_repaint_annunciator(hdc, memdc, 3, ann_print);
-                skin_repaint_annunciator(hdc, memdc, 4, ann_run);
-                skin_repaint_annunciator(hdc, memdc, 5, ann_battery);
-                skin_repaint_annunciator(hdc, memdc, 6, ann_g);
-                skin_repaint_annunciator(hdc, memdc, 7, ann_rad);
-                DeleteDC(memdc);
-                ReleaseDC(hMainWnd, hdc);
+                invalidate_display(hMainWnd);
                 repeat = 0;
             }
         }
@@ -644,17 +641,32 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT message, WPARAM wParam, LPAR
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hWnd, &ps);
             HDC memdc = CreateCompatibleDC(hdc);
-            skin_repaint(hdc, memdc);
-            skin_repaint_display(hdc, memdc);
-            skin_repaint_annunciator(hdc, memdc, 1, ann_updown);
-            skin_repaint_annunciator(hdc, memdc, 2, ann_shift);
-            skin_repaint_annunciator(hdc, memdc, 3, ann_print);
-            skin_repaint_annunciator(hdc, memdc, 4, ann_run);
-            skin_repaint_annunciator(hdc, memdc, 5, ann_battery);
-            skin_repaint_annunciator(hdc, memdc, 6, ann_g);
-            skin_repaint_annunciator(hdc, memdc, 7, ann_rad);
-            if (ckey != 0)
-                skin_repaint_key(hdc, memdc, skey, 1);
+            bool only_disp = need_to_paint_only_display(&ps.rcPaint);
+            if (!only_disp)
+                skin_repaint(hdc, memdc);
+            if (ckey < -7 || ckey > -2)
+                skin_repaint_display(hdc);
+            if (!only_disp) {
+                if (ann_updown)
+                    skin_repaint_annunciator(hdc, memdc, 1);
+                if (ann_shift)
+                    skin_repaint_annunciator(hdc, memdc, 2);
+                if (ann_print)
+                    skin_repaint_annunciator(hdc, memdc, 3);
+                if (ann_run)
+                    skin_repaint_annunciator(hdc, memdc, 4);
+                if (ann_battery)
+                    skin_repaint_annunciator(hdc, memdc, 5);
+                if (ann_g)
+                    skin_repaint_annunciator(hdc, memdc, 6);
+                if (ann_rad)
+                    skin_repaint_annunciator(hdc, memdc, 7);
+                if (ckey != 0)
+                    skin_repaint_key(hdc, memdc, skey, 1);
+            } else {
+                if (ckey >= -7 && ckey <= -2)
+                    skin_repaint_key(hdc, memdc, skey, 1);
+            }
             DeleteDC(memdc);
             EndPaint(hWnd, &ps);
             break;
@@ -1144,7 +1156,7 @@ static LRESULT CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPa
                 EndDialog(hDlg, id);
                 return TRUE;
             }
-            else if (id == IDC_WEBSITELINK || id == IDC_FORUMLINK)
+            else if (id == IDC_WEBSITELINK || id == IDC_FORUMLINK || id == IDC_WEBSITELINK_PLUS42)
             {
                 char buf[256];
                 GetDlgItemText(hDlg, id, buf, 255);
@@ -1170,10 +1182,10 @@ static LRESULT CALLBACK ExportProgram(HWND hDlg, UINT message, WPARAM wParam, LP
                     int wlen = MultiByteToWideChar(CP_UTF8, 0, p, len, NULL, 0);
                     wchar_t *wbuf = (wchar_t *) malloc(wlen * 2);
                     if (wbuf == NULL) {
-                        SendMessageW(list, LB_ADDSTRING, 0, (long) L"<Low Mem>");
+                        SendMessageW(list, LB_ADDSTRING, 0, (WPARAM) L"<Low Mem>");
                     } else {
                         MultiByteToWideChar(CP_UTF8, 0, p, len, wbuf, wlen);
-                        SendMessageW(list, LB_ADDSTRING, 0, (long) wbuf);
+                        SendMessageW(list, LB_ADDSTRING, 0, (WPARAM) wbuf);
                         free(wbuf);
                     }
                     p += len;
@@ -1191,7 +1203,7 @@ static LRESULT CALLBACK ExportProgram(HWND hDlg, UINT message, WPARAM wParam, LP
                     if (sel_prog_count > 0) {
                         sel_prog_list = (int *) malloc(sel_prog_count * sizeof(int));
                         // TODO - handle memory allocation failure
-                        SendMessage(list, LB_GETSELITEMS, sel_prog_count, (long) sel_prog_list);
+                        SendMessage(list, LB_GETSELITEMS, sel_prog_count, (LPARAM) sel_prog_list);
                     }
                     EndDialog(hDlg, 1);
                     return TRUE;
@@ -1236,12 +1248,12 @@ static LRESULT CALLBACK Preferences(HWND hDlg, UINT message, WPARAM wParam, LPAR
                 ctl = GetDlgItem(hDlg, IDC_ALLOW_BIG_STACK);
                 SendMessage(ctl, BM_SETCHECK, 1, 0);
             }
-            if (state.alwaysOnTop) {
-                ctl = GetDlgItem(hDlg, IDC_ALWAYSONTOP);
+            if (core_settings.localized_copy_paste) {
+                ctl = GetDlgItem(hDlg, IDC_LOCALIZED_COPY_PASTE);
                 SendMessage(ctl, BM_SETCHECK, 1, 0);
             }
-            if (state.calculatorKey) {
-                ctl = GetDlgItem(hDlg, IDC_CALCULATOR_KEY);
+            if (state.alwaysOnTop) {
+                ctl = GetDlgItem(hDlg, IDC_ALWAYSONTOP);
                 SendMessage(ctl, BM_SETCHECK, 1, 0);
             }
             if (state.printerToTxtFile) {
@@ -1274,6 +1286,8 @@ static LRESULT CALLBACK Preferences(HWND hDlg, UINT message, WPARAM wParam, LPAR
                     core_settings.allow_big_stack = SendMessage(ctl, BM_GETCHECK, 0, 0) != 0;
                     if (oldAllowBigStack != core_settings.allow_big_stack)
                         core_update_allow_big_stack();
+                    ctl = GetDlgItem(hDlg, IDC_LOCALIZED_COPY_PASTE);
+                    core_settings.localized_copy_paste = SendMessage(ctl, BM_GETCHECK, 0, 0) != 0;
                     ctl = GetDlgItem(hDlg, IDC_ALWAYSONTOP);
                     BOOL alwaysOnTop = SendMessage(ctl, BM_GETCHECK, 0, 0);
                     if (alwaysOnTop != state.alwaysOnTop) {
@@ -1282,11 +1296,6 @@ static LRESULT CALLBACK Preferences(HWND hDlg, UINT message, WPARAM wParam, LPAR
                         if (hPrintOutWnd != NULL)
                             SetWindowPos(hPrintOutWnd, alwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
                     }
-                    ctl = GetDlgItem(hDlg, IDC_CALCULATOR_KEY);
-                    BOOL prevCalculatorKey = state.calculatorKey;
-                    state.calculatorKey = SendMessage(ctl, BM_GETCHECK, 0, 0) != 0;
-                    if (state.calculatorKey != prevCalculatorKey)
-                        mapCalculatorKey();
 
                     ctl = GetDlgItem(hDlg, IDC_PRINTER_TXT);
                     state.printerToTxtFile = SendMessage(ctl, BM_GETCHECK, 0, 0);
@@ -1488,41 +1497,6 @@ static void get_home_dir(wchar_t *path, int pathlen) {
     }
 }
 
-static void mapCalculatorKey() {
-    wchar_t path[MAX_PATH];
-    if (state.calculatorKey) {
-        // Get current executable's path
-        GetModuleFileNameW(0, path, MAX_PATH - 1);
-    } else {
-        // Windows default
-        wcscpy(path, L"calc.exe");
-    }
-    HKEY k1, k2, k3, k4, k5, k6, k7;
-    DWORD disp;
-    if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, "SOFTWARE", 0, KEY_QUERY_VALUE, &k1) == ERROR_SUCCESS) {
-        if (RegCreateKeyEx(k1, "Microsoft", 0, "", REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &k2, &disp) == ERROR_SUCCESS) {
-            if (RegCreateKeyEx(k2, "Windows", 0, "", REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &k3, &disp) == ERROR_SUCCESS) {
-                if (RegCreateKeyEx(k3, "CurrentVersion", 0, "", REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &k4, &disp) == ERROR_SUCCESS) {
-                    if (RegCreateKeyEx(k4, "Explorer", 0, "", REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &k5, &disp) == ERROR_SUCCESS) {
-                        if (RegCreateKeyEx(k5, "AppKey", 0, "", REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &k6, &disp) == ERROR_SUCCESS) {
-                            if (RegCreateKeyEx(k6, "18", 0, "", REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &k7, &disp) == ERROR_SUCCESS) {
-                                RegSetValueExW(k7, L"ShellExecute", 0, REG_SZ, (const unsigned char *) path, wcslen(path) * 2 + 2);
-                                RegCloseKey(k7);
-                            }
-                            RegCloseKey(k6);
-                        }
-                        RegCloseKey(k5);
-                    }
-                    RegCloseKey(k4);
-                }
-                RegCloseKey(k3);
-            }
-            RegCloseKey(k2);
-        }
-        RegCloseKey(k1);
-    }
-}
-
 static void copy() {
     if (!OpenClipboard(hMainWnd))
         return;
@@ -1668,7 +1642,7 @@ static void Quit() {
     shell_spool_exit();
 }
 
-static VOID CALLBACK repeater(HWND hwnd, UINT uMsg, UINT idEvent, DWORD dwTime) {
+static VOID CALLBACK repeater(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime) {
     KillTimer(NULL, timer);
     int repeat = core_repeat();
     if (repeat != 0)
@@ -1677,7 +1651,7 @@ static VOID CALLBACK repeater(HWND hwnd, UINT uMsg, UINT idEvent, DWORD dwTime) 
         timer = SetTimer(NULL, 0, 250, timeout1);
 }
 
-static VOID CALLBACK timeout1(HWND hwnd, UINT uMsg, UINT idEvent, DWORD dwTime) {
+static VOID CALLBACK timeout1(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime) {
     KillTimer(NULL, timer);
     if (ckey != 0) {
         core_keytimeout1();
@@ -1686,14 +1660,14 @@ static VOID CALLBACK timeout1(HWND hwnd, UINT uMsg, UINT idEvent, DWORD dwTime) 
         timer = 0;
 }
 
-static VOID CALLBACK timeout2(HWND hwnd, UINT uMsg, UINT idEvent, DWORD dwTime) {
+static VOID CALLBACK timeout2(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime) {
     KillTimer(NULL, timer);
     if (ckey != 0)
         core_keytimeout2();
     timer = 0;
 }
 
-static VOID CALLBACK timeout3(HWND hwnd, UINT uMsg, UINT idEvent, DWORD dwTime) {
+static VOID CALLBACK timeout3(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime) {
     KillTimer(NULL, timer3);
     bool keep_running = core_timeout3(true);
     timer3 = 0;
@@ -1704,7 +1678,7 @@ static VOID CALLBACK timeout3(HWND hwnd, UINT uMsg, UINT idEvent, DWORD dwTime) 
     }
 }
 
-static VOID CALLBACK battery_checker(HWND hwnd, UINT uMsg, UINT idEvent, DWORD dwTime) {
+static VOID CALLBACK battery_checker(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime) {
     shell_low_battery();
 }
 
@@ -2144,14 +2118,7 @@ static void printout_length_changed() {
 
 void shell_blitter(const char *bits, int bytesperline, int x, int y,
                    int width, int height) {
-    HDC hdc = GetDC(hMainWnd);
-    skin_display_blitter(hdc, bits, bytesperline, x, y, width, height);
-    if (skey >= -7 && skey <= -2) {
-        HDC memdc = CreateCompatibleDC(hdc);
-        skin_repaint_key(hdc, memdc, skey, 1);
-        DeleteObject(memdc);
-    }
-    ReleaseDC(hMainWnd, hdc);
+    skin_display_blitter(hMainWnd, bits, bytesperline, x, y, width, height);
 }
 
 const char *shell_platform() {
@@ -2179,15 +2146,11 @@ void shell_beeper(int frequency, int duration) {
         SND_RESOURCE);
 }
 
-static VOID CALLBACK ann_print_timeout(HWND hwnd, UINT uMsg, UINT idEvent, DWORD dwTime) {
+static VOID CALLBACK ann_print_timeout(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime) {
     KillTimer(NULL, ann_print_timer);
     ann_print_timer = 0;
     ann_print = 0;
-    HDC hdc = GetDC(hMainWnd);
-    HDC memdc = CreateCompatibleDC(hdc);
-    skin_repaint_annunciator(hdc, memdc, 3, ann_print);
-    DeleteDC(memdc);
-    ReleaseDC(hMainWnd, hdc);
+    skin_update_annunciator(hMainWnd, 3);
 }
 
 /* shell_annunciators()
@@ -2200,16 +2163,13 @@ static VOID CALLBACK ann_print_timeout(HWND hwnd, UINT uMsg, UINT idEvent, DWORD
  * so the shell is expected to handle that one by itself.
  */
 void shell_annunciators(int updn, int shf, int prt, int run, int g, int rad) {
-    HDC hdc = GetDC(hMainWnd);
-    HDC memdc = CreateCompatibleDC(hdc);
-
     if (updn != -1 && ann_updown != updn) {
         ann_updown = updn;
-        skin_repaint_annunciator(hdc, memdc, 1, ann_updown);
+        skin_update_annunciator(hMainWnd, 1);
     }
     if (shf != -1 && ann_shift != shf) {
         ann_shift = shf;
-        skin_repaint_annunciator(hdc, memdc, 2, ann_shift);
+        skin_update_annunciator(hMainWnd, 2);
     }
     if (prt != -1) {
         if (ann_print_timer != 0) {
@@ -2219,29 +2179,31 @@ void shell_annunciators(int updn, int shf, int prt, int run, int g, int rad) {
         if (ann_print != prt)
             if (prt) {
                 ann_print = 1;
-                skin_repaint_annunciator(hdc, memdc, 3, ann_print);
+                skin_update_annunciator(hMainWnd, 3);
             } else {
                 ann_print_timer = SetTimer(NULL, 0, 1000, ann_print_timeout);
             }
     }
     if (run != -1 && ann_run != run) {
         ann_run = run;
-        skin_repaint_annunciator(hdc, memdc, 4, ann_run);
+        skin_update_annunciator(hMainWnd, 4);
     }
     if (g != -1 && ann_g != g) {
         ann_g = g;
-        skin_repaint_annunciator(hdc, memdc, 6, ann_g);
+        skin_update_annunciator(hMainWnd, 6);
     }
     if (rad != -1 && ann_rad != rad) {
         ann_rad = rad;
-        skin_repaint_annunciator(hdc, memdc, 7, ann_rad);
+        skin_update_annunciator(hMainWnd, 7);
     }
-
-    DeleteDC(memdc);
-    ReleaseDC(hMainWnd, hdc);
 }
 
 bool shell_wants_cpu() {
+    static DWORD lastCount = 0;
+    DWORD count = GetTickCount();
+    if (count - lastCount < 10)
+        return false;
+    lastCount = count;
     MSG msg;
     return PeekMessage(&msg, NULL, 0, 0, PM_NOREMOVE) != 0;
 }
@@ -2261,7 +2223,7 @@ void shell_request_timeout3(int delay) {
     timer3 = SetTimer(NULL, 0, delay, timeout3);
 }
 
-uint4 shell_get_mem() {
+uint8 shell_get_mem() {
     MEMORYSTATUS memstat;
     GlobalMemoryStatus(&memstat);
     return memstat.dwAvailPhys;
@@ -2277,11 +2239,7 @@ bool shell_low_battery() {
                 && (powerstat.BatteryFlag & 6) != 0; // low or critical
     if (ann_battery != lowbat) {
         ann_battery = lowbat;
-        HDC hdc = GetDC(hMainWnd);
-        HDC memdc = CreateCompatibleDC(hdc);
-        skin_repaint_annunciator(hdc, memdc, 5, ann_battery);
-        DeleteDC(memdc);
-        ReleaseDC(hMainWnd, hdc);
+        skin_update_annunciator(hMainWnd, 5);
     }
     return lowbat != 0;
 }
@@ -2306,10 +2264,32 @@ uint4 shell_milliseconds() {
     return GetTickCount();
 }
 
-bool shell_decimal_point() {
-    char dec[4];
-    GetLocaleInfo(LOCALE_USER_DEFAULT, LOCALE_SDECIMAL, dec, 4);
-    return strcmp(dec, ",") != 0;
+const char *shell_number_format() {
+    wchar_t dec[4];
+    GetLocaleInfoW(LOCALE_USER_DEFAULT, LOCALE_SDECIMAL, dec, 4);
+    wchar_t sep[4];
+    GetLocaleInfoW(LOCALE_USER_DEFAULT, LOCALE_STHOUSAND, sep, 4);
+    char grp[10];
+    GetLocaleInfo(LOCALE_USER_DEFAULT, LOCALE_SGROUPING, grp, 10);
+    int g1, g2;
+    int n = sscanf(grp, "%d;%d", &g1, &g2);
+    wchar_t r[5];
+    static char *ret = NULL;
+    free(ret);
+    if (n == 0) {
+        r[0] = dec[0];
+        r[1] = 0;
+    } else {
+        r[0] = dec[0];
+        r[1] = sep[0];
+        r[2] = L'0' + g1;
+        if (n == 1 || g2 == 0)
+            g2 = g1;
+        r[3] = L'0' + g2;
+        r[4] = 0;
+    }
+    ret = wide2utf(r);
+    return ret;
 }
 
 int shell_date_format() {
@@ -2596,7 +2576,6 @@ static void init_shell_state(int4 version) {
             state.singleInstance = TRUE;
             // fall through
         case 6:
-            state.calculatorKey = FALSE;
             // fall through
         case 7:
             wcscpy(state.coreName, L"Untitled");
@@ -2612,7 +2591,12 @@ static void init_shell_state(int4 version) {
             core_settings.allow_big_stack = false;
             // fall through
         case 11:
-            // current version (SHELL_VERSION = 11),
+            // fall through
+        case 12:
+            core_settings.localized_copy_paste = true;
+            // fall through
+        case 13:
+            // current version (SHELL_VERSION = 13),
             // so nothing to do here since everything
             // was initialized from the state file.
             ;
@@ -2670,6 +2654,7 @@ static int read_shell_state(int4 *ver) {
             core_settings.matrix_outofrange = state.matrix_outofrange;
             core_settings.auto_repeat = state.auto_repeat;
             core_settings.allow_big_stack = state.allow_big_stack;
+            core_settings.localized_copy_paste = state.localized_copy_paste;
         } else {
             old_state_type old_state;
             if (fread(&old_state, 1, state_size, statefile) != state_size)
@@ -2688,7 +2673,6 @@ static int read_shell_state(int4 *ver) {
             MultiByteToWideChar(CP_ACP, 0, old_state.skinName, FILENAMELEN, state.skinName, FILENAMELEN);
             state.alwaysOnTop = old_state.alwaysOnTop;
             state.singleInstance = old_state.singleInstance;
-            state.calculatorKey = old_state.calculatorKey;
             MultiByteToWideChar(CP_ACP, 0, old_state.coreName, FILENAMELEN, state.coreName, FILENAMELEN);
             state.matrix_singularmatrix = old_state.matrix_singularmatrix;
             state.matrix_outofrange = old_state.matrix_outofrange;
@@ -2727,6 +2711,7 @@ static int write_shell_state() {
     state.matrix_outofrange = core_settings.matrix_outofrange;
     state.auto_repeat = core_settings.auto_repeat;
     state.allow_big_stack = core_settings.allow_big_stack;
+    state.localized_copy_paste = core_settings.localized_copy_paste;
     if (fwrite(&state, 1, sizeof(state_type), statefile) != sizeof(state_type))
         return 0;
 
@@ -2856,5 +2841,12 @@ int my_rename(const char *oldname, const char *newname) {
     int ret = _wrename(woldname, wnewname);
     free(woldname);
     free(wnewname);
+    return ret;
+}
+
+int my_remove(const char *name) {
+    wchar_t *wname = utf2wide(name);
+    int ret = _wremove(wname);
+    free(wname);
     return ret;
 }

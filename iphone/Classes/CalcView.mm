@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -480,12 +480,18 @@ static struct timeval runner_end_time;
 
 - (void) handlePan:(UIPanGestureRecognizer *)panrec {
     static CGFloat prevX;
-    UIGestureRecognizerState state = [panrec state];
+    CGFloat dir;
+    switch (state.swipeDirectionMode) {
+        case 0: dir = 1; break;
+        case 2: dir = -1; break;
+        default: return;
+    }
+    UIGestureRecognizerState gstate = [panrec state];
     CGPoint p = [panrec translationInView:[self superview]];
     PrintView *print = ((Free42AppDelegate *) UIApplication.sharedApplication.delegate).rootViewController.printView;
     CGRect cf = self.frame;
     CGRect pf = print.frame;
-    if (state == UIGestureRecognizerStateBegan) {
+    if (gstate == UIGestureRecognizerStateBegan) {
         // Make sure the Print-Out view isn't hidden
         [RootViewController showPrintOut];
         [RootViewController showMain];
@@ -493,7 +499,7 @@ static struct timeval runner_end_time;
         touchDelayed = 0;
         prevX = self.frame.origin.x;
     }
-    if (state == UIGestureRecognizerStateEnded) {
+    if (gstate == UIGestureRecognizerStateEnded) {
         cf.origin.x = prevX;
         self.frame = cf;
         pf.origin.x = prevX;
@@ -502,14 +508,14 @@ static struct timeval runner_end_time;
         CGFloat scale = self.bounds.size.width / self.bounds.size.height;
         if (scale < 1)
             scale = 1;
-        if (scale * (p.x + v.x / 16) < -self.bounds.size.width / 3)
+        if (scale * (p.x + v.x / 16) * dir < -self.bounds.size.width / 3)
             [RootViewController showPrintOut];
     } else {
-        if (p.x > 0)
+        if (dir * p.x > 0)
             p.x = 0;
         cf.origin.x = self.superview.bounds.origin.x + p.x;
         self.frame = cf;
-        pf.origin.x = self.superview.bounds.origin.x + p.x + self.frame.size.width;
+        pf.origin.x = self.superview.bounds.origin.x + p.x + dir * self.frame.size.width;
         print.frame = pf;
     }
 }
@@ -682,7 +688,7 @@ static CLLocationManager *locMgr = nil;
 /////                   Here beginneth thy olde C code                    /////
 ///////////////////////////////////////////////////////////////////////////////
 
-extern int off_enable_flag;
+extern bool off_enable_flag;
 
 static int read_shell_state(int *ver) {
     TRACE("read_shell_state");
@@ -723,6 +729,8 @@ static int read_shell_state(int *ver) {
     }
     if (state_version >= 9)
         core_settings.allow_big_stack = state.allow_big_stack;
+    if (state_version >= 11)
+        core_settings.localized_copy_paste = state.localized_copy_paste;
     
     init_shell_state(state_version);
     *ver = version;
@@ -772,13 +780,21 @@ static void init_shell_state(int version) {
             core_settings.allow_big_stack = false;
             /* fall through */
         case 9:
-            /* current version (SHELL_VERSION = 9),
+            /* fall through */
+        case 10:
+            core_settings.localized_copy_paste = true;
+            /* fall through */
+        case 11:
+            state.swipeDirectionMode = 0;
+            /* fall through */
+        case 12:
+            /* current version (SHELL_VERSION = 12),
              * so nothing to do here since everything
              * was initialized from the state file.
              */
             ;
     }
-    off_enable_flag = state.offEnabled ? 1 : 0;
+    off_enable_flag = state.offEnabled;
 }
 
 static void quit2(bool really_quit) {
@@ -922,7 +938,7 @@ static int write_shell_state() {
     int state_size = sizeof(state);
     int state_version = SHELL_VERSION;
 
-    state.offEnabled = off_enable_flag != 0;
+    state.offEnabled = off_enable_flag;
     
     FILE *statefile = fopen("config/state", "w");
     if (statefile == NULL)
@@ -939,6 +955,7 @@ static int write_shell_state() {
     state.matrix_outofrange = core_settings.matrix_outofrange;
     state.auto_repeat = core_settings.auto_repeat;
     state.allow_big_stack = core_settings.allow_big_stack;
+    state.localized_copy_paste = core_settings.localized_copy_paste;
     if (fwrite(&state, 1, sizeof(state), statefile) != sizeof(state))
         return 0;
     
@@ -1036,10 +1053,10 @@ void shell_request_timeout3(int delay) {
     [calcView setTimeout3:delay];
 }
 
-unsigned int shell_get_mem() {
+uint8 shell_get_mem() {
     TRACE("shell_get_mem");
     int mib[2];
-    unsigned int memsize;
+    size_t memsize = 0;
     size_t len;
     
     // Retrieve the available system memory
@@ -1072,10 +1089,23 @@ unsigned int shell_milliseconds() {
     return (unsigned int) (tv.tv_sec * 1000L + tv.tv_usec / 1000);
 }
 
-bool shell_decimal_point() {
+const char *shell_number_format() {
     NSLocale *loc = [NSLocale currentLocale];
-    NSString *dec = [loc objectForKey:NSLocaleDecimalSeparator];
-    return ![dec isEqualToString:@","];
+    static NSString *f = nil;
+    [f release];
+    f = [loc objectForKey:NSLocaleDecimalSeparator];
+    NSNumberFormatter *fmt = [[NSNumberFormatter alloc] init];
+    fmt.numberStyle = NSNumberFormatterDecimalStyle;
+    if (fmt.usesGroupingSeparator) {
+        NSString *sep = [loc objectForKey:NSLocaleGroupingSeparator];
+        int ps = (int) fmt.groupingSize;
+        int ss = (int) fmt.secondaryGroupingSize;
+        if (ss == 0)
+            ss = ps;
+        f = [NSString stringWithFormat:@"%@%@%c%c", f, sep, '0' + ps, '0' + ss];
+    }
+    [f retain];
+    return [f UTF8String];
 }
 
 int shell_date_format() {

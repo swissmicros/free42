@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -30,8 +30,17 @@ int hp2ascii(char *dst, const char *src, int srclen) {
     int s, d = 0;
     for (s = 0; s < srclen; s++) {
         c = src[s];
-        if (c >= 130 && c != 138)
-            c &= 127;
+        if (c >= 130 && c != 138) {
+            // Escape sequence: euro sign plus two hex digits.
+            // In hp2ascii(), only used for undefined characters;
+            // in ascii2hp(), accepted for everything.
+            dst[d++] = 0xe2;
+            dst[d++] = 0x82;
+            dst[d++] = 0xac;
+            dst[d++] = "0123456789abcdef"[c >> 4];
+            dst[d++] = "0123456789abcdef"[c & 15];
+            continue;
+        }
         switch (c) {
             case  0:   esc = "\303\267"; break;     // division sign
             case  1:   esc = "\303\227"; break;     // multiplication sign
@@ -288,7 +297,7 @@ void shell_spool_gif(const char *bits, int bytesperline,
                 g->prefix = pixel;
                 goto no_emit;
             }
-            
+
             /* Compute hash code
              * TODO: There's a lot of room for improvement here!
              * I'm getting search percentages of over 30%; looking for
@@ -313,7 +322,7 @@ void shell_spool_gif(const char *bits, int bytesperline,
                 }
                 hash_index = g->hash_next[hash_index];
             }
-            
+
             /* Not found: */
             if (g->maxcode < 4096) {
                 g->prefix_table[g->maxcode] = g->prefix;
@@ -324,7 +333,7 @@ void shell_spool_gif(const char *bits, int bytesperline,
             }
             new_code = g->prefix;
             g->prefix = pixel;
-            
+
             emit: {
                 int outcode = g->initial_clear ? g->clear_code
                                     : g->really_done ? g->end_code : new_code;

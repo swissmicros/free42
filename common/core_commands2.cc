@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -401,6 +401,24 @@ int docmd_input(arg_struct *arg) {
         return ERR_INVALID_TYPE;
     }
 
+    if (flags.f.printer_enable && flags.f.printer_exists
+            && (flags.f.trace_print || flags.f.normal_print)) {
+        int size = input_length + 1;
+        switch (v->type) {
+            case TYPE_STRING: size += ((vartype_string *) v)->length + 2; break;
+            default: size += 100;
+        }
+        char *buf = (char *) malloc(size);
+        if (buf != NULL) {
+            int bufptr = 0;
+            string2buf(buf, size, &bufptr, input_name, input_length);
+            char2buf(buf, size, &bufptr, '?');
+            bufptr += vartype2string(v, buf + bufptr, size - bufptr);
+            print_lines(buf, bufptr, true);
+            free(buf);
+        }
+    }
+
     docmd_cld(NULL);
     if (recall_result(v) != ERR_NONE)
         return ERR_INSUFFICIENT_MEMORY;
@@ -465,7 +483,7 @@ int docmd_view(arg_struct *arg) {
     return view_helper(arg, 1);
 }
 
-static void aview_helper() {
+static void aview_helper(const char *text, int length) {
 #define DISP_ROWS 2
 #define DISP_COLUMNS 22
     int line_start[DISP_ROWS];
@@ -473,8 +491,8 @@ static void aview_helper() {
     int line = 0;
     int i;
     line_start[0] = 0;
-    for (i = 0; i < reg_alpha_length; i++) {
-        if (reg_alpha[i] == 10) {
+    for (i = 0; i < length; i++) {
+        if (text[i] == 10) {
             if (line == DISP_ROWS - 1)
                 break;
             line_length[line] = i - line_start[line];
@@ -493,12 +511,12 @@ static void aview_helper() {
     if (flags.f.two_line_message || program_running())
         clear_row(1);
     for (i = 0; i <= line; i++)
-        draw_string(0, i, reg_alpha + line_start[i], line_length[i]);
+        draw_string(0, i, text + line_start[i], line_length[i]);
     flush_display();
 }
 
 int docmd_aview(arg_struct *arg) {
-    aview_helper();
+    aview_helper(reg_alpha, reg_alpha_length);
     if (flags.f.printer_enable || !program_running()) {
         if (flags.f.printer_exists)
             docmd_pra(arg);
@@ -531,7 +549,7 @@ int docmd_xeq(arg_struct *arg) {
 }
 
 int docmd_prompt(arg_struct *arg) {
-    aview_helper();
+    aview_helper(reg_alpha, reg_alpha_length);
     if (flags.f.printer_enable && flags.f.printer_exists
             && (flags.f.trace_print || flags.f.normal_print))
         docmd_pra(arg);
@@ -1062,13 +1080,20 @@ int docmd_prsigma(arg_struct *arg) {
             char *text;
             int4 len;
             get_matrix_string(rm, j, &text, &len);
-            bufptr = 0;
-            char2buf(buf, 100, &bufptr, '"');
-            string2buf(buf, 100, &bufptr, text, len);
-            char2buf(buf, 100, &bufptr, '"');
-        } else
+            char *sbuf = (char *) malloc(len + 2);
+            if (sbuf == NULL) {
+                print_wide(sigma_labels[i].text, sigma_labels[i].length, "<Low Mem>", 9);
+            } else {
+                sbuf[0] = '"';
+                memcpy(sbuf + 1, text, len);
+                sbuf[len + 1] = '"';
+                print_wide(sigma_labels[i].text, sigma_labels[i].length, sbuf, len + 2);
+                free(sbuf);
+            }
+        } else {
             bufptr = easy_phloat2string(rm->array->data[j], buf, 100, 0);
-        print_wide(sigma_labels[i].text, sigma_labels[i].length, buf, bufptr);
+            print_wide(sigma_labels[i].text, sigma_labels[i].length, buf, bufptr);
+        }
     }
     shell_annunciators(-1, -1, 0, -1, -1, -1);
     return ERR_NONE;
@@ -1303,34 +1328,50 @@ int docmd_prstk(arg_struct *arg) {
     return ERR_NONE;
 }
 
-int docmd_pra(arg_struct *arg) {
-    // arg == NULL if we're called to do TRACE mode auto-print
-    if (arg != NULL && !flags.f.printer_enable && program_running())
+static int pra_helper(bool trace, const char *text, int length) {
+    if (!trace && !flags.f.printer_enable && program_running())
         return ERR_NONE;
     if (!flags.f.printer_exists)
         return ERR_PRINTING_IS_DISABLED;
     shell_annunciators(-1, -1, 1, -1, -1, -1);
-    if (reg_alpha_length == 0)
+    if (length == 0)
         print_text(NULL, 0, true);
     else {
         int line_start = 0;
         int width = flags.f.double_wide_print ? 12 : 24;
         int i;
-        for (i = 0; i < reg_alpha_length; i++) {
-            if (reg_alpha[i] == 10) {
-                print_text(reg_alpha + line_start, i - line_start, true);
+        for (i = 0; i < length; i++) {
+            if (text[i] == 10) {
+                print_text(text + line_start, i - line_start, true);
                 line_start = i + 1;
             } else if (i == line_start + width) {
-                print_text(reg_alpha + line_start, i - line_start, true);
+                print_text(text + line_start, i - line_start, true);
                 line_start = i;
             }
         }
-        if (line_start < reg_alpha_length
-                || (line_start > 0 && reg_alpha[line_start - 1] == 10))
-            print_text(reg_alpha + line_start,
-                       reg_alpha_length - line_start, true);
+        if (line_start < length
+                || (line_start > 0 && text[line_start - 1] == 10))
+            print_text(text + line_start,
+                       length - line_start, true);
     }
     shell_annunciators(-1, -1, 0, -1, -1, -1);
+    return ERR_NONE;
+}
+
+int docmd_pra(arg_struct *arg) {
+    // arg == NULL if we're called to do TRACE mode auto-print
+    return pra_helper(arg == NULL, reg_alpha, reg_alpha_length);
+}
+
+int docmd_xview(arg_struct *arg) {
+    vartype_string *s = (vartype_string *) stack[sp];
+    aview_helper(s->txt(), s->length);
+    if (flags.f.printer_enable || !program_running()) {
+        if (flags.f.printer_exists)
+            pra_helper(false, s->txt(), s->length);
+        else
+            return ERR_STOP;
+    }
     return ERR_NONE;
 }
 

@@ -43,26 +43,27 @@
 #define IDC_MATRIX_OUTOFRANGE           1001
 #define IDC_AUTO_REPEAT                 1002
 #define IDC_ALLOW_BIG_STACK             1003
-#define IDC_PRINTER_TXT                 1004
-#define IDC_PRINTER_GIF                 1005
-#define IDC_PRINTER_TXT_NAME            1006
-#define IDC_PRINTER_GIF_NAME            1007
-#define IDC_PRINTER_TXT_BROWSE          1008
-#define IDC_PRINTER_GIF_BROWSE          1009
-#define IDC_DECIMAL                     1010
-#define IDC_PRINTER_GIF_HEIGHT          1011
-#define IDC_LIST1                       1012
-#define IDC_HP42S_SIZES                 1013
-#define IDC_RAW_TEXT                    1014
-#define IDC_ALWAYSONTOP                 1015
-#define IDC_CALCULATOR_KEY              1016
+#define IDC_LOCALIZED_COPY_PASTE        1004
+#define IDC_PRINTER_TXT                 1005
+#define IDC_PRINTER_GIF                 1006
+#define IDC_PRINTER_TXT_NAME            1007
+#define IDC_PRINTER_GIF_NAME            1008
+#define IDC_PRINTER_TXT_BROWSE          1009
+#define IDC_PRINTER_GIF_BROWSE          1010
+#define IDC_DECIMAL                     1011
+#define IDC_PRINTER_GIF_HEIGHT          1012
+#define IDC_LIST1                       1013
+#define IDC_HP42S_SIZES                 1014
+#define IDC_RAW_TEXT                    1015
+#define IDC_ALWAYSONTOP                 1016
 #define IDC_WEBSITELINK                 1017
 #define IDC_FORUMLINK                   1018
-#define IDC_CURRENT                     1019
-#define IDC_STATES                      1020
-#define IDC_MORE                        1021
-#define IDC_STATE_PROMPT                1022
-#define IDC_STATE_NAME                  1023
+#define IDC_WEBSITELINK_PLUS42          1019
+#define IDC_CURRENT                     1020
+#define IDC_STATES                      1021
+#define IDC_MORE                        1022
+#define IDC_STATE_PROMPT                1023
+#define IDC_STATE_NAME                  1024
 #define IDM_SHOWPRINTOUT                32771
 #define IDM_PAPERADVANCE                32772
 #define IDM_PREFERENCES                 32773
@@ -89,7 +90,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        155
 #define _APS_NEXT_COMMAND_VALUE         32789
-#define _APS_NEXT_CONTROL_VALUE         1024
+#define _APS_NEXT_CONTROL_VALUE         1025
 #define _APS_NEXT_SYMED_VALUE           110
 #endif
 #endif

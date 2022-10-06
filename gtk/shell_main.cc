@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Free42 -- an HP-42S calculator simulator
-// Copyright (C) 2004-2021  Thomas Okken
+// Copyright (C) 2004-2022  Thomas Okken
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License, version 2,
@@ -355,7 +355,7 @@ static const char *compactMenuOutroXml =
 static int use_compactmenu = 0;
 static char *skin_arg = NULL;
 
-static bool decimal_point;
+static char cached_number_format[9];
 
 static void activate(GtkApplication *theApp, gpointer userData);
 
@@ -380,6 +380,23 @@ int main(int argc, char *argv[]) {
     return status;
 }
 
+static void copy_one_utf8_char(char *dst, const char *src) {
+    int n, c = *src & 255;
+    if (c == 0)
+        return;
+    else if ((c & 0x80) == 0)
+        n = 1;
+    else if ((c & 0xc0) == 0x80)
+        return;
+    else if ((c & 0xe0) == 0xc0)
+        n = 2;
+    else if ((c & 0xf0) == 0xe0)
+        n = 3;
+    else
+        return;
+    strncat(dst, src, n);
+}
+
 static void activate(GtkApplication *theApp, gpointer userData) {
 
     if (app != NULL) {
@@ -390,11 +407,25 @@ static void activate(GtkApplication *theApp, gpointer userData) {
 
     app = theApp;
 
-    // Capture state of decimal_point, which may have been changed by
+    // Capture number format, which may have been changed by
     // gtk_init(), and then set it to the C locale, because the binary/decimal
     // conversions expect a decimal point, not a comma.
     struct lconv *loc = localeconv();
-    decimal_point = strcmp(loc->decimal_point, ",") != 0;
+    cached_number_format[0] = 0;
+    copy_one_utf8_char(cached_number_format, loc->decimal_point);
+    if (loc->thousands_sep[0] != 0) {
+        int g1 = loc->grouping[0];
+        if (g1 != 0) {
+            int g2 = loc->grouping[1];
+            if (g2 == 0)
+                g2 = g1;
+            copy_one_utf8_char(cached_number_format, loc->thousands_sep);
+            char g[2];
+            g[0] = '0' + g1;
+            g[1] = '0' + g2;
+            strncat(cached_number_format, g, 2);
+        }
+    }
     setlocale(LC_NUMERIC, "C");
 
 
@@ -530,7 +561,7 @@ static void activate(GtkApplication *theApp, gpointer userData) {
             core_state_file_offset = ftell(statefile);
         }
         fclose(statefile);
-    }  else {
+    } else {
         // The shell state was missing or corrupt, but there
         // may still be a valid core state...
         snprintf(core_state_file_name, FILENAMELEN, "%s/%s.f42", free42dirname, state.coreName);
@@ -957,7 +988,12 @@ static void init_shell_state(int4 version) {
             core_settings.allow_big_stack = false;
             /* fall through */
         case 8:
-            /* current version (SHELL_VERSION = 8),
+            /* fall through */
+        case 9:
+            core_settings.localized_copy_paste = true;
+            /* fall through */
+        case 10:
+            /* current version (SHELL_VERSION = 10),
              * so nothing to do here since everything
              * was initialized from the state file.
              */
@@ -1003,6 +1039,8 @@ static int read_shell_state(int4 *ver) {
     }
     if (state_version >= 7)
         core_settings.allow_big_stack = state.allow_big_stack;
+    if (state_version >= 10)
+        core_settings.localized_copy_paste = state.localized_copy_paste;
 
     init_shell_state(state_version);
     *ver = version;
@@ -1027,6 +1065,7 @@ static int write_shell_state() {
     state.matrix_outofrange = core_settings.matrix_outofrange;
     state.auto_repeat = core_settings.auto_repeat;
     state.allow_big_stack = core_settings.allow_big_stack;
+    state.localized_copy_paste = core_settings.localized_copy_paste;
     if (fwrite(&state, 1, sizeof(state_type), statefile) != sizeof(int4))
         return 0;
 
@@ -2197,6 +2236,7 @@ static void preferencesCB() {
     static GtkWidget *matrixoutofrange;
     static GtkWidget *autorepeat;
     static GtkWidget *allowbigstack;
+    static GtkWidget *localizedcopypaste;
     static GtkWidget *repaintwholedisplay;
     static GtkWidget *printtotext;
     static GtkWidget *textpath;
@@ -2226,25 +2266,27 @@ static void preferencesCB() {
         gtk_grid_attach(GTK_GRID(grid), autorepeat, 0, 2, 4, 1);
         allowbigstack = gtk_check_button_new_with_label("Allow Big Stack (NSTK) mode");
         gtk_grid_attach(GTK_GRID(grid), allowbigstack, 0, 3, 4, 1);
+        localizedcopypaste = gtk_check_button_new_with_label("Localized Copy & Paste");
+        gtk_grid_attach(GTK_GRID(grid), localizedcopypaste, 0, 4, 4, 1);
         repaintwholedisplay = gtk_check_button_new_with_label("Always repaint entire display");
-        gtk_grid_attach(GTK_GRID(grid), repaintwholedisplay, 0, 4, 4, 1);
+        gtk_grid_attach(GTK_GRID(grid), repaintwholedisplay, 0, 5, 4, 1);
         printtotext = gtk_check_button_new_with_label("Print to text file:");
-        gtk_grid_attach(GTK_GRID(grid), printtotext, 0, 5, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), printtotext, 0, 6, 1, 1);
         textpath = gtk_entry_new();
-        gtk_grid_attach(GTK_GRID(grid), textpath, 1, 5, 2, 1);
+        gtk_grid_attach(GTK_GRID(grid), textpath, 1, 6, 2, 1);
         GtkWidget *browse1 = gtk_button_new_with_label("Browse...");
-        gtk_grid_attach(GTK_GRID(grid), browse1, 3, 5, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), browse1, 3, 6, 1, 1);
         printtogif = gtk_check_button_new_with_label("Print to GIF file:");
-        gtk_grid_attach(GTK_GRID(grid), printtogif, 0, 6, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), printtogif, 0, 7, 1, 1);
         gifpath = gtk_entry_new();
-        gtk_grid_attach(GTK_GRID(grid), gifpath, 1, 6, 2, 1);
+        gtk_grid_attach(GTK_GRID(grid), gifpath, 1, 7, 2, 1);
         GtkWidget *browse2 = gtk_button_new_with_label("Browse...");
-        gtk_grid_attach(GTK_GRID(grid), browse2, 3, 6, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), browse2, 3, 7, 1, 1);
         GtkWidget *label = gtk_label_new("Maximum GIF height (pixels):");
-        gtk_grid_attach(GTK_GRID(grid), label, 1, 7, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), label, 1, 8, 1, 1);
         gifheight = gtk_entry_new();
         gtk_entry_set_max_length(GTK_ENTRY(gifheight), 5);
-        gtk_grid_attach(GTK_GRID(grid), gifheight, 2, 7, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), gifheight, 2, 8, 1, 1);
 
         g_signal_connect(G_OBJECT(browse1), "clicked", G_CALLBACK(browse_file),
                 (gpointer) new browse_file_info("Select Text File Name",
@@ -2262,6 +2304,7 @@ static void preferencesCB() {
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(matrixoutofrange), core_settings.matrix_outofrange);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(autorepeat), core_settings.auto_repeat);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(allowbigstack), core_settings.allow_big_stack);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(localizedcopypaste), core_settings.localized_copy_paste);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(printtotext), state.printerToTxtFile);
     gtk_entry_set_text(GTK_ENTRY(textpath), state.printerTxtFileName);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(printtogif), state.printerToGifFile);
@@ -2280,6 +2323,7 @@ static void preferencesCB() {
         core_settings.allow_big_stack = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(allowbigstack));
         if (oldBigStack != core_settings.allow_big_stack)
             core_update_allow_big_stack();
+        core_settings.localized_copy_paste = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(localizedcopypaste));
 
         state.printerToTxtFile = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(printtotext));
         char *old = strclone(state.printerTxtFileName);
@@ -2397,7 +2441,7 @@ static void aboutCB() {
         GtkWidget *version = gtk_label_new("Free42 " VERSION);
         gtk_misc_set_alignment(GTK_MISC(version), 0, 0);
         gtk_box_pack_start(GTK_BOX(box2), version, FALSE, FALSE, 10);
-        GtkWidget *author = gtk_label_new("\302\251 2004-2021 Thomas Okken");
+        GtkWidget *author = gtk_label_new("\302\251 2004-2022 Thomas Okken");
         gtk_misc_set_alignment(GTK_MISC(author), 0, 0);
         gtk_box_pack_start(GTK_BOX(box2), author, FALSE, FALSE, 0);
         GtkWidget *websitelink = gtk_link_button_new("https://thomasokken.com/free42/");
@@ -2408,6 +2452,13 @@ static void aboutCB() {
         GtkWidget *forumbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
         gtk_box_pack_start(GTK_BOX(forumbox), forumlink, FALSE, FALSE, 0);
         gtk_box_pack_start(GTK_BOX(box2), forumbox, FALSE, FALSE, 0);
+        GtkWidget *plus42 = gtk_label_new("Plus42: Free42 Enhanced");
+        gtk_misc_set_alignment(GTK_MISC(plus42), 0, 0);
+        gtk_box_pack_start(GTK_BOX(box2), plus42, FALSE, FALSE, 0);
+        GtkWidget *websiteplus42link = gtk_link_button_new("https://thomasokken.com/plus42/");
+        GtkWidget *websiteplus42box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+        gtk_box_pack_start(GTK_BOX(websiteplus42box), websiteplus42link, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(box2), websiteplus42box, FALSE, FALSE, 0);
         gtk_box_pack_start(GTK_BOX(box), box2, FALSE, FALSE, 0);
         focus_ok_button(GTK_WINDOW(about), container);
         gtk_widget_show_all(GTK_WIDGET(about));
@@ -2439,17 +2490,32 @@ static gboolean delete_print_cb(GtkWidget *w, GdkEventAny *ev) {
 
 static gboolean draw_cb(GtkWidget *w, cairo_t *cr, gpointer cd) {
     allow_paint = true;
-    skin_repaint(cr);
-    skin_repaint_display(cr);
-    skin_repaint_annunciator(cr, 1, ann_updown);
-    skin_repaint_annunciator(cr, 2, ann_shift);
-    skin_repaint_annunciator(cr, 3, ann_print);
-    skin_repaint_annunciator(cr, 4, ann_run);
-    skin_repaint_annunciator(cr, 5, ann_battery);
-    skin_repaint_annunciator(cr, 6, ann_g);
-    skin_repaint_annunciator(cr, 7, ann_rad);
-    if (ckey != 0)
-        skin_repaint_key(cr, skey, 1);
+    bool only_disp = need_to_paint_only_display(cr);
+    if (!only_disp)
+        skin_repaint(cr);
+    if (ckey < -7 || ckey > -2)
+        skin_repaint_display(cr);
+    if (!only_disp) {
+        if (ann_updown)
+            skin_repaint_annunciator(cr, 1);
+        if (ann_shift)
+            skin_repaint_annunciator(cr, 2);
+        if (ann_print)
+            skin_repaint_annunciator(cr, 3);
+        if (ann_run)
+            skin_repaint_annunciator(cr, 4);
+        if (ann_battery)
+            skin_repaint_annunciator(cr, 5);
+        if (ann_g)
+            skin_repaint_annunciator(cr, 6);
+        if (ann_rad)
+            skin_repaint_annunciator(cr, 7);
+        if (ckey != 0)
+            skin_repaint_key(cr, skey, 1);
+    } else {
+        if (ckey >= -7 && ckey <= -2)
+            skin_repaint_key(cr, skey, 1);
+    }
     return TRUE;
 }
 
@@ -3017,6 +3083,13 @@ void shell_annunciators(int updn, int shf, int prt, int run, int g, int rad) {
 }
 
 bool shell_wants_cpu() {
+    static uint4 lastCount = 0;
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    uint4 count = tv.tv_sec * 1000L + tv.tv_usec / 1000;
+    if (count - lastCount < 10)
+        return false;
+    lastCount = count;
     return g_main_context_pending(NULL);
 }
 
@@ -3031,7 +3104,7 @@ void shell_request_timeout3(int delay) {
     timeout3_id = g_timeout_add(delay, timeout3, NULL);
 }
 
-uint4 shell_get_mem() { 
+uint8 shell_get_mem() {
     FILE *meminfo = fopen("/proc/meminfo", "r");
     char line[1024];
     uint8 bytes = 0;
@@ -3042,13 +3115,11 @@ uint4 shell_get_mem() {
             uint8 kbytes;
             if (sscanf(line + 8, "%llu", &kbytes) == 1)
                 bytes = 1024 * kbytes;
-            if (bytes > 4294967295)
-                bytes = 4294967295;
             break;
         }
     }
     fclose(meminfo);
-    return (uint4) bytes;
+    return bytes;
 }
 
 bool shell_low_battery() {
@@ -3147,8 +3218,8 @@ uint4 shell_milliseconds() {
     return (uint4) (tv.tv_sec * 1000L + tv.tv_usec / 1000);
 }
 
-bool shell_decimal_point() {
-    return decimal_point;
+const char *shell_number_format() {
+    return cached_number_format;
 }
 
 int shell_date_format() {

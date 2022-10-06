@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -70,6 +70,16 @@ int docmd_decm(arg_struct *arg) {
 
 int docmd_hexm(arg_struct *arg) {
     return base_helper(16);
+}
+
+int docmd_a_thru_f(arg_struct *arg) {
+    int err = set_menu_return_err(MENULEVEL_APP, MENU_BASE_A_THRU_F, false);
+    if (err != ERR_NONE)
+        return err;
+    set_appmenu_exitcallback(2);
+    baseapp = 1;
+    set_base(16, true);
+    return ERR_NONE;
 }
 
 int docmd_linf(arg_struct *arg) {
@@ -424,7 +434,7 @@ static int get_summation() {
     }
     return ERR_NONE;
 }
-    
+
 static struct model_struct {
     phloat x;
     phloat x2;
@@ -864,17 +874,17 @@ int docmd_not(arg_struct *arg) {
 }
 
 int docmd_or(arg_struct *arg) {
-    int8 x, y; 
-    int err; 
+    int8 x, y;
+    int err;
     vartype *v;
-    if ((err = get_base_param(stack[sp], &x)) != ERR_NONE) 
+    if ((err = get_base_param(stack[sp], &x)) != ERR_NONE)
         return err;
     if ((err = get_base_param(stack[sp - 1], &y)) != ERR_NONE)
         return err;
     int8 res = x | y;
     base_range_check(&res, true);
     v = new_real(base2phloat(res));
-    if (v == NULL) 
+    if (v == NULL)
         return ERR_INSUFFICIENT_MEMORY;
     return binary_result(v);
 }
@@ -993,13 +1003,14 @@ int docmd_pgminti(arg_struct *arg) {
 int docmd_rotxy(arg_struct *arg) {
     int x;
     uint8 y, res;
-    int err; 
+    int err;
     vartype *v;
 
     // Not using get_base_param() to fetch x, because that
     // would make it impossible to specify a negative shift
     // count in unsigned mode.
-    phloat px = floor(((vartype_real *) stack[sp])->x);
+    phloat px = ((vartype_real *) stack[sp])->x;
+    px = px < 0 ? -floor(-px) : floor(px);
     int wsize = effective_wsize();
     if (px >= wsize || px <= -wsize)
         return ERR_INVALID_DATA;
@@ -1021,7 +1032,7 @@ int docmd_rotxy(arg_struct *arg) {
         base_range_check((int8 *) &res, true);
     }
     v = new_real(base2phloat((int8) res));
-    if (v == NULL) 
+    if (v == NULL)
         return ERR_INSUFFICIENT_MEMORY;
     return binary_result(v);
 }
@@ -1089,16 +1100,16 @@ int docmd_vmsolve(arg_struct *arg) {
 
 int docmd_xor(arg_struct *arg) {
     int8 x, y;
-    int err; 
+    int err;
     vartype *v;
-    if ((err = get_base_param(stack[sp], &x)) != ERR_NONE) 
+    if ((err = get_base_param(stack[sp], &x)) != ERR_NONE)
         return err;
     if ((err = get_base_param(stack[sp - 1], &y)) != ERR_NONE)
         return err;
     int8 res = x ^ y;
     base_range_check(&res, true);
     v = new_real(base2phloat(res));
-    if (v == NULL) 
+    if (v == NULL)
         return ERR_INSUFFICIENT_MEMORY;
     return binary_result(v);
 }

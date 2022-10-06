@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -61,12 +61,13 @@ struct state_type {
     wchar_t skinName[FILENAMELEN];
     BOOL alwaysOnTop;
     BOOL singleInstance;
-    BOOL calculatorKey;
+    BOOL dummy;
     wchar_t coreName[FILENAMELEN];
     bool matrix_singularmatrix;
     bool matrix_outofrange;
     bool auto_repeat;
     bool allow_big_stack;
+    bool localized_copy_paste;
 };
 
 extern state_type state;

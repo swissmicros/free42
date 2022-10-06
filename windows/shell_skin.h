@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -51,15 +51,18 @@ void skin_put_pixels(unsigned const char *data);
 void skin_finish_image();
 
 void skin_repaint(HDC hdc, HDC memdc);
-void skin_repaint_annunciator(HDC hdc, HDC memdc, int which, int state);
+void skin_repaint_annunciator(HDC hdc, HDC memdc, int which);
+void skin_update_annunciator(HWND hWnd, int which);
 void skin_find_key(int x, int y, bool cshift, int *skey, int *ckey);
 int skin_find_skey(int ckey);
 unsigned char *skin_find_macro(int ckey, bool *is_name);
 unsigned char *skin_keymap_lookup(int keycode, bool ctrl, bool alt, bool shift, bool cshift, bool *exact);
 void skin_repaint_key(HDC hdc, HDC memdc, int key, int state);
-void skin_display_blitter(HDC hdc, const char *bits, int bytesperline, int x, int y,
+void skin_display_blitter(HWND hWnd, const char *bits, int bytesperline, int x, int y,
                           int width, int height);
-void skin_repaint_display(HDC hdc, HDC memdc);
+bool need_to_paint_only_display(RECT *r);
+void skin_repaint_display(HDC hdc);
 void skin_display_set_enabled(bool enable);
+void invalidate_display(HWND hWnd);
 
 #endif

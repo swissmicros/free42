@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -31,15 +31,31 @@
 
 int no_menu_key_this_time = 0;
 
-static int is_number_key(int shift, int key) {
+static bool is_number_key(int shift, int key, bool *invalid) {
+    *invalid = false;
     if (get_front_menu() == MENU_BASE_A_THRU_F && !no_menu_key_this_time
             && (key == KEY_SIGMA || key == KEY_INV || key == KEY_SQRT
                 || key == KEY_LOG || key == KEY_LN || key == KEY_XEQ))
-        return 1;
-    return !shift && (key == KEY_0 || key == KEY_1 || key == KEY_2
-                || key == KEY_3 || key == KEY_4 || key == KEY_5
-                || key == KEY_6 || key == KEY_7 || key == KEY_8
-                || key == KEY_9 || key == KEY_DOT || key == KEY_E);
+        return true;
+    if (shift)
+        return false;
+    if (key == KEY_0 || key == KEY_1)
+        return true;
+    int base = get_base();
+    if (key == KEY_DOT || key == KEY_E) {
+        *invalid = base != 10;
+        return true;
+    }
+    if (key == KEY_2 || key == KEY_3 || key == KEY_4
+            || key == KEY_5 || key == KEY_6 || key == KEY_7) {
+        *invalid = base == 2;
+        return true;
+    }
+    if (key == KEY_8 || key == KEY_9) {
+        *invalid = base == 2 || base == 8;
+        return true;
+    }
+    return false;
 }
 
 static int basekeys() {
@@ -85,6 +101,7 @@ static void view(const char *varname, int varlength) {
         flush_display();
         pending_command = CMD_NONE;
     } else {
+        flags.f.message = 0;
         pending_command = CMD_LINGER1;
         shell_request_timeout3(2000);
     }
@@ -280,10 +297,13 @@ void keydown(int shift, int key) {
         return;
     }
 
+    bool invalid;
     if (mode_number_entry
-            && !is_number_key(shift, key)
+            && !is_number_key(shift, key, &invalid)
             && (key != KEY_CHS || shift || basekeys() || get_base() != 10)
             && (key != KEY_BSP || shift)) {
+        if (invalid)
+            return;
         /* Leaving number entry mode */
         mode_number_entry = false;
         if (flags.f.prgm_mode) {
@@ -331,7 +351,7 @@ void keydown(int shift, int key) {
         redisplay();
         return;
     }
-    
+
     if (key == KEY_UP || key == KEY_DOWN) {
         if (get_front_menu() == MENU_CATALOG) {
             int sect = get_cat_section();
@@ -356,7 +376,7 @@ void keydown(int shift, int key) {
             }
         }
     }
-    
+
     if (!flags.f.prgm_mode && key == KEY_UP
             && (shift || get_front_menu() == MENU_NONE)) {
         /* BST in normal or alpha mode */
@@ -374,7 +394,7 @@ void keydown(int shift, int key) {
         return;
     }
 
-    if (mode_number_entry) 
+    if (mode_number_entry)
         keydown_number_entry(shift, key);
     else if (mode_command_entry)
         keydown_command_entry(shift, key);
@@ -766,7 +786,7 @@ void keydown_command_entry(int shift, int key) {
             return;
         }
     }
-    
+
     if (incomplete_command == CMD_LBL && !incomplete_alpha && incomplete_length == 1
             && shift && key == KEY_ENTER) {
         /* More LBL weirdness: you can switch to ALPHA mode while entering
@@ -803,7 +823,7 @@ void keydown_command_entry(int shift, int key) {
         }
     }
 
-    
+
     /* Another oddity: ASSIGN... */
     if (incomplete_argtype == ARG_CKEY) {
         int menukey = find_menu_key(key);
@@ -1022,7 +1042,7 @@ void keydown_command_entry(int shift, int key) {
             } else if (catsect == CATSECT_EXT_0_CMP
                     || catsect == CATSECT_EXT_X_CMP) {
                 set_cat_section(CATSECT_EXT_PRGM);
-                set_cat_row(2);
+                set_cat_row(3);
                 redisplay();
             } else {
                 pending_command = CMD_CANCELLED;
@@ -1165,8 +1185,8 @@ void keydown_command_entry(int shift, int key) {
             finish_command_entry(false);
             return;
         }
-            
-        
+
+
         if (key == KEY_ENTER) {
             if (incomplete_length == 0) {
                 if (incomplete_ind
@@ -1462,15 +1482,17 @@ void keydown_command_entry(int shift, int key) {
         /* End of handling keys that represent characters */
 
         if (!shift && (key == KEY_UP || key == KEY_DOWN)) {
+            if (mode_commandmenu != MENU_NONE) {
             const menu_spec *m = menus + mode_commandmenu;
             int nextmenu = key == KEY_UP ? m->prev : m->next;
             if (nextmenu != MENU_NONE) {
                 set_menu(MENULEVEL_COMMAND, nextmenu);
                 redisplay();
             }
+            }
             return;
         }
-        
+
         if (key == KEY_EXIT) {
             const menu_spec *m;
             if (mode_commandmenu == MENU_NONE) {
@@ -1580,7 +1602,7 @@ void keydown_command_entry(int shift, int key) {
                         && ((catsect = get_cat_section()) == CATSECT_EXT_0_CMP
                                 || catsect == CATSECT_EXT_X_CMP)) {
                     set_catalog_menu(CATSECT_EXT_PRGM);
-                    set_cat_row(2);
+                    set_cat_row(3);
                     redisplay();
                 } else {
                     pending_command = CMD_NULL;
@@ -1659,20 +1681,13 @@ void keydown_command_entry(int shift, int key) {
                 int catsect;
                 if (mode_commandmenu == MENU_NONE
                         || (mode_commandmenu == MENU_CATALOG
-                            && (catsect = get_cat_section()) != CATSECT_FCN
-                            && catsect != CATSECT_PGM
-                            && catsect != CATSECT_REAL
-                            && catsect != CATSECT_CPX
-                            && catsect != CATSECT_MAT
-                            && catsect != CATSECT_EXT_TIME
-                            && catsect != CATSECT_EXT_XFCN
-                            && catsect != CATSECT_EXT_BASE
-                            && catsect != CATSECT_EXT_PRGM
-                            && catsect != CATSECT_EXT_STR
-                            && catsect != CATSECT_EXT_STK
-                            && catsect != CATSECT_EXT_MISC
-                            && catsect != CATSECT_EXT_0_CMP
-                            && catsect != CATSECT_EXT_X_CMP)) {
+                            && (catsect = get_cat_section()) == CATSECT_TOP
+                            || catsect == CATSECT_EXT_1
+                            || catsect == CATSECT_EXT_2
+                            || catsect == CATSECT_PGM_ONLY
+                            || catsect == CATSECT_REAL_ONLY
+                            || catsect == CATSECT_MAT_ONLY
+                            || catsect == CATSECT_VARS_ONLY)) {
                     set_menu(MENULEVEL_COMMAND, MENU_ALPHA1);
                     redisplay();
                     return;
@@ -2016,7 +2031,10 @@ void keydown_alpha_mode(int shift, int key) {
 void keydown_normal_mode(int shift, int key) {
     int command;
 
-    if (is_number_key(shift, key)) {
+    bool invalid;
+    if (is_number_key(shift, key, &invalid)) {
+        if (invalid)
+            return;
         /* Entering number entry mode */
         if (deferred_print)
             print_command(CMD_NULL, NULL);
@@ -2248,7 +2266,7 @@ void keydown_normal_mode(int shift, int key) {
                                 pending_command = CMD_NONE;
                                 redisplay();
                                 return;
-                            } else if (cmd == CMD_CLV || cmd == CMD_PRV) {
+                            } else if (cmd == CMD_CLV || cmd == CMD_PRV || cmd == CMD_LCLV) {
                                 if (!flags.f.prgm_mode && vars_count == 0) {
                                     display_error(ERR_NO_VARIABLES, false);
                                     pending_command = CMD_NONE;
@@ -2566,7 +2584,7 @@ void keydown_normal_mode(int shift, int key) {
             }
             return;
         }
-        
+
         if (key == KEY_EXIT) {
             if (menu == MENU_CATALOG) {
                 int catsect = get_cat_section();
@@ -2584,7 +2602,7 @@ void keydown_normal_mode(int shift, int key) {
                 else if (catsect == CATSECT_EXT_0_CMP
                         || catsect == CATSECT_EXT_X_CMP) {
                     set_cat_section(CATSECT_EXT_PRGM);
-                    set_cat_row(2);
+                    set_cat_row(3);
                 } else
                     set_menu(level, MENU_NONE);
             } else {
@@ -2649,7 +2667,12 @@ void keydown_normal_mode(int shift, int key) {
                 pending_command = CMD_CANCELLED;
                 return;
             case KEY_RUN: command = CMD_RUN; break;
-            case KEY_ADD: command = basekeys() ? CMD_BASEADD : CMD_ADD; break;
+            case KEY_ADD:
+                if (!flags.f.prgm_mode && sp > 0 && (stack[sp - 1]->type == TYPE_LIST || stack[sp - 1]->type == TYPE_STRING))
+                    command = CMD_APPEND;
+                else
+                    command = basekeys() ? CMD_BASEADD : CMD_ADD;
+                break;
             default: command = key >= 2048 ? key - 2048 : CMD_NONE; break;
         }
     } else {

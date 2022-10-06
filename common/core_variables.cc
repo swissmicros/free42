@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -299,12 +299,13 @@ bool put_matrix_string(vartype_realmatrix *rm, int i, const char *text, int4 len
         *(int4 **) &rm->array->data[i] = p;
         rm->array->is_string[i] = 2;
     } else {
-        if (rm->array->is_string[i] == 2)
-            free(*(void **) &rm->array->data[i]);
+        void *oldptr = rm->array->is_string[i] == 2 ? *(void **) &rm->array->data[i] : NULL;
         char *t = (char *) &rm->array->data[i];
         t[0] = length;
         memmove(t + 1, text, length);
         rm->array->is_string[i] = 1;
+        if (oldptr != NULL)
+            free(oldptr);
     }
     return true;
 }
@@ -530,6 +531,14 @@ int store_var(const char *name, int namelength, vartype *value, bool local) {
         vars[varindex].level = local ? get_rtn_level() : -1;
         vars[varindex].flags = 0;
     } else if (local && vars[varindex].level < get_rtn_level()) {
+        bool must_push = false;
+        if ((matedit_mode == 1 || matedit_mode == 3)
+                && string_equals(name, namelength, matedit_name, matedit_length)) {
+            if (matedit_mode == 3)
+                return ERR_RESTRICTED_OPERATION;
+            else
+                must_push = true;
+        }
         if (vars_count == vars_capacity) {
             int nc = vars_capacity + 25;
             var_struct *nv = (var_struct *) realloc(vars, nc * sizeof(var_struct));
@@ -545,13 +554,8 @@ int store_var(const char *name, int namelength, vartype *value, bool local) {
             vars[varindex].name[i] = name[i];
         vars[varindex].level = get_rtn_level();
         vars[varindex].flags = VAR_HIDING;
-        if ((matedit_mode == 1 || matedit_mode == 3)
-                && string_equals(name, namelength, matedit_name, matedit_length)) {
-            if (matedit_mode == 3)
-                return ERR_RESTRICTED_OPERATION;
-            else
-                push_indexed_matrix();
-        }
+        if (must_push)
+            push_indexed_matrix();
     } else {
         if (matedit_mode == 1 &&
                 string_equals(name, namelength, matedit_name, matedit_length)) {
@@ -567,13 +571,25 @@ int store_var(const char *name, int namelength, vartype *value, bool local) {
     return ERR_NONE;
 }
 
-void purge_var(const char *name, int namelength) {
+bool purge_var(const char *name, int namelength, bool global, bool local) {
     int varindex = lookup_var(name, namelength);
     if (varindex == -1)
-        return;
-    if (vars[varindex].level != -1 && vars[varindex].level != get_rtn_level())
-        // Won't delete local var not created at this level
-        return;
+        return true;
+    if (vars[varindex].level == -1) {
+        if (!global)
+            // Asked to delete a local, but found a global;
+            // not an error, but don't delete.
+            return true;
+    } else {
+        if (!local)
+            // Asked to delete a global, but found a local;
+            // that's an error.
+            return false;
+        if (vars[varindex].level != get_rtn_level())
+            // Found a local at a lower level;
+            // not an error, but don't delete.
+            return true;
+    }
     if (matedit_mode == 1 && string_equals(matedit_name, matedit_length, name, namelength))
         matedit_mode = 0;
     free_vartype(vars[varindex].value);
@@ -589,6 +605,7 @@ void purge_var(const char *name, int namelength) {
         vars[i] = vars[i + 1];
     vars_count--;
     update_catalog();
+    return true;
 }
 
 void purge_all_vars() {

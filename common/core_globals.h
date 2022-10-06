@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -45,35 +45,36 @@ extern FILE *gfile;
 #define ERR_DIMENSION_ERROR         7
 #define ERR_TOO_FEW_ARGUMENTS       8
 #define ERR_SIZE_ERROR              9
-#define ERR_RESTRICTED_OPERATION   10
-#define ERR_YES                    11
-#define ERR_NO                     12
-#define ERR_STOP                   13
-#define ERR_LABEL_NOT_FOUND        14
-#define ERR_NO_REAL_VARIABLES      15
-#define ERR_NO_COMPLEX_VARIABLES   16
-#define ERR_NO_MATRIX_VARIABLES    17
-#define ERR_NO_MENU_VARIABLES      18
-#define ERR_STAT_MATH_ERROR        19
-#define ERR_INVALID_FORECAST_MODEL 20
-#define ERR_SINGULAR_MATRIX        21
-#define ERR_SOLVE_SOLVE            22
-#define ERR_INTEG_INTEG            23
-#define ERR_RUN                    24
-#define ERR_INTERRUPTED            25
-#define ERR_PRINTING_IS_DISABLED   26
-#define ERR_INTERRUPTIBLE          27
-#define ERR_NO_VARIABLES           28
-#define ERR_INSUFFICIENT_MEMORY    29
-#define ERR_NOT_YET_IMPLEMENTED    30
-#define ERR_INTERNAL_ERROR         31
-#define ERR_SUSPICIOUS_OFF         32
-#define ERR_RTN_STACK_FULL         33
-#define ERR_NUMBER_TOO_LARGE       34
-#define ERR_NUMBER_TOO_SMALL       35
-#define ERR_BIG_STACK_DISABLED     36
-#define ERR_INVALID_CONTEXT        37
-#define ERR_NAME_TOO_LONG          38
+#define ERR_STACK_DEPTH_ERROR      10
+#define ERR_RESTRICTED_OPERATION   11
+#define ERR_YES                    12
+#define ERR_NO                     13
+#define ERR_STOP                   14
+#define ERR_LABEL_NOT_FOUND        15
+#define ERR_NO_REAL_VARIABLES      16
+#define ERR_NO_COMPLEX_VARIABLES   17
+#define ERR_NO_MATRIX_VARIABLES    18
+#define ERR_NO_MENU_VARIABLES      19
+#define ERR_STAT_MATH_ERROR        20
+#define ERR_INVALID_FORECAST_MODEL 21
+#define ERR_SINGULAR_MATRIX        22
+#define ERR_SOLVE_SOLVE            23
+#define ERR_INTEG_INTEG            24
+#define ERR_RUN                    25
+#define ERR_INTERRUPTED            26
+#define ERR_PRINTING_IS_DISABLED   27
+#define ERR_INTERRUPTIBLE          28
+#define ERR_NO_VARIABLES           29
+#define ERR_INSUFFICIENT_MEMORY    30
+#define ERR_NOT_YET_IMPLEMENTED    31
+#define ERR_INTERNAL_ERROR         32
+#define ERR_SUSPICIOUS_OFF         33
+#define ERR_RTN_STACK_FULL         34
+#define ERR_NUMBER_TOO_LARGE       35
+#define ERR_NUMBER_TOO_SMALL       36
+#define ERR_BIG_STACK_DISABLED     37
+#define ERR_INVALID_CONTEXT        38
+#define ERR_NAME_TOO_LONG          39
 
 #define RTNERR_MAX 8
 
@@ -531,6 +532,8 @@ int x2line();
 int a2line(bool append);
 int4 pc2line(int4 pc);
 int4 line2pc(int4 line);
+int4 global_pc2line(int prgm, int4 pc);
+int4 global_line2pc(int prgm, int4 line);
 int4 find_local_label(const arg_struct *arg);
 int find_global_label(const arg_struct *arg, int *prgm, int4 *pc);
 int find_global_label_index(const arg_struct *arg, int *idx);
@@ -572,7 +575,7 @@ bool read_arg(arg_struct *arg, bool old);
 bool write_arg(const arg_struct *arg);
 
 bool load_state(int4 version, bool *clear, bool *too_new);
-void save_state();
+void save_state(bool *success);
 // Reason:
 // 0 = Memory Clear
 // 1 = State File Corrupt

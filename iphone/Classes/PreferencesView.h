@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -23,10 +23,12 @@
     UISwitch *matrixOutOfRangeSwitch;
     UISwitch *autoRepeatSwitch;
     UISwitch *allowBigStackSwitch;
+    UISwitch *localizedCopyPasteSwitch;
     UISwitch *alwaysOnSwitch;
     UISlider *keyClicksSlider;
     UISlider *hapticFeedbackSlider;
     UISegmentedControl *orientationSelector;
+    UISegmentedControl *swipeDirectionSelector;
     UISwitch *maintainSkinAspectSwitch;
     UISwitch *printToTextSwitch;
     UITextField *printToTextField;
@@ -43,10 +45,12 @@
 @property (nonatomic, retain) IBOutlet UISwitch *matrixOutOfRangeSwitch;
 @property (nonatomic, retain) IBOutlet UISwitch *autoRepeatSwitch;
 @property (nonatomic, retain) IBOutlet UISwitch *allowBigStackSwitch;
+@property (nonatomic, retain) IBOutlet UISwitch *localizedCopyPasteSwitch;
 @property (nonatomic, retain) IBOutlet UISwitch *alwaysOnSwitch;
 @property (nonatomic, retain) IBOutlet UISlider *keyClicksSlider;
 @property (nonatomic, retain) IBOutlet UISlider *hapticFeedbackSlider;
 @property (nonatomic, retain) IBOutlet UISegmentedControl *orientationSelector;
+@property (nonatomic, retain) IBOutlet UISegmentedControl *swipeDirectionSelector;
 @property (nonatomic, retain) IBOutlet UISwitch *maintainSkinAspectSwitch;
 @property (nonatomic, retain) IBOutlet UISwitch *printToTextSwitch;
 @property (nonatomic, retain) IBOutlet UITextField *printToTextField;

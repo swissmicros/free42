@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -102,7 +102,7 @@ public class Free42Activity extends Activity {
 
     public static final String[] builtinSkinNames = new String[] { "Standard", "Landscape" };
     
-    private static final int SHELL_VERSION = 18;
+    private static final int SHELL_VERSION = 20;
     
     private static final int PRINT_BACKGROUND_COLOR = Color.LTGRAY;
     
@@ -967,6 +967,7 @@ public class Free42Activity extends Activity {
         preferencesDialog.setMatrixOutOfRange(cs.matrix_outofrange);
         preferencesDialog.setAutoRepeat(cs.auto_repeat);
         preferencesDialog.setAllowBigStack(cs.allow_big_stack);
+        preferencesDialog.setLocalizedCopyPaste(cs.localized_copy_paste);
         preferencesDialog.setAlwaysOn(shell_always_on(-1));
         preferencesDialog.setKeyClicks(keyClicksLevel);
         preferencesDialog.setKeyVibration(keyVibration);
@@ -992,6 +993,7 @@ public class Free42Activity extends Activity {
         cs.auto_repeat = preferencesDialog.getAutoRepeat();
         boolean oldBigStack = cs.allow_big_stack;
         cs.allow_big_stack = preferencesDialog.getAllowBigStack();
+        cs.localized_copy_paste = preferencesDialog.getLocalizedCopyPaste();
         putCoreSettings(cs);
         if (oldBigStack != cs.allow_big_stack)
             core_update_allow_big_stack();
@@ -1090,7 +1092,7 @@ public class Free42Activity extends Activity {
 
                 TextView label2 = new TextView(context);
                 label2.setId(3);
-                label2.setText("\u00a9 2004-2021 Thomas Okken");
+                label2.setText("\u00a9 2004-2022 Thomas Okken");
                 lp = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
                 lp.addRule(RelativeLayout.ALIGN_LEFT, label1.getId());
                 lp.addRule(RelativeLayout.BELOW, label1.getId());
@@ -1118,8 +1120,28 @@ public class Free42Activity extends Activity {
                 lp.addRule(RelativeLayout.BELOW, label3.getId());
                 addView(label4, lp);
 
+                TextView label5 = new TextView(context);
+                label5.setId(6);
+                label5.setText("Plus42: Free42 Enhanced");
+                lp = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
+                lp.addRule(RelativeLayout.ALIGN_LEFT, label4.getId());
+                lp.addRule(RelativeLayout.BELOW, label4.getId());
+                lp.setMargins(0, 10, 0, 0);
+                addView(label5, lp);
+
+                TextView label6 = new TextView(context);
+                label6.setId(7);
+                s = new SpannableString("https://thomasokken.com/plus42/");
+                Linkify.addLinks(s, Linkify.WEB_URLS);
+                label6.setText(s);
+                label6.setMovementMethod(LinkMovementMethod.getInstance());
+                lp = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
+                lp.addRule(RelativeLayout.ALIGN_LEFT, label5.getId());
+                lp.addRule(RelativeLayout.BELOW, label5.getId());
+                addView(label6, lp);
+
                 Button okB = new Button(context);
-                okB.setId(6);
+                okB.setId(8);
                 okB.setText("   OK   ");
                 okB.setOnClickListener(new OnClickListener() {
                     public void onClick(View view) {
@@ -1127,7 +1149,7 @@ public class Free42Activity extends Activity {
                     }
                 });
                 lp = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
-                lp.addRule(RelativeLayout.BELOW, label4.getId());
+                lp.addRule(RelativeLayout.BELOW, label6.getId());
                 lp.addRule(RelativeLayout.CENTER_HORIZONTAL);
                 addView(okB, lp);
 
@@ -1777,6 +1799,8 @@ public class Free42Activity extends Activity {
                 cs.auto_repeat = state_read_boolean();
                 if (shell_version >= 18)
                     cs.allow_big_stack = state_read_boolean();
+                if (shell_version >= 20)
+                    cs.localized_copy_paste = state_read_boolean();
                 putCoreSettings(cs);
             }
             init_shell_state(shell_version);
@@ -1853,10 +1877,15 @@ public class Free42Activity extends Activity {
             // fall through
         case 17:
             cs.allow_big_stack = false;
-            putCoreSettings(cs);
             // fall through
         case 18:
-            // current version (SHELL_VERSION = 18),
+            // fall through
+        case 19:
+            cs.localized_copy_paste = true;
+            putCoreSettings(cs);
+            // fall through
+        case 20:
+            // current version (SHELL_VERSION = 20),
             // so nothing to do here since everything
             // was initialized from the state file.
             ;
@@ -1896,6 +1925,7 @@ public class Free42Activity extends Activity {
             state_write_boolean(cs.matrix_outofrange);
             state_write_boolean(cs.auto_repeat);
             state_write_boolean(cs.allow_big_stack);
+            state_write_boolean(cs.localized_copy_paste);
         } catch (IllegalArgumentException e) {}
     }
     
@@ -2063,6 +2093,7 @@ public class Free42Activity extends Activity {
         public boolean matrix_outofrange;
         public boolean auto_repeat;
         public boolean allow_big_stack;
+        public boolean localized_copy_paste;
     }
 
     ///////////////////////////////////////////////////
@@ -2206,9 +2237,8 @@ public class Free42Activity extends Activity {
      * shell_get_mem()
      * Callback to get the amount of free memory in bytes.
      */
-    public int shell_get_mem() {
-        long freeMem = Runtime.getRuntime().freeMemory();
-        return freeMem > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) freeMem;
+    public long shell_get_mem() {
+        return Runtime.getRuntime().freeMemory();
     }
     
     /**
@@ -2228,7 +2258,13 @@ public class Free42Activity extends Activity {
      */
     public void shell_powerdown() {
         quit_flag = true;
-        finish();
+        if (android.os.Build.VERSION.SDK_INT < 21)
+            finish();
+        else
+            try {
+                Method m = Free42Activity.class.getMethod("finishAndRemoveTask");
+                m.invoke(this);
+            } catch (Exception e) {}
     }
     
     private class AlwaysOnSetter implements Runnable {
@@ -2257,16 +2293,38 @@ public class Free42Activity extends Activity {
         return ret;
     }
     
-    /**
-     * shell_decimal_point()
-     * Returns 0 if the host's locale uses comma as the decimal separator;
-     * returns 1 if it uses dot or anything else.
-     * Used to initialize flag 28 on hard reset.
+    /** shell_number_format()
+     *
+     * Returns a UTF-8 encoded four-character string, describing the number
+     * formatting parameters for the current locale. The four characters are:
+     * 0: decimal (must be one of '.' or ',')
+     * 1: grouping character (must be one of '.', ',', '\'', or space)
+     * 2: primary grouping size
+     * 3: secondary grouping size
+     * The grouping sizes are encoded as ASCII digits. If there is no grouping,
+     * only the decimal character will be present, so the string will be only 1
+     * character long.
+     * The caller should not modify or free the string.
+     *
+     * The number formatting information is used for Copy and Paste of scalars and
+     * matrices, and to determine the initial setting of flag 28 on cold start.
      */
-    public boolean shell_decimal_point() {
+    public String shell_number_format() {
         DecimalFormat df = new DecimalFormat();
         DecimalFormatSymbols dfsym = df.getDecimalFormatSymbols();
-        return dfsym.getDecimalSeparator() != ',';
+        char dec = dfsym.getDecimalSeparator();
+        if (!df.isGroupingUsed()) {
+            return "" + dec;
+        } else {
+            String n = df.format(100000000000.1);
+            char sep = dfsym.getGroupingSeparator();
+            int decPos = n.indexOf(dec);
+            int sep1Pos = n.lastIndexOf(sep, decPos);
+            int sep2Pos = sep1Pos < 1 ? -1 : n.lastIndexOf(sep, sep1Pos - 1);
+            int g1 = sep1Pos == -1 ? 0 : (decPos - sep1Pos - 1);
+            int g2 = sep2Pos == -1 ? 0 : (sep1Pos - sep2Pos - 1);
+            return "" + dec + sep + ((char) ('0' + g1)) + ((char) ('0' + g2));
+        }
     }
     
     /**

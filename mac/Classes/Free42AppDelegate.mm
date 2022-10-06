@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2021  Thomas Okken
+ * Copyright (C) 2004-2022  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -119,6 +119,7 @@ static bool is_file(const char *name);
 @synthesize prefsMatrixOutOfRange;
 @synthesize prefsAutoRepeat;
 @synthesize prefsAllowBigStack;
+@synthesize prefsLocalizedCopyPaste;
 @synthesize prefsPrintText;
 @synthesize prefsPrintTextFile;
 @synthesize prefsPrintTextRaw;
@@ -302,7 +303,7 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
             core_state_file_offset = ftell(statefile);
         }
         fclose(statefile);
-    }  else {
+    } else {
         // The shell state was missing or corrupt, but there
         // may still be a valid core state...
         snprintf(core_state_file_name, FILENAMELEN, "%s/%s.f42", free42dirname, state.coreName);
@@ -487,7 +488,7 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
 - (IBAction) showAbout:(id)sender {
     const char *version = [Free42AppDelegate getVersion];
     [aboutVersion setStringValue:[NSString stringWithFormat:@"Free42 %s", version]];
-    [aboutCopyright setStringValue:@"© 2004-2021 Thomas Okken"];
+    [aboutCopyright setStringValue:@"© 2004-2022 Thomas Okken"];
     [NSApp runModalForWindow:aboutWindow];
 }
 
@@ -496,6 +497,7 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
     [prefsMatrixOutOfRange setState:core_settings.matrix_outofrange];
     [prefsAutoRepeat setState:core_settings.auto_repeat];
     [prefsAllowBigStack setState:core_settings.allow_big_stack];
+    [prefsLocalizedCopyPaste setState:core_settings.localized_copy_paste];
     [prefsPrintText setState:state.printerToTxtFile];
     [prefsPrintTextFile setStringValue:[NSString stringWithUTF8String:state.printerTxtFileName]];
     [prefsPrintGIF setState:state.printerToGifFile];
@@ -510,6 +512,7 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
     core_settings.auto_repeat = [prefsAutoRepeat state];
     bool oldBigStack = core_settings.allow_big_stack;
     core_settings.allow_big_stack = [prefsAllowBigStack state];
+    core_settings.localized_copy_paste = [prefsLocalizedCopyPaste state];
     if (oldBigStack != core_settings.allow_big_stack)
         core_update_allow_big_stack();
     state.printerToTxtFile = [prefsPrintText state];
@@ -953,14 +956,31 @@ static char version[32] = "";
 
 + (const char *) getVersion {
     if (version[0] == 0) {
-        NSString *appVersion = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"];
+        NSString *appVersion = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
         strcpy(version, [appVersion UTF8String]);
-        // Version string consists of up to four dot-separated numbers.
-        // If there are four, change the last ".nn" to a letter.
+        // Version string consists of up to three dot-separated numbers.
+        // If there are three, change the last ".nn" to a letter.
         int pos, num;
-        if (sscanf(version, "%*d.%*d.%*d.%n%d", &pos, &num) == 1) {
-            version[pos - 1] = 'a' + num - 1;
-            version[pos] = 0;
+        char c = 0;
+        if (sscanf(version, "%*d.%*d.%n%d", &pos, &num) == 1) {
+            c = 'a' + num - 1;
+            version[pos - 1] = 0;
+        }
+        // If there are now two components, remove the second if it is ".0"
+        size_t len = strlen(version);
+        if (len > 2 && version[len - 2] == '.' && version[len - 1] == '0') {
+            len -= 2;
+            version[len] = 0;
+        }
+        // The first component consists of the major and minor version
+        // components joined together. *sigh* Long story.
+        memmove(version + 2, version + 1, len);
+        version[1] = '.';
+        len++;
+        // Append that version letter we found in the first step
+        if (c != 0) {
+            version[len++] = c;
+            version[len] = 0;
         }
     }
     return version;
@@ -1450,10 +1470,23 @@ uint4 shell_milliseconds() {
     return (uint4) (tv.tv_sec * 1000L + tv.tv_usec / 1000);
 }
 
-bool shell_decimal_point() {
+const char *shell_number_format() {
     NSLocale *loc = [NSLocale currentLocale];
-    NSString *dec = [loc objectForKey:NSLocaleDecimalSeparator];
-    return ![dec isEqualToString:@","];
+    static NSString *f = nil;
+    [f release];
+    f = [loc objectForKey:NSLocaleDecimalSeparator];
+    NSNumberFormatter *fmt = [[NSNumberFormatter alloc] init];
+    fmt.numberStyle = NSNumberFormatterDecimalStyle;
+    if (fmt.usesGroupingSeparator) {
+        NSString *sep = [loc objectForKey:NSLocaleGroupingSeparator];
+        int ps = fmt.groupingSize;
+        int ss = fmt.secondaryGroupingSize;
+        if (ss == 0)
+            ss = ps;
+        f = [NSString stringWithFormat:@"%@%@%c%c", f, sep, '0' + ps, '0' + ss];
+    }
+    [f retain];
+    return [f UTF8String];
 }
 
 int shell_date_format() {
@@ -1496,7 +1529,7 @@ void shell_delay(int duration) {
     nanosleep(&ts, NULL);
 }
 
-uint4 shell_get_mem() {
+uint8 shell_get_mem() {
     uint8 bytes = 0;
     mach_msg_type_number_t count = HOST_VM_INFO_COUNT;
     vm_statistics_data_t vmstat;
@@ -1504,9 +1537,7 @@ uint4 shell_get_mem() {
         bytes = vmstat.free_count;
         bytes *= getpagesize();
     }
-    if (bytes > 4294967295)
-        bytes = 4294967295;
-    return (uint4) bytes;
+    return bytes;
 }
 
 void shell_blitter(const char *bits, int bytesperline, int x, int y, int width, int height) {
@@ -1783,7 +1814,12 @@ static void init_shell_state(int4 version) {
             core_settings.allow_big_stack = false;
             /* fall through */
         case 3:
-            /* current version (SHELL_VERSION = 3),
+            /* fall through */
+        case 4:
+            core_settings.localized_copy_paste = true;
+            /* fall through */
+        case 5:
+            /* current version (SHELL_VERSION = 5),
              * so nothing to do here since everything
              * was initialized from the state file.
              */
@@ -1831,6 +1867,9 @@ static int read_shell_state(int4 *ver) {
 
     if (state_version >= 3)
         core_settings.allow_big_stack = state.allow_big_stack;
+
+    if (state_version >= 5)
+        core_settings.localized_copy_paste = state.localized_copy_paste;
     
     init_shell_state(state_version);
     *ver = version;
@@ -1855,6 +1894,7 @@ static int write_shell_state() {
     state.matrix_outofrange = core_settings.matrix_outofrange;
     state.auto_repeat = core_settings.auto_repeat;
     state.allow_big_stack = core_settings.allow_big_stack;
+    state.localized_copy_paste = core_settings.localized_copy_paste;
     if (fwrite(&state, 1, sizeof(state_type), statefile) != sizeof(state_type))
         return 0;
     
