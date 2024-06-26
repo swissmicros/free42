@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -285,7 +285,7 @@ void errprintf(const char *fmt, ...) {
     va_list ap;
     char text[1024];
     va_start(ap, fmt);
-    vsprintf(text, fmt, ap);
+    vsnprintf(text, 1024, fmt, ap);
     [instance performSelectorOnMainThread:@selector(appendToLog:) withObject:[[NSString stringWithUTF8String:text] retain] waitUntilDone:NO];
     va_end(ap);
     

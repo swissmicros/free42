@@ -1,7 +1,7 @@
 #!/bin/sh
 
-NDK="$HOME/Library/Android/sdk/ndk"
-NDK="$NDK/`ls "$NDK" | tail -1`"
+NDK_VERSION=`grep ndkVersion ../../../build.gradle | sed 's/^[^"]*"\([^"]*\)".*$/\1/'`
+NDK="$HOME/Library/Android/sdk/ndk/$NDK_VERSION"
 export PATH="`/bin/pwd`/bin:$NDK/prebuilt/darwin-x86_64/bin:$NDK/toolchains/llvm/prebuilt/darwin-x86_64/bin:$PATH"
 BUILT=0
 
@@ -43,6 +43,6 @@ if [ $BUILT -ne 0 ]; then
     cd IntelRDFPMathLib20U1/TESTS
     cp readtest.c readtest.h test_bid_conf.h test_bid_functions.h ../..
     cd ../..
-    ( echo '#ifdef FREE42_FPTEST'; echo 'const char *readtest_lines[] = {'; tr -d '\r' < IntelRDFPMathLib20U1/TESTS/readtest.in | sed 's/^\(.*\)$/"\1",/'; echo '0 };'; echo '#endif' ) > readtest_lines.cc
+    ( echo '#ifdef FREE42_FPTEST'; echo '#include <math.h>'; echo 'double log2(double x) { return log(x) / log(2); }'; echo 'const char *readtest_lines[] = {'; tr -d '\r' < IntelRDFPMathLib20U1/TESTS/readtest.in | sed 's/^\(.*\)$/"\1",/'; echo '0 };'; echo '#endif' ) > readtest_lines.cc
     rm -rf bin IntelRDFPMathLib20U1
 fi

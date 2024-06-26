@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -719,7 +719,7 @@ extern "C" {
         va_list ap;
         char text[1024];
         va_start(ap, fmt);
-        c = vsprintf(text, fmt, ap);
+        c = vsnprintf(text, 1024, fmt, ap);
         shell_log(text);
         va_end(ap);
         return c;
@@ -764,15 +764,13 @@ int docmd_lsto(arg_struct *arg) {
             && stack[sp]->type != TYPE_REALMATRIX
             && stack[sp]->type != TYPE_COMPLEXMATRIX)
         return ERR_RESTRICTED_OPERATION;
-    /* When EDITN is active, don't allow the matrix being
-     * edited to be overwritten. */
-    if (matedit_mode == 3 && string_equals(arg->val.text,
-                arg->length, matedit_name, matedit_length))
-        return ERR_RESTRICTED_OPERATION;
     vartype *newval = dup_vartype(stack[sp]);
     if (newval == NULL)
         return ERR_INSUFFICIENT_MEMORY;
-    return store_var(arg->val.text, arg->length, newval, true);
+    err = store_var(arg->val.text, arg->length, newval, true);
+    if (err != ERR_NONE)
+        free_vartype(newval);
+    return err;
 }
 
 int docmd_lasto(arg_struct *arg) {
@@ -1032,6 +1030,10 @@ int docmd_type_t(arg_struct *arg) {
     return ERR_NONE;
 }
 
+int docmd_csld_t(arg_struct *arg) {
+    return is_csld() ? ERR_YES : ERR_NO;
+}
+
 /////////////////////
 ///// Big Stack /////
 /////////////////////
@@ -1105,6 +1107,13 @@ int docmd_drop(arg_struct *arg) {
     }
     print_trace();
     return ERR_NONE;
+}
+
+int docmd_drop_cancl(arg_struct *arg) {
+    int err = docmd_drop(arg);
+    if (err == ERR_NONE)
+        flags.f.numeric_data_input = false;
+    return err;
 }
 
 int docmd_dropn(arg_struct *arg) {
@@ -1754,7 +1763,7 @@ int docmd_head(arg_struct *arg) {
                 s = lastx;
             } else {
                 if (idx > sp)
-                    return ERR_NONEXISTENT;
+                    return ERR_STACK_DEPTH_ERROR;
                 s = stack[sp - idx];
             }
             doit:
@@ -1897,20 +1906,34 @@ int docmd_s_to_n(arg_struct *arg) {
     return ERR_NONE;
 }
 
-int docmd_n_to_s(arg_struct *arg) {
+static int number_to_string(int max_mant_digits) {
     // N->S: convert number to string, like ARCL
     vartype *v;
     if (stack[sp]->type == TYPE_STRING) {
         v = dup_vartype(stack[sp]);
     } else {
         char buf[100];
-        int bufptr = vartype2string(stack[sp], buf, 100);
+        int bufptr = vartype2string(stack[sp], buf, 100, max_mant_digits);
         v = new_string(buf, bufptr);
     }
     if (v == NULL)
         return ERR_INSUFFICIENT_MEMORY;
     unary_result(v);
     return ERR_NONE;
+}
+
+int docmd_n_to_s(arg_struct *arg) {
+    return number_to_string(12);
+}
+
+int docmd_nn_to_s(arg_struct *args) {
+    char saved_fix_or_all = flags.f.fix_or_all;
+    char saved_eng_or_all = flags.f.eng_or_all;
+    flags.f.fix_or_all = flags.f.eng_or_all = 1;
+    int err = number_to_string(MAX_MANT_DIGITS);
+    flags.f.fix_or_all = saved_fix_or_all;
+    flags.f.eng_or_all = saved_eng_or_all;
+    return err;
 }
 
 int docmd_c_to_n(arg_struct *arg) {
@@ -1949,13 +1972,6 @@ int docmd_list_t(arg_struct *arg) {
 
 int docmd_newlist(arg_struct *arg) {
     vartype *v = new_list(0);
-    if (v == NULL)
-        return ERR_INSUFFICIENT_MEMORY;
-    return recall_result(v);
-}
-
-int docmd_newstr(arg_struct *arg) {
-    vartype *v = new_string("", 0);
     if (v == NULL)
         return ERR_INSUFFICIENT_MEMORY;
     return recall_result(v);
@@ -2000,6 +2016,7 @@ int docmd_to_list(arg_struct *arg) {
         }
     }
     stack[sp] = (vartype *) list;
+    print_trace();
     return ERR_NONE;
 }
 
@@ -2049,6 +2066,7 @@ int docmd_from_list(arg_struct *arg) {
     free(list->array->data);
     free(list->array);
     free(list);
+    print_trace();
     return ERR_NONE;
 }
 

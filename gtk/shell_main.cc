@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Free42 -- an HP-42S calculator simulator
-// Copyright (C) 2004-2022  Thomas Okken
+// Copyright (C) 2004-2024  Thomas Okken
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License, version 2,
@@ -55,7 +55,9 @@
 /* These are global because the skin code uses them a lot */
 
 GtkWidget *calc_widget;
+GtkWidget *mainwindow;
 bool allow_paint = false;
+int menu_bar_height = -1;
 
 state_type state;
 char free42dirname[FILENAMELEN];
@@ -98,18 +100,18 @@ static int gif_lines;
 static int pype[2];
 
 static GtkApplication *app = NULL;
-static GtkWidget *mainwindow;
 static GtkWidget *printwindow;
 static GtkWidget *print_widget;
 //static GdkGC *print_gc = NULL;
 static GtkAdjustment *print_adj;
 static GdkPixbuf *icon_128;
 static GdkPixbuf *icon_48;
+static guint resize_timeout_id = 0;
 
-static int ckey = 0;
-static int skey;
+int ckey = 0;
+int skey = -1;
 static unsigned char *macro;
-static bool macro_is_name;
+static int macro_type;
 static bool mouse_key;
 static guint16 active_keycode = 0;
 static bool just_pressed_shift = false;
@@ -124,13 +126,13 @@ static FILE *statefile = NULL;
 static char statefilename[FILENAMELEN];
 static char printfilename[FILENAMELEN];
 
-static int ann_updown = 0;
-static int ann_shift = 0;
-static int ann_print = 0;
-static int ann_run = 0;
-static int ann_battery = 0;
-static int ann_g = 0;
-static int ann_rad = 0;
+int ann_updown = 0;
+int ann_shift = 0;
+int ann_print = 0;
+int ann_run = 0;
+int ann_battery = 0;
+int ann_g = 0;
+int ann_rad = 0;
 static guint ann_print_timeout_id = 0;
 
 
@@ -148,6 +150,7 @@ static char *strclone(const char *s);
 static bool file_exists(const char *name);
 static void show_message(const char *title, const char *message, GtkWidget *parent = mainwindow);
 static void no_mwm_resize_borders(GtkWidget *window);
+static void no_mwm_zoom_box(GtkWidget *window);
 static void scroll_printout_to_bottom();
 static void quitCB();
 static void statesCB();
@@ -301,6 +304,7 @@ static const char *mainWindowXml =
                     "<child>"
                       "<object class='GtkMenuItem' id='clear_printout_item'>"
                         "<property name='label'>Clear Print-Out</property>"
+                        "<accelerator key='D' signal='activate' modifiers='GDK_CONTROL_MASK'/>"
                       "</object>"
                     "</child>"
                   "</object>"
@@ -333,6 +337,10 @@ static const char *mainWindowXml =
               "%s"
             "</child>"
           "</object>"
+          "<packing>"
+            "<property name='expand'>FALSE</property>"
+            "<property name='fill'>TRUE</property>"
+          "</packing>"
         "</child>"
       "</object>"
     "</child>"
@@ -358,6 +366,8 @@ static char *skin_arg = NULL;
 static char cached_number_format[9];
 
 static void activate(GtkApplication *theApp, gpointer userData);
+static void menubar_resized(GtkWidget *w, GtkAllocation *allocation, gpointer data);
+static void calc_resized(GtkWidget *w, GtkAllocation *allocation, gpointer data);
 
 int main(int argc, char *argv[]) {
     for (int i = 1; i < argc; i++) {
@@ -579,9 +589,9 @@ static void activate(GtkApplication *theApp, gpointer userData) {
 
     char *xml = (char *) malloc(10240);
     if (use_compactmenu)
-        sprintf(xml, mainWindowXml, compactMenuIntroXml, compactMenuOutroXml);
+        snprintf(xml, 10240, mainWindowXml, compactMenuIntroXml, compactMenuOutroXml);
     else
-        sprintf(xml, mainWindowXml, "", "");
+        snprintf(xml, 10240, mainWindowXml, "", "");
     GtkBuilder *builder = gtk_builder_new();
     gtk_builder_add_from_string(builder, xml, -1, NULL);
     free(xml);
@@ -595,13 +605,16 @@ static void activate(GtkApplication *theApp, gpointer userData) {
     gtk_window_set_icon(GTK_WINDOW(mainwindow), icon_128);
     gtk_window_set_title(GTK_WINDOW(mainwindow), TITLE);
     gtk_window_set_role(GTK_WINDOW(mainwindow), "Free42 Calculator");
-    gtk_window_set_resizable(GTK_WINDOW(mainwindow), FALSE);
-    no_mwm_resize_borders(mainwindow);
+    //gtk_window_set_resizable(GTK_WINDOW(mainwindow), FALSE);
+    no_mwm_zoom_box(mainwindow);
     g_signal_connect(G_OBJECT(mainwindow), "delete_event",
                      G_CALLBACK(delete_cb), NULL);
     if (state.mainWindowKnown)
         gtk_window_move(GTK_WINDOW(mainwindow), state.mainWindowX,
                                             state.mainWindowY);
+
+    GtkWidget *menubar = GTK_WIDGET(gtk_builder_get_object(builder, "menubar"));
+    g_signal_connect(G_OBJECT(menubar), "size-allocate", G_CALLBACK(menubar_resized), NULL);
 
     // The "Skin" menu is dynamic; we don't populate any items in it here.
     // Instead, we attach a callback which scans the .free42 directory for
@@ -655,9 +668,11 @@ static void activate(GtkApplication *theApp, gpointer userData) {
 
     int win_width, win_height;
     skin_load(&win_width, &win_height);
+    skin_set_window_size(win_width, win_height);
+    if (state.mainWindowWidth != 0)
+        skin_set_window_size(state.mainWindowWidth, state.mainWindowHeight);
     GtkWidget *w = gtk_drawing_area_new();
-    gtk_widget_set_size_request(w, win_width, win_height);
-    gtk_box_pack_start(GTK_BOX(box), w, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), w, TRUE, TRUE, 0);
     g_signal_connect(G_OBJECT(w), "draw", G_CALLBACK(draw_cb), NULL);
     gtk_widget_add_events(w, GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK);
     g_signal_connect(G_OBJECT(w), "button-press-event", G_CALLBACK(button_cb), NULL);
@@ -665,7 +680,16 @@ static void activate(GtkApplication *theApp, gpointer userData) {
     gtk_widget_set_can_focus(w, TRUE);
     g_signal_connect(G_OBJECT(w), "key-press-event", G_CALLBACK(key_cb), NULL);
     g_signal_connect(G_OBJECT(w), "key-release-event", G_CALLBACK(key_cb), NULL);
+    g_signal_connect(G_OBJECT(w), "size-allocate", G_CALLBACK(calc_resized), NULL);
+    gtk_widget_set_size_request(w, 160, 160);
     calc_widget = w;
+
+    /*
+    GdkGeometry geom;
+    geom.min_width = 160;
+    geom.min_height = 160;
+    gtk_window_set_geometry_hints(GTK_WINDOW(mainwindow), w, &geom, GdkWindowHints(GDK_HINT_MIN_SIZE));
+    */
 
 
     /**************************************/
@@ -751,9 +775,11 @@ static void activate(GtkApplication *theApp, gpointer userData) {
     GdkGeometry geom;
     geom.min_width = 358;
     geom.max_width = 358;
-    geom.min_height = 1;
+    geom.min_height = 18;
     geom.max_height = 32767;
-    gtk_window_set_geometry_hints(GTK_WINDOW(printwindow), NULL, &geom, GdkWindowHints(GDK_HINT_MIN_SIZE | GDK_HINT_MAX_SIZE));
+    geom.width_inc = 1;
+    geom.height_inc = 18;
+    gtk_window_set_geometry_hints(GTK_WINDOW(printwindow), NULL, &geom, GdkWindowHints(GDK_HINT_MIN_SIZE | GDK_HINT_MAX_SIZE | GDK_HINT_RESIZE_INC));
 
     if (state.printWindowKnown)
         gtk_window_move(GTK_WINDOW(printwindow), state.printWindowX,
@@ -819,6 +845,42 @@ static void activate(GtkApplication *theApp, gpointer userData) {
         sigaction(SIGINT, &act, NULL);
         sigaction(SIGTERM, &act, NULL);
     }
+}
+
+static void menubar_resized(GtkWidget *w, GtkAllocation *allocation, gpointer data) {
+    if (menu_bar_height == allocation->height)
+        return;
+    menu_bar_height = allocation->height;
+    int win_width, win_height;
+    skin_get_window_size(&win_width, &win_height);
+    int mh = menu_bar_height >= 2 ? menu_bar_height : 0;
+    gtk_window_resize(GTK_WINDOW(mainwindow), win_width, win_height + mh);
+}
+
+static gboolean resizer(gpointer cd) {
+    int win_width, win_height;
+    skin_get_window_size(&win_width, &win_height);
+    int mh = menu_bar_height >= 2 ? menu_bar_height : 0;
+    gtk_window_resize(GTK_WINDOW(mainwindow), win_width, win_height + mh);
+    resize_timeout_id = 0;
+    return FALSE;
+}
+
+static void calc_resized(GtkWidget *w, GtkAllocation *allocation, gpointer data) {
+    int skin_width, skin_height;
+    skin_get_size(&skin_width, &skin_height);
+    int win_width = allocation->width;
+    int win_height = allocation->height;
+    double hScale = ((double) win_width) / skin_width;
+    double vScale = ((double) win_height) / skin_height;
+    if (hScale > vScale)
+        win_width = (int) (skin_width * vScale + 0.5);
+    else if (vScale > hScale)
+        win_height = (int) (skin_height * hScale + 0.5);
+    skin_set_window_size(win_width, win_height);
+    if (resize_timeout_id != 0)
+        g_source_remove(resize_timeout_id);
+    resize_timeout_id = g_timeout_add(250, resizer, NULL);
 }
 
 keymap_entry *parse_keymap_entry(char *line, int lineno) {
@@ -993,7 +1055,11 @@ static void init_shell_state(int4 version) {
             core_settings.localized_copy_paste = true;
             /* fall through */
         case 10:
-            /* current version (SHELL_VERSION = 10),
+            state.mainWindowWidth = 0;
+            state.mainWindowHeight = 0;
+            // fall through
+        case 11:
+            /* current version (SHELL_VERSION = 11),
              * so nothing to do here since everything
              * was initialized from the state file.
              */
@@ -1158,6 +1224,10 @@ static void quit() {
     state.mainWindowKnown = 1;
     state.mainWindowX = x;
     state.mainWindowY = y;
+    int w, h;
+    skin_get_window_size(&w, &h);
+    state.mainWindowWidth = w;
+    state.mainWindowHeight = h;
 
     if (state.printWindowMapped) {
         gtk_window_get_position(GTK_WINDOW(printwindow), &x, &y);
@@ -1228,6 +1298,19 @@ static void no_mwm_resize_borders(GtkWidget *window) {
     // So, we use an additional GDK call to set the appropriate mwm properties.
     g_signal_connect(G_OBJECT(window), "realize",
                      G_CALLBACK(no_mwm_resize_helper), NULL);
+}
+
+static void no_mwm_zoom_helper(GtkWidget *w, gpointer cd) {
+    GdkWindow *win = gtk_widget_get_window(w);
+    gdk_window_set_decorations(win, GdkWMDecoration(GDK_DECOR_ALL
+                                    | GDK_DECOR_MAXIMIZE));
+    gdk_window_set_functions(win, GdkWMFunction(GDK_FUNC_ALL
+                                    | GDK_FUNC_MAXIMIZE));
+}
+
+static void no_mwm_zoom_box(GtkWidget *window) {
+    g_signal_connect(G_OBJECT(window), "realize",
+                     G_CALLBACK(no_mwm_zoom_helper), NULL);
 }
 
 static void scroll_printout_to_bottom() {
@@ -2441,7 +2524,7 @@ static void aboutCB() {
         GtkWidget *version = gtk_label_new("Free42 " VERSION);
         gtk_misc_set_alignment(GTK_MISC(version), 0, 0);
         gtk_box_pack_start(GTK_BOX(box2), version, FALSE, FALSE, 10);
-        GtkWidget *author = gtk_label_new("\302\251 2004-2022 Thomas Okken");
+        GtkWidget *author = gtk_label_new("\302\251 2004-2024 Thomas Okken");
         gtk_misc_set_alignment(GTK_MISC(author), 0, 0);
         gtk_box_pack_start(GTK_BOX(box2), author, FALSE, FALSE, 0);
         GtkWidget *websitelink = gtk_link_button_new("https://thomasokken.com/free42/");
@@ -2489,12 +2572,17 @@ static gboolean delete_print_cb(GtkWidget *w, GdkEventAny *ev) {
 }
 
 static gboolean draw_cb(GtkWidget *w, cairo_t *cr, gpointer cd) {
+    cairo_save(cr);
+    int win_width, win_height, skin_width, skin_height;
+    skin_get_window_size(&win_width, &win_height);
+    skin_get_size(&skin_width, &skin_height);
+    cairo_scale(cr, ((double) win_width) / skin_width, ((double) win_height) / skin_height);
+
     allow_paint = true;
     bool only_disp = need_to_paint_only_display(cr);
     if (!only_disp)
         skin_repaint(cr);
-    if (ckey < -7 || ckey > -2)
-        skin_repaint_display(cr);
+    skin_repaint_display(cr);
     if (!only_disp) {
         if (ann_updown)
             skin_repaint_annunciator(cr, 1);
@@ -2513,9 +2601,11 @@ static gboolean draw_cb(GtkWidget *w, cairo_t *cr, gpointer cd) {
         if (ckey != 0)
             skin_repaint_key(cr, skey, 1);
     } else {
-        if (ckey >= -7 && ckey <= -2)
+        if (skey >= -7 && skey <= -2)
             skin_repaint_key(cr, skey, 1);
     }
+
+    cairo_restore(cr);
     return TRUE;
 }
 
@@ -2549,6 +2639,9 @@ static gboolean print_key_cb(GtkWidget *w, GdkEventKey *event, gpointer cd) {
         case GDK_KEY_i:
             copyPrintAsImageCB();
             break;
+        case GDK_KEY_d:
+            clearPrintOutCB();
+            break;
         case GDK_KEY_q:
             quit();
             break;
@@ -2577,8 +2670,8 @@ static void shell_keydown() {
     }
 
     if (macro != NULL) {
-        if (macro_is_name) {
-            keep_running = core_keydown_command((const char *) macro, &enqueued, &repeat);
+        if (macro_type != 0) {
+            keep_running = core_keydown_command((const char *) macro, macro_type == 2, &enqueued, &repeat);
         } else {
             if (*macro == 0) {
                 squeak();
@@ -2603,13 +2696,8 @@ static void shell_keydown() {
                 }
                 skin_display_set_enabled(true);
                 skin_invalidate_display(win);
-                skin_invalidate_annunciator(win, 1);
-                skin_invalidate_annunciator(win, 2);
-                skin_invalidate_annunciator(win, 3);
-                skin_invalidate_annunciator(win, 4);
-                skin_invalidate_annunciator(win, 5);
-                skin_invalidate_annunciator(win, 6);
-                skin_invalidate_annunciator(win, 7);
+                for (int i = 1; i <= 7; i++)
+                    skin_invalidate_annunciator(win, i);
                 repeat = 0;
             }
         }
@@ -2655,11 +2743,14 @@ static void shell_keyup() {
 static gboolean button_cb(GtkWidget *w, GdkEventButton *event, gpointer cd) {
     if (event->type == GDK_BUTTON_PRESS) {
         if (ckey == 0) {
-            int x = (int) event->x;
-            int y = (int) event->y;
+            int win_width, win_height, skin_width, skin_height;
+            skin_get_window_size(&win_width, &win_height);
+            skin_get_size(&skin_width, &skin_height);
+            int x = (int) (event->x * skin_width / win_width);
+            int y = (int) (event->y * skin_height / win_height);
             skin_find_key(x, y, ann_shift != 0, &skey, &ckey);
             if (ckey != 0) {
-                macro = skin_find_macro(ckey, &macro_is_name);
+                macro = skin_find_macro(ckey, &macro_type);
                 shell_keydown();
                 mouse_key = true;
             }
@@ -2706,11 +2797,11 @@ static gboolean key_cb(GtkWidget *w, GdkEventKey *event, gpointer cd) {
                             && alt == entry->alt
                             && (printable || shift == entry->shift)
                             && event->keyval == entry->keyval) {
-                        if (cshift == entry->cshift) {
+                        if (shift == entry->shift && cshift == entry->cshift) {
                             key_macro = entry->macro;
                             break;
                         } else {
-                            if (cshift && key_macro == NULL)
+                            if ((shift || !entry->shift) && (cshift || !entry->cshift) && key_macro == NULL)
                                 key_macro = entry->macro;
                         }
                     }
@@ -2805,7 +2896,7 @@ static gboolean key_cb(GtkWidget *w, GdkEventKey *event, gpointer cd) {
                         if (c <= 37)
                             macrobuf[p++] = c;
                         else {
-                            unsigned char *m = skin_find_macro(c, &macro_is_name);
+                            unsigned char *m = skin_find_macro(c, &macro_type);
                             if (m != NULL)
                                 while (*m != 0 && p < 1023)
                                     macrobuf[p++] = *m++;
@@ -2815,7 +2906,7 @@ static gboolean key_cb(GtkWidget *w, GdkEventKey *event, gpointer cd) {
                     macro = macrobuf;
                 } else {
                     macro = key_macro;
-                    macro_is_name = false;
+                    macro_type = 0;
                 }
                 shell_keydown();
                 mouse_key = false;
@@ -3017,10 +3108,14 @@ void shell_blitter(const char *bits, int bytesperline, int x, int y,
     }
 }
 
-void shell_beeper(int frequency, int duration) {
+const int tone_freqs[] = { 165, 220, 247, 277, 294, 330, 370, 415, 440, 554, 1865 };
+
+void shell_beeper(int tone) {
 #ifdef AUDIO_ALSA
     const char *display_name = gdk_display_get_name(gdk_display_get_default());
     if (display_name == NULL || display_name[0] == ':') {
+        int frequency = tone_freqs[tone];
+        int duration = tone == 10 ? 125 : 250;
         if (!alsa_beeper(frequency, duration))
             gdk_display_beep(gdk_display_get_default());
     } else
@@ -3163,11 +3258,11 @@ bool shell_low_battery() {
         char capacity_filename[50];
         char line[50];
         for (int n = 0; n <= 2; n++) {
-            sprintf(status_filename, "/sys/class/power_supply/BAT%d/status", n);
+            snprintf(status_filename, 50, "/sys/class/power_supply/BAT%d/status", n);
             FILE *status_file = fopen(status_filename, "r");
             if (status_file == NULL)
                 continue;
-            sprintf(capacity_filename, "/sys/class/power_supply/BAT%d/capacity", n);
+            snprintf(capacity_filename, 50, "/sys/class/power_supply/BAT%d/capacity", n);
             FILE *capacity_file = fopen(capacity_filename, "r");
             if (capacity_file == NULL) {
                 fclose(status_file);

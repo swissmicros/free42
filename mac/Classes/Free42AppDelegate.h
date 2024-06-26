@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -19,7 +19,7 @@
 #import <WebKit/WebKit.h>
 
 #define FILENAMELEN 256
-#define SHELL_VERSION 5
+#define SHELL_VERSION 6
 
 struct state_type {
     int printerToTxtFile;
@@ -37,6 +37,7 @@ struct state_type {
     bool auto_repeat;
     bool allow_big_stack;
     bool localized_copy_paste;
+    int mainWindowWidth, mainWindowHeight;
 };
 
 extern state_type state;
@@ -63,7 +64,7 @@ void calc_keymodifierschanged(NSUInteger flags);
 @class PrintView;
 @class StatesWindow;
 
-@interface Free42AppDelegate : NSObject {
+@interface Free42AppDelegate : NSObject <WKNavigationDelegate> {
     NSWindow *mainWindow;
     CalcView *calcView;
     
@@ -78,7 +79,6 @@ void calc_keymodifierschanged(NSUInteger flags);
     NSButton *prefsLocalizedCopyPaste;
     NSButton *prefsPrintText;
     NSTextField *prefsPrintTextFile;
-    NSButton *prefsPrintTextRaw;
     NSButton *prefsPrintGIF;
     NSTextField *prefsPrintGIFFile;
     NSTextField *prefsPrintGIFMaxHeight;
@@ -94,7 +94,7 @@ void calc_keymodifierschanged(NSUInteger flags);
     NSWindow *loadSkinsWindow;
     NSTextField *loadSkinsURL;
     NSButton *loadSkinButton;
-    WebView *loadSkinsWebView;
+    WKWebView *loadSkinsWebView;
     NSWindow *deleteSkinsWindow;
     NSTableView *skinListView;
     SkinListDataSource *skinListDataSource;
@@ -120,7 +120,6 @@ void calc_keymodifierschanged(NSUInteger flags);
 @property (nonatomic, retain) IBOutlet NSButton *prefsLocalizedCopyPaste;
 @property (nonatomic, retain) IBOutlet NSButton *prefsPrintText;
 @property (nonatomic, retain) IBOutlet NSTextField *prefsPrintTextFile;
-@property (nonatomic, retain) IBOutlet NSButton *prefsPrintTextRaw;
 @property (nonatomic, retain) IBOutlet NSButton *prefsPrintGIF;
 @property (nonatomic, retain) IBOutlet NSTextField *prefsPrintGIFFile;
 @property (nonatomic, retain) IBOutlet NSTextField *prefsPrintGIFMaxHeight;
@@ -133,7 +132,7 @@ void calc_keymodifierschanged(NSUInteger flags);
 @property (nonatomic, retain) IBOutlet NSWindow *loadSkinsWindow;
 @property (nonatomic, retain) IBOutlet NSTextField *loadSkinsURL;
 @property (nonatomic, retain) IBOutlet NSButton *loadSkinButton;
-@property (nonatomic, retain) IBOutlet WebView *loadSkinsWebView;
+@property (nonatomic, retain) IBOutlet WKWebView *loadSkinsWebView;
 @property (nonatomic, retain) IBOutlet NSWindow *deleteSkinsWindow;
 @property (nonatomic, retain) IBOutlet NSTableView *skinListView;
 @property (nonatomic, retain) IBOutlet SkinListDataSource *skinListDataSource;

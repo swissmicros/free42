@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -17,12 +17,15 @@
 
 package com.thomasokken.free42;
 
+import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.io.UnsupportedEncodingException;
@@ -49,6 +52,7 @@ import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.res.Configuration;
+import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -67,11 +71,12 @@ import android.media.AudioManager;
 import android.media.SoundPool;
 import android.net.Uri;
 import android.os.BatteryManager;
+import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Vibrator;
+import android.provider.OpenableColumns;
 import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
@@ -79,6 +84,7 @@ import android.support.v4.content.FileProvider;
 import android.text.SpannableString;
 import android.text.method.LinkMovementMethod;
 import android.text.util.Linkify;
+import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
@@ -101,13 +107,21 @@ import android.widget.TextView;
 public class Free42Activity extends Activity {
 
     public static final String[] builtinSkinNames = new String[] { "Standard", "Landscape" };
+    private static final String KEYMAP_FILE_NAME = "keymap.txt";
     
-    private static final int SHELL_VERSION = 20;
+    private static final int SHELL_VERSION = 22;
     
     private static final int PRINT_BACKGROUND_COLOR = Color.LTGRAY;
     
     private static final int MY_PERMISSIONS_REQUEST_ACCESS_FINE_LOCATION = 1;
-    
+
+    public static final int IMPORT_RAW = 1;
+    public static final int EXPORT_RAW = 2;
+    public static final int IMPORT_STATE = 3;
+    public static final int EXPORT_STATE = 4;
+    public static final int IMPORT_FILE = 5;
+    public static final int EXPORT_FILE = 6;
+
     public static Free42Activity instance;
     
     static {
@@ -116,6 +130,7 @@ public class Free42Activity extends Activity {
     
     private CalcView calcView;
     private SkinLayout skin;
+    private KeymapEntry[] keymap;
     private View printView;
     private PrintPaperView printPaperView;
     private ScrollView printScrollView;
@@ -123,6 +138,7 @@ public class Free42Activity extends Activity {
     private PreferencesDialog preferencesDialog;
     private AlertDialog mainMenuDialog;
     private AlertDialog programImportExportMenuDialog;
+    private AlertDialog fileManagementMenuDialog;
     private Handler mainHandler;
     private boolean alwaysOn;
     
@@ -143,8 +159,15 @@ public class Free42Activity extends Activity {
     // is where the former communicates the name of the file
     // to import to the latter.
     public String importedProgram;
-    
+
     private int ckey;
+    private int skey;
+    private Object macroObj;
+    private boolean macroIsText;
+    private boolean mouse_key;
+    private int active_keycode = -1;
+    private boolean just_pressed_shift;
+
     private boolean timeout3_active;
     private boolean quit_flag;
     
@@ -255,6 +278,8 @@ public class Free42Activity extends Activity {
         Intent intent = getIntent();
         importedState = intent.getStringExtra("importedState");
         importedProgram = intent.getStringExtra("importedProgram");
+
+        readKeymap(KEYMAP_FILE_NAME);
         
         int init_mode;
         IntHolder version = new IntHolder();
@@ -445,7 +470,8 @@ public class Free42Activity extends Activity {
         impTemp = importedProgram;
         importedProgram = null;
         if (impTemp != null) {
-            doImport2(impTemp);
+            core_import_programs(impTemp);
+            redisplay();
             new File(impTemp).delete();
         }
     }
@@ -506,6 +532,61 @@ public class Free42Activity extends Activity {
             lowBatteryReceiver = null;
         }
         super.onDestroy();
+    }
+
+    private void readKeymap(String keymapFileName) {
+        List<KeymapEntry> keymapList = new ArrayList<KeymapEntry>();
+
+        BufferedReader reader = null;
+        try {
+            try {
+                reader = new BufferedReader(new InputStreamReader(openFileInput(keymapFileName)));
+            } catch (FileNotFoundException e) {
+                InputStream is = null;
+                OutputStream os = null;
+                try {
+                    is = getAssets().open("keymap.txt");
+                    os = openFileOutput(keymapFileName, Context.MODE_PRIVATE);
+                    byte[] buf = new byte[1024];
+                    int n;
+                    while ((n = is.read(buf)) > 0)
+                        os.write(buf, 0, n);
+                } catch (IOException e2) {
+                    try {
+                        os.close();
+                    } catch (IOException e3) {}
+                    os = null;
+                    new File(getFilesDir() + "/" + keymapFileName).delete();
+                    throw e;
+                } finally {
+                    if (is != null)
+                        try {
+                            is.close();
+                        } catch (IOException e2) {}
+                    if (os != null)
+                        try {
+                            os.close();
+                        } catch (IOException e2) {}
+                }
+                reader = new BufferedReader(new InputStreamReader(openFileInput(keymapFileName)));
+            }
+
+            String line;
+            int lineno = 0;
+            while ((line = reader.readLine()) != null) {
+                lineno++;
+                KeymapEntry entry = KeymapEntry.parse(line, lineno);
+                if (entry != null)
+                    keymapList.add(entry);
+            }
+            keymap = keymapList.toArray(new KeymapEntry[0]);
+        } catch (IOException e) {
+            keymap = null;
+        } finally {
+            try {
+                reader.close();
+            } catch (IOException e) {}
+        }
     }
     
     @Override
@@ -599,10 +680,10 @@ public class Free42Activity extends Activity {
             List<String> itemsList = new ArrayList<String>();
             itemsList.add("Show Print-Out");
             itemsList.add("Program Import & Export");
+            itemsList.add("File Import & Export");
             itemsList.add("States");
             itemsList.add("Preferences");
             itemsList.add("Select Skin");
-            itemsList.add("Skin: Other...");
             itemsList.add("Copy");
             itemsList.add("Paste");
             itemsList.add("About Free42");
@@ -627,16 +708,16 @@ public class Free42Activity extends Activity {
                 postProgramImportExportMenu();
                 return;
             case 2:
+                postFileManagementMenu();
+                break;
+            case 3:
                 doStates(null);
                 return;
-            case 3:
+            case 4:
                 doPreferences();
                 return;
-            case 4:
-                doSelectSkin();
-                break;
             case 5:
-                doSkinOther();
+                doSelectSkin();
                 break;
             case 6:
                 doCopy();
@@ -689,7 +770,62 @@ public class Free42Activity extends Activity {
             // default: Cancel; do nothing
         }
     }
-    
+
+    private void postFileManagementMenu() {
+        if (fileManagementMenuDialog == null) {
+            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setTitle("File Management Menu");
+            List<String> itemsList = new ArrayList<String>();
+            itemsList.add("Import File");
+            itemsList.add("Export File");
+            itemsList.add("Delete File or Directory");
+            itemsList.add("Back");
+            itemsList.add("Cancel");
+            builder.setItems(itemsList.toArray(new String[itemsList.size()]),
+                    new DialogInterface.OnClickListener() {
+                        public void onClick(DialogInterface dialog, int which) {
+                            fileManagementMenuItemSelected(which);
+                        }
+                    });
+            fileManagementMenuDialog = builder.create();
+        }
+        fileManagementMenuDialog.show();
+    }
+
+    private void fileManagementMenuItemSelected(int which) {
+        switch (which) {
+            case 0:
+                doImportFile();
+                return;
+            case 1:
+                doExportFile();
+                return;
+            case 2:
+                doDeleteFileOrDirectory();
+                return;
+            case 3:
+                postMainMenu();
+                return;
+            // default: Cancel; do nothing
+        }
+    }
+
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (resultCode != Activity.RESULT_OK || data == null)
+            return;
+        Uri uri = data.getData();
+        if (uri == null)
+            return;
+        switch (requestCode) {
+            case IMPORT_RAW: doImportRaw(uri); break;
+            case EXPORT_RAW: doExportRaw(uri); break;
+            case IMPORT_STATE: StatesDialog.doImport2(uri); break;
+            case EXPORT_STATE: StatesDialog.doExport2(uri); break;
+            case IMPORT_FILE: doImportFile2(uri); break;
+            case EXPORT_FILE: doExportFile3(uri); break;
+        }
+    }
+
     private void doSelectSkin() {
         SkinSelectDialog ssd = new SkinSelectDialog(this);
         ssd.setListener(new SkinSelectDialog.Listener() {
@@ -699,21 +835,6 @@ public class Free42Activity extends Activity {
             }
         });
         ssd.show();
-    }
-
-    private void doSkinOther() {
-        if (!checkStorageAccess())
-            return;
-        FileSelectionDialog fsd = new FileSelectionDialog(this, new String[] { "layout", "*" });
-        if (externalSkinName[orientation].length() > 0)
-            fsd.setPath(externalSkinName[orientation] + ".layout");
-        fsd.setOkListener(new FileSelectionDialog.OkListener() {
-            public void okPressed(String path) {
-                if (path.endsWith(".layout"))
-                    doSelectSkin(path.substring(0, path.length() - 7));
-            }
-        });
-        fsd.show();
     }
 
     public static String getSelectedSkin() {
@@ -770,22 +891,29 @@ public class Free42Activity extends Activity {
     }
     
     private void doImport() {
-        if (!checkStorageAccess())
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        // TODO: Is there any point to putExtra() when opening a document?
+        // intent.putExtra(Intent.EXTRA_TITLE, "Importing, eh?");
+        startActivityForResult(intent, IMPORT_RAW);
+    }
+
+    private void doImportRaw(Uri uri) {
+        String name = getNameFromUri(uri);
+        if (name == null || !name.toLowerCase().endsWith(".raw"))
             return;
-        FileSelectionDialog fsd = new FileSelectionDialog(this, new String[] { "raw", "*" });
-        fsd.setOkListener(new FileSelectionDialog.OkListener() {
-            public void okPressed(String path) {
-                doImport2(path);
-            }
-        });
-        fsd.show();
+        String tempName = getFilesDir() + "/" + "_TEMP_RAW_";
+        BackgroundIO.load(uri, tempName, null,
+                new Runnable() {
+                    public void run() {
+                        core_import_programs(tempName);
+                        redisplay();
+                        new File(tempName).delete();
+                    }
+                });
     }
-    
-    private void doImport2(String path) {
-        core_import_programs(path);
-        redisplay();
-    }
-    
+
     private boolean[] selectedProgramIndexes;
     private String[] programNames;
     private boolean exportShare;
@@ -812,8 +940,6 @@ public class Free42Activity extends Activity {
     }
 
     private void doExport(boolean share) {
-        if (!share && !checkStorageAccess())
-            return;
         exportShare = share;
         programNames = core_list_programs();
         selectedProgramIndexes = new boolean[programNames.length];
@@ -838,11 +964,173 @@ public class Free42Activity extends Activity {
         builder.create().show();
     }
 
+    private String fileMgmtPath = "";
+    private Uri fileMgmtImportUri;
+    private String fileMgmtExportPath;
+
+    private void doImportFile() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        // TODO: Is there any point to putExtra() when opening a document?
+        // intent.putExtra(Intent.EXTRA_TITLE, "Importing, eh?");
+        startActivityForResult(intent, IMPORT_FILE);
+    }
+
+    private void doImportFile2(Uri uri) {
+        fileMgmtImportUri = uri;
+        String name = getNameFromUri(uri);
+        int lastdot = name.lastIndexOf('.');
+        String[] suffixes;
+        if (lastdot == -1)
+            suffixes = new String[] { "*" };
+        else
+            suffixes = new String[] { name.substring(lastdot + 1), "*" };
+        FileSelectionDialog fsd = new FileSelectionDialog(this, suffixes);
+        fsd.setPath(fileMgmtPath + "/" + name);
+        fsd.setOkListener(new FileSelectionDialog.OkListener() {
+            public void okPressed(String path) {
+                doImportFile3(path);
+            }
+        });
+        fsd.show();
+    }
+
+    private void doImportFile3(String path) {
+        int lastslash = path.lastIndexOf('/');
+        if (lastslash == -1)
+            fileMgmtPath = path;
+        else
+            fileMgmtPath = path.substring(0, lastslash);
+        BackgroundIO.load(fileMgmtImportUri, getFilesDir() + "/" + path, null, null);
+    }
+
+    private void doExportFile() {
+        FileSelectionDialog fsd = new FileSelectionDialog(this, new String[] { "*" });
+        fsd.setPath(fileMgmtPath);
+        fsd.setOkListener(new FileSelectionDialog.OkListener() {
+            public void okPressed(String path) {
+                doExportFile2(path);
+            }
+        });
+        fsd.show();
+    }
+
+    private void doExportFile2(String path) {
+        fileMgmtExportPath = path;
+        int lastslash = path.lastIndexOf('/');
+        String name = null;
+        if (lastslash == -1) {
+            fileMgmtPath = "";
+            name = path;
+        } else {
+            fileMgmtPath = path.substring(0, lastslash);
+            name = path.substring(lastslash + 1);
+        }
+
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        if (name != null && name.length() != 0)
+            intent.putExtra(Intent.EXTRA_TITLE, name);
+        startActivityForResult(intent, EXPORT_FILE);
+    }
+
+    private void doExportFile3(Uri uri) {
+        BackgroundIO.save(getFilesDir() + "/" + fileMgmtExportPath, uri, false, null, null);
+    }
+
+    private void doDeleteFileOrDirectory() {
+        FileSelectionDialog fsd = new FileSelectionDialog(this, null);
+        fsd.setPath(fileMgmtPath);
+        fsd.setOkListener(new FileSelectionDialog.OkListener() {
+            public void okPressed(String path) {
+                doDeleteFileOrDirectory2(path);
+            }
+        });
+        fsd.show();
+    }
+
+    private File fileMgmtDeletionFile;
+
+    private void doDeleteFileOrDirectory2(String path) {
+        if (path.equals("") || path.equals("/"))
+            // Not deleting the home directory!
+            return;
+        File f = new File(getFilesDir() + "/" + path);
+        if (!f.exists())
+            return;
+        fileMgmtDeletionFile = f;
+        if (f.isDirectory()) {
+            if (path.endsWith("/"))
+                path = path.substring(0, path.length() - 1);
+            fileMgmtPath = path;
+            int lastslash = fileMgmtPath.lastIndexOf('/');
+            if (lastslash != -1)
+                fileMgmtPath = fileMgmtPath.substring(0, lastslash);
+            new AlertDialog.Builder(this)
+                    .setTitle("Confirm Delete Directory")
+                    .setMessage("Are you sure you want to delete the directory \"" + f.getName() + "\"?")
+                    .setIcon(android.R.drawable.ic_dialog_info)
+                    .setPositiveButton("OK", new DialogInterface.OnClickListener() {
+                        public void onClick(DialogInterface dialog, int whichButton) {
+                            doDeleteDirectory();
+                        }
+                    })
+                    .setNegativeButton("Cancel", null).show();
+        } else {
+            fileMgmtPath = path;
+            int lastslash = fileMgmtPath.lastIndexOf('/');
+            if (lastslash != -1)
+                fileMgmtPath = fileMgmtPath.substring(0, lastslash);
+            new AlertDialog.Builder(this)
+                    .setTitle("Confirm Delete File")
+                    .setMessage("Are you sure you want to delete the file \"" + f.getName() + "\"?")
+                    .setIcon(android.R.drawable.ic_dialog_info)
+                    .setPositiveButton("OK", new DialogInterface.OnClickListener() {
+                        public void onClick(DialogInterface dialog, int whichButton) {
+                            fileMgmtDeletionFile.delete();
+                        }
+                    })
+                    .setNegativeButton("Cancel", null).show();
+        }
+    }
+
+    private void doDeleteDirectory() {
+        File[] contents = fileMgmtDeletionFile.listFiles();
+        if (contents == null || contents.length == 0) {
+            fileMgmtDeletionFile.delete();
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Directory Not Empty")
+                .setMessage("The directory \"" + fileMgmtDeletionFile.getName() + "\" is not empty; delete anyway?")
+                .setIcon(android.R.drawable.ic_dialog_info)
+                .setPositiveButton("OK", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface dialog, int whichButton) {
+                        doDeleteDirectory2(fileMgmtDeletionFile);
+                    }
+                })
+                .setNegativeButton("Cancel", null).show();
+    }
+
+    private void doDeleteDirectory2(File dir) {
+        File[] contents = dir.listFiles();
+        if (contents != null)
+            for (File f : contents) {
+                if (f.isDirectory())
+                    doDeleteDirectory2(f);
+                else
+                    f.delete();
+            }
+        dir.delete();
+    }
+
     private void doStates(String selectedState) {
         StatesDialog sd = new StatesDialog(this, selectedState);
         sd.show();
     }
-    
+
     private void doProgramSelectionClick(DialogInterface dialog, int which) {
         if (which == DialogInterface.BUTTON_POSITIVE) {
             String name = null;
@@ -855,12 +1143,9 @@ public class Free42Activity extends Activity {
                 if (exportShare) {
                     doShare();
                 } else {
-                    FileSelectionDialog fsd = new FileSelectionDialog(this, new String[]{"raw", "*"});
-                    fsd.setOkListener(new FileSelectionDialog.OkListener() {
-                        public void okPressed(String path) {
-                            doExport2(path);
-                        }
-                    });
+                    Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                    intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    intent.setType("*/*");
                     if (name.startsWith("\"")) {
                         int q = name.indexOf('"', 1);
                         if (q != -1)
@@ -870,8 +1155,8 @@ public class Free42Activity extends Activity {
                     } else {
                         name = "Untitled.raw";
                     }
-                    fsd.setPath(name);
-                    fsd.show();
+                    intent.putExtra(Intent.EXTRA_TITLE, name);
+                    startActivityForResult(intent, EXPORT_RAW);
                 }
             }
         }
@@ -889,6 +1174,12 @@ public class Free42Activity extends Activity {
             if (selectedProgramIndexes[i])
                 selection[n++] = i;
         core_export_programs(selection, path);
+    }
+
+    private void doExportRaw(Uri uri) {
+        String tempName = getFilesDir() + "/" + "_TEMP_RAW_";
+        doExport2(tempName);
+        BackgroundIO.save(tempName, uri,true,null,null);
     }
 
     private void doShare() {
@@ -947,7 +1238,7 @@ public class Free42Activity extends Activity {
             calcView.invalidate();
             core_repaint_display();
         } catch (IllegalArgumentException e) {
-            shell_beeper(1835, 125);
+            shell_beeper(10);
         }
     }
     
@@ -1092,7 +1383,7 @@ public class Free42Activity extends Activity {
 
                 TextView label2 = new TextView(context);
                 label2.setId(3);
-                label2.setText("\u00a9 2004-2022 Thomas Okken");
+                label2.setText("\u00a9 2004-2024 Thomas Okken");
                 lp = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
                 lp.addRule(RelativeLayout.ALIGN_LEFT, label1.getId());
                 lp.addRule(RelativeLayout.BELOW, label1.getId());
@@ -1170,6 +1461,9 @@ public class Free42Activity extends Activity {
 
         public CalcView(Context context) {
             super(context);
+            setFocusableInTouchMode(true);
+            if (android.os.Build.VERSION.SDK_INT >= 26)
+                setDefaultFocusHighlightEnabled(false);
         }
         
         public void updateScale() {
@@ -1200,6 +1494,76 @@ public class Free42Activity extends Activity {
             canvas.scale(hScale, vScale);
             skin.repaint(canvas);
         }
+
+        private void shell_keydown() {
+            if (timeout3_active && (macroObj != null || ckey != 28 /* SHIFT */)) {
+                cancelTimeout3();
+                core_timeout3(false);
+            }
+            if (skey == -1)
+                skey = skin.find_skey(ckey);
+            Rect inval = skin.set_active_key(skey);
+            if (inval != null)
+                invalidateScaled(inval);
+            boolean running;
+            BooleanHolder enqueued = new BooleanHolder();
+            IntHolder repeat = new IntHolder();
+            if (macroObj == null) {
+                // Plain ol' key
+                running = core_keydown(ckey, enqueued, repeat, true);
+            } else if (macroObj instanceof String) {
+                // Direct-mapped command
+                String cmd = (String) macroObj;
+                running = core_keydown_command(cmd, macroIsText, enqueued, repeat, true);
+            } else {
+                running = false;
+                byte[] macro = (byte[]) macroObj;
+                boolean one_key_macro = macro.length == 1 || (macro.length == 2 && macro[0] == 28);
+                if (one_key_macro) {
+                    for (int i = 0; i < macro.length; i++) {
+                        running = core_keydown(macro[i] & 255, enqueued, repeat, true);
+                        if (i < macro.length - 1 && !enqueued.value)
+                            core_keyup();
+                    }
+                } else {
+                    boolean waitForProgram = !program_running();
+                    skin.set_display_enabled(false);
+                    for (int i = 0; i < macro.length; i++) {
+                        running = core_keydown(macro[i] & 255, enqueued, repeat, true);
+                        if (!enqueued.value)
+                            running = core_keyup();
+                        while (waitForProgram && running)
+                            running = core_keydown(0, null, null, true);
+                    }
+                    skin.set_display_enabled(true);
+                }
+            }
+            if (running)
+                startRunner();
+            else {
+                if (repeat.value != 0)
+                    mainHandler.postDelayed(repeaterCaller, repeat.value == 1 ? 1000 : 500);
+                else if (!enqueued.value)
+                    mainHandler.postDelayed(timeout1Caller, 250);
+            }
+        }
+
+        private void shell_keyup(MotionEvent e) {
+            if (possibleMenuEvent && e != null) {
+                possibleMenuEvent = false;
+                int x = (int) ((e.getX() - hOffset) / hScale);
+                int y = (int) ((e.getY() - vOffset) / vScale);
+                if (skin.in_menu_area(x, y))
+                    Free42Activity.this.postMainMenu();
+            }
+            ckey = 0;
+            Rect inval = skin.set_active_key(-1);
+            if (inval != null)
+                invalidateScaled(inval);
+            boolean keep_running = core_keyup();
+            if (keep_running)
+                startRunner();
+        }
         
         @SuppressLint("ClickableViewAccessibility")
         @Override
@@ -1216,7 +1580,7 @@ public class Free42Activity extends Activity {
                 IntHolder skeyHolder = new IntHolder();
                 IntHolder ckeyHolder = new IntHolder();
                 skin.find_key(core_menu(), x, y, skeyHolder, ckeyHolder);
-                int skey = skeyHolder.value;
+                skey = skeyHolder.value;
                 ckey = ckeyHolder.value;
                 if (ckey == 0) {
                     if (skin.in_menu_area(x, y))
@@ -1224,73 +1588,239 @@ public class Free42Activity extends Activity {
                     return true;
                 }
                 click();
-                Object macroObj = skin.find_macro(ckey);
-                if (timeout3_active && (macroObj != null || ckey != 28 /* SHIFT */)) {
-                    cancelTimeout3();
-                    core_timeout3(false);
+                macroObj = skin.find_macro(ckey);
+                if (macroObj instanceof Object[]) {
+                    Object[] arr = (Object[]) macroObj;
+                    macroObj = arr[0];
+                    macroIsText = (Boolean) arr[1];
                 }
-                Rect inval = skin.set_active_key(skey);
-                if (inval != null)
-                    invalidateScaled(inval);
-                boolean running;
-                BooleanHolder enqueued = new BooleanHolder();
-                IntHolder repeat = new IntHolder();
-                if (macroObj == null) {
-                    // Plain ol' key
-                    running = core_keydown(ckey, enqueued, repeat, true);
-                } else if (macroObj instanceof String) {
-                    // Direct-mapped command
-                    String cmd = (String) macroObj;
-                    running = core_keydown_command(cmd, enqueued, repeat, true);
-                } else {
-                    running = false;
-                    byte[] macro = (byte[]) macroObj;
-                    boolean one_key_macro = macro.length == 1 || (macro.length == 2 && macro[0] == 28);
-                    if (one_key_macro) {
-                        for (int i = 0; i < macro.length; i++) {
-                            running = core_keydown(macro[i] & 255, enqueued, repeat, true);
-                            if (!enqueued.value)
-                                core_keyup();
-                        }
-                    } else {
-                        boolean waitForProgram = !program_running();
-                        skin.set_display_enabled(false);
-                        for (int i = 0; i < macro.length; i++) {
-                            running = core_keydown(macro[i] & 255, enqueued, repeat, true);
-                            if (!enqueued.value)
-                                running = core_keyup();
-                            while (waitForProgram && running)
-                                running = core_keydown(0, null, null, true);
-                        }
-                        skin.set_display_enabled(true);
-                    }
-                }
-                if (running)
-                    startRunner();
-                else {
-                    if (repeat.value != 0)
-                        mainHandler.postDelayed(repeaterCaller, repeat.value == 1 ? 1000 : 500);
-                    else if (!enqueued.value)
-                        mainHandler.postDelayed(timeout1Caller, 250);
-                }
+                shell_keydown();
+                mouse_key = true;
             } else {
-                if (possibleMenuEvent) {
-                    possibleMenuEvent = false;
-                    int x = (int) ((e.getX() - hOffset) / hScale);
-                    int y = (int) ((e.getY() - vOffset) / vScale);
-                    if (skin.in_menu_area(x, y))
-                        Free42Activity.this.postMainMenu();
-                }
-                ckey = 0;
-                Rect inval = skin.set_active_key(-1);
-                if (inval != null)
-                    invalidateScaled(inval);
-                boolean keep_running = core_keyup();
-                if (keep_running)
-                    startRunner();
+                shell_keyup(e);
             }
                 
             return true;
+        }
+
+        @Override
+        public boolean onKeyDown(int keyCode, KeyEvent event) {
+            if (ckey != 0 && mouse_key)
+                return super.onKeyDown(keyCode, event);
+            if (event.getRepeatCount() > 0)
+                return true;
+
+            just_pressed_shift = keyCode == KeyEvent.KEYCODE_SHIFT_LEFT || keyCode == KeyEvent.KEYCODE_SHIFT_RIGHT;
+            if (keyCode == KeyEvent.KEYCODE_SHIFT_LEFT
+                    || keyCode == KeyEvent.KEYCODE_SHIFT_RIGHT
+                    || keyCode == KeyEvent.KEYCODE_ALT_LEFT
+                    || keyCode == KeyEvent.KEYCODE_ALT_RIGHT
+                    || keyCode == KeyEvent.KEYCODE_CTRL_LEFT
+                    || keyCode == KeyEvent.KEYCODE_CTRL_RIGHT)
+                return super.onKeyDown(keyCode, event);
+
+            int ch = event.getUnicodeChar();
+            if (ch == 0)
+                ch = event.getUnicodeChar(0);
+            ch &= KeyCharacterMap.COMBINING_ACCENT_MASK;
+            String code = ch == 0 ? KeyEvent.keyCodeToString(keyCode).substring(8)
+                                  : "" + (char) ch;
+
+            boolean ctrl = event.isCtrlPressed();
+            boolean alt = event.isAltPressed();
+            boolean numpad = false;
+            boolean shift = event.isShiftPressed();
+            boolean cshift = skin.getAnnunciators()[1];
+
+            // Allow Ctrl-[ to be used as Esc, for keyboards without an Esc key
+            if (code.equals("ESCAPE")) {
+                ctrl = false;
+            } else if (code.equals("[") && ctrl) {
+                ctrl = false;
+                code = "ESCAPE";
+            }
+
+            switch (keyCode) {
+                case KeyEvent.KEYCODE_NUMPAD_0:
+                case KeyEvent.KEYCODE_NUMPAD_1:
+                case KeyEvent.KEYCODE_NUMPAD_2:
+                case KeyEvent.KEYCODE_NUMPAD_3:
+                case KeyEvent.KEYCODE_NUMPAD_4:
+                case KeyEvent.KEYCODE_NUMPAD_5:
+                case KeyEvent.KEYCODE_NUMPAD_6:
+                case KeyEvent.KEYCODE_NUMPAD_7:
+                case KeyEvent.KEYCODE_NUMPAD_8:
+                case KeyEvent.KEYCODE_NUMPAD_9:
+                case KeyEvent.KEYCODE_NUMPAD_ADD:
+                case KeyEvent.KEYCODE_NUMPAD_SUBTRACT:
+                case KeyEvent.KEYCODE_NUMPAD_MULTIPLY:
+                case KeyEvent.KEYCODE_NUMPAD_DIVIDE:
+                case KeyEvent.KEYCODE_NUMPAD_COMMA:
+                case KeyEvent.KEYCODE_NUMPAD_DOT:
+                case KeyEvent.KEYCODE_NUMPAD_ENTER:
+                case KeyEvent.KEYCODE_NUMPAD_EQUALS:
+                    numpad = true;
+            }
+
+            boolean printable = !ctrl && !alt && ch >= 33 && ch <= 126;
+
+            if (ckey != 0) {
+                shell_keyup(null);
+                active_keycode = -1;
+            }
+
+            BooleanHolder exact = new BooleanHolder();
+            byte[] key_macro = skin.keymap_lookup(code, printable, ctrl, alt, numpad, shift, cshift, exact);
+            if (key_macro == null || !exact.value) {
+                for (KeymapEntry entry : keymap) {
+                    if (ctrl == entry.ctrl
+                            && alt == entry.alt
+                            && (printable || shift == entry.shift)
+                            && code.equals(entry.keychar)) {
+                        if ((!numpad || shift == entry.shift) && numpad == entry.numpad && cshift == entry.cshift) {
+                            key_macro = entry.macro;
+                            break;
+                        } else {
+                            if ((numpad || !entry.numpad) && (cshift || !entry.cshift) && key_macro == null)
+                                key_macro = entry.macro;
+                        }
+                    }
+                }
+            }
+
+            if (key_macro == null || !key_macro.equals("\44") && !key_macro.equals("\34\44")) {
+                // The test above is to make sure that whatever mapping is in
+                // effect for R/S will never be overridden by the special cases
+                // for the ALPHA and A..F menus.
+                if (!ctrl && !alt) {
+                    if ((printable || ch == ' ') && core_alpha_menu()) {
+                        if (ch >= 'a' && ch <= 'z')
+                            ch += 'A' - 'a';
+                        else if (ch >= 'A' && ch <= 'Z')
+                            ch += 'a' - 'A';
+                        ckey = 1024 + ch;
+                        skey = -1;
+                        macroObj = null;
+                        shell_keydown();
+                        mouse_key = false;
+                        active_keycode = keyCode;
+                        return true;
+                    } else if (core_hex_menu() && ((ch >= 'a' && ch <= 'f')
+                                                || (ch >= 'A' && ch <= 'F'))) {
+                        if (ch >= 'a' && ch <= 'f')
+                            ckey = ch - 'a' + 1;
+                        else
+                            ckey = ch - 'A' + 1;
+                        skey = -1;
+                        macroObj = null;
+                        shell_keydown();
+                        mouse_key = false;
+                        active_keycode = keyCode;
+                        return true;
+                    } else if (code.equals("DPAD_LEFT") || code.equals("DPAD_RIGHT") || code.equals("FORWARD_DEL")) {
+                        int which;
+                        if (code.equals("DPAD_LEFT"))
+                            which = shift ? 2 : 1;
+                        else if (code.equals("DPAD_RIGHT"))
+                            which = shift ? 4 : 3;
+                        else if (code.equals("FORWARD_DEL"))
+                            which = 5;
+                        else
+                            which = 0;
+                        if (which != 0) {
+                            which = core_special_menu_key(which);
+                            if (which != 0) {
+                                ckey = which;
+                                skey = -1;
+                                macroObj = null;
+                                shell_keydown();
+                                mouse_key = false;
+                                active_keycode = keyCode;
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (key_macro == null)
+                return super.onKeyDown(keyCode, event);
+
+            // A keymap entry is a sequence of zero or more calculator
+            // keystrokes (1..37) and/or macros (38..255). We expand
+            // macros here before invoking shell_keydown().
+            // If the keymap entry is one key, or two keys with the
+            // first being 'shift', we highlight the key in question
+            // by setting ckey; otherwise, we set ckey to -10, which
+            // means no skin key will be highlighted.
+            ckey = -10;
+            skey = -1;
+            if (key_macro.length > 0)
+                if (key_macro.length == 1)
+                    ckey = key_macro[0];
+                else if (key_macro.length == 2 && key_macro[0] == 28)
+                    ckey = key_macro[1];
+            boolean needs_expansion = false;
+            for (int j = 0; j < key_macro.length; j++)
+                if ((key_macro[j] & 255) > 37) {
+                    needs_expansion = true;
+                    break;
+                }
+            if (needs_expansion) {
+                byte[] macrobuf = new byte[1024];
+                int p = 0;
+                boolean is_string = false;
+                for (int j = 0; j < key_macro.length && p < 1023; j++) {
+                    int c = key_macro[j] & 255;
+                    if (c <= 37)
+                        macrobuf[p++] = (byte) c;
+                    else {
+                        Object m = skin.find_macro(c);
+                        if (m instanceof byte[]) {
+                            byte[] mb = (byte[]) m;
+                            for (int p2 = 0; p2 < mb.length && p < 1023; p2++)
+                                macrobuf[p++] = mb[p2];
+                        } else if (m instanceof Object[]) {
+                            Object[] arr = (Object[]) m;
+                            macroObj = arr[0];
+                            macroIsText = (Boolean) arr[1];
+                            is_string = true;
+                            break;
+                        }
+                    }
+                }
+                if (!is_string) {
+                    byte[] mbres = new byte[p];
+                    System.arraycopy(macrobuf, 0, mbres, 0, p);
+                    macroObj = mbres;
+                }
+            } else {
+                macroObj = key_macro;
+            }
+            shell_keydown();
+            mouse_key = false;
+            active_keycode = keyCode;
+            return true;
+        }
+
+        @Override
+        public boolean onKeyUp(int keyCode, KeyEvent event) {
+            if (event.getRepeatCount() > 0)
+                return true;
+            if (just_pressed_shift) {
+                just_pressed_shift = false;
+                ckey = 28;
+                skey = -1;
+                macroObj = null;
+                shell_keydown();
+                shell_keyup(null);
+                return true;
+            } else if (!mouse_key && event.getKeyCode() == active_keycode) {
+                shell_keyup(null);
+                active_keycode = -1;
+                return true;
+            }
+            return super.onKeyUp(keyCode, event);
         }
         
         public void postInvalidateScaled(int left, int top, int right, int bottom) {
@@ -1884,8 +2414,20 @@ public class Free42Activity extends Activity {
             cs.localized_copy_paste = true;
             putCoreSettings(cs);
             // fall through
-        case 20:
-            // current version (SHELL_VERSION = 20),
+        case 20: {
+            String homePath = getFilesDir() + "/";
+            if (ShellSpool.printToGifFileName.startsWith(homePath))
+                ShellSpool.printToGifFileName = ShellSpool.printToGifFileName.substring(homePath.length());
+            if (ShellSpool.printToTxtFileName.startsWith(homePath))
+                ShellSpool.printToTxtFileName = ShellSpool.printToTxtFileName.substring(homePath.length());
+            // fall through
+        }
+        case 21:
+            new File(getFilesDir() + "/" + KEYMAP_FILE_NAME).delete();
+            readKeymap(KEYMAP_FILE_NAME);
+            // fall through
+        case 22:
+            // current version (SHELL_VERSION = 22),
             // so nothing to do here since everything
             // was initialized from the state file.
             ;
@@ -2032,7 +2574,7 @@ public class Free42Activity extends Activity {
     
     private void click() {
         if (keyClicksLevel > 0)
-            playSound(keyClicksLevel + 10, 0);
+            playSound(keyClicksLevel + 10);
         if (keyVibration > 0) {
             int ms = (int) (Math.pow(2, (keyVibration - 1) / 2.0) + 0.5);
             Vibrator v = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
@@ -2041,7 +2583,7 @@ public class Free42Activity extends Activity {
     }
     
     
-    public void playSound(int index, int duration) {
+    public void playSound(int index) {
         soundPool.play(soundIds[index], 1f, 1f, 0, 0, 1f);
     }
     
@@ -2064,11 +2606,11 @@ public class Free42Activity extends Activity {
     private native void core_cleanup();
     private native void core_repaint_display();
     private native boolean core_menu();
-    //private native boolean core_alpha_menu();
-    //private native boolean core_hex_menu();
-    //private native int core_special_menu_key(int which);
+    public native boolean core_alpha_menu();
+    private native boolean core_hex_menu();
+    private native int core_special_menu_key(int which);
     private native boolean core_keydown(int key, BooleanHolder enqueued, IntHolder repeat, boolean immediate_return);
-    private native boolean core_keydown_command(String cmd, BooleanHolder enqueued, IntHolder repeat, boolean immediate_return);
+    private native boolean core_keydown_command(String cmd, boolean is_text, BooleanHolder enqueued, IntHolder repeat, boolean immediate_return);
     private native int core_repeat();
     private native void core_keytimeout1();
     private native void core_keytimeout2();
@@ -2129,27 +2671,17 @@ public class Free42Activity extends Activity {
     /**
      * shell_beeper()
      * Callback invoked by the emulator core to play a sound.
-     * The first parameter is the frequency in Hz; the second is the
-     * duration in ms. The sound volume is up to the GUI to control.
+     * The parameter is the tone number, from 0 to 9, or 10 for the error beep.
      * Sound playback should be synchronous (the beeper function should
      * not return until the sound has finished), if possible.
      */
-    public void shell_beeper(int frequency, int duration) {
-        int sound_number = 10;
-        for (int i = 0; i < 10; i++) {
-            if (frequency <= cutoff_freqs[i]) {
-                sound_number = i;
-                break;
-            }
-        }
-        playSound(sound_number, sound_number == 10 ? 125 : 250);
+    public void shell_beeper(int tone) {
+        playSound(tone);
         try {
-            Thread.sleep(sound_number == 10 ? 125 : 250);
+            Thread.sleep(tone == 10 ? 125 : 250);
         } catch (InterruptedException e) {}
     }
 
-    private final int[] cutoff_freqs = { 164, 220, 243, 275, 293, 324, 366, 418, 438, 550 };
-    
     private PrintAnnunciatorTurnerOffer pato = null;
 
     private class PrintAnnunciatorTurnerOffer extends Thread {
@@ -2379,12 +2911,13 @@ public class Free42Activity extends Activity {
         printPaperView.print(text, bits, bytesperline, x, y, width, height);
 
         if (ShellSpool.printToTxt) {
+            String txtFileName = getFilesDir() + "/" + ShellSpool.printToTxtFileName;
             try {
                 if (printTxtStream == null)
-                    if (new File(ShellSpool.printToTxtFileName).exists())
-                        printTxtStream = new FileOutputStream(ShellSpool.printToTxtFileName, true);
+                    if (new File(txtFileName).exists())
+                        printTxtStream = new FileOutputStream(txtFileName, true);
                     else
-                        printTxtStream = new FileOutputStream(ShellSpool.printToTxtFileName);
+                        printTxtStream = new FileOutputStream(txtFileName);
                 if (text != null)
                     ShellSpool.shell_spool_txt(text, printTxtStream);
                 else
@@ -2442,14 +2975,14 @@ public class Free42Activity extends Activity {
                     seq = seq.substring(seq.length() - 4);
                     name += "." + seq + ".gif";
     
-                    if (!new File(name).exists())
+                    if (!new File(getFilesDir() + "/" + name).exists())
                         break;
                 }
             }
 
             try {
                 if (name != null) {
-                    printGifFile = new RandomAccessFile(name, "rw");
+                    printGifFile = new RandomAccessFile(getFilesDir() + "/" + name, "rw");
                     gif_lines = 0;
                     ShellSpool.shell_start_gif(printGifFile, ShellSpool.maxGifHeight);
                 }
@@ -2677,17 +3210,15 @@ public class Free42Activity extends Activity {
     public void shell_log(String s) {
         System.err.print(s);
     }
-    
-    public static boolean checkStorageAccess() {
-        return instance.checkStorageAccess2();
-    }
-    
-    private boolean checkStorageAccess2() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
-            getExternalFilesDir(null).mkdirs();
-            return true;
-        }
-        ActivityCompat.requestPermissions(this, new String[] { Manifest.permission.WRITE_EXTERNAL_STORAGE }, MY_PERMISSIONS_REQUEST_ACCESS_FINE_LOCATION);
-        return false;
+
+    public static String getNameFromUri(Uri uri) {
+        Cursor cursor = instance.getContentResolver().query(uri, null, null, null, null);
+        if (cursor == null)
+            return null;
+        int nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+        cursor.moveToFirst();
+        String name = cursor.getString(nameIndex);
+        cursor.close();
+        return name;
     }
 }

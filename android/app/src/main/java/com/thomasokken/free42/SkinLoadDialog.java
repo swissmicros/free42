@@ -1,3 +1,20 @@
+/*****************************************************************************
+ * Free42 -- an HP-42S calculator simulator
+ * Copyright (C) 2004-2024  Thomas Okken
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License, version 2,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see http://www.gnu.org/licenses/.
+ *****************************************************************************/
+
 package com.thomasokken.free42;
 
 import android.app.Dialog;
@@ -128,8 +145,9 @@ public class SkinLoadDialog extends Dialog {
         try {
             loadFile(urls[0], tempGifName);
             loadFile(urls[1], tempLayoutName);
-            String gifName = filesDir + "/" + urls[2] + ".gif";
-            String layoutName = filesDir + "/" + urls[2] + ".layout";
+            String sname = java.net.URLDecoder.decode(urls[2], "UTF-8");
+            String gifName = filesDir + "/" + sname + ".gif";
+            String layoutName = filesDir + "/" + sname + ".layout";
             new File(tempGifName).renameTo(new File(gifName));
             new File(tempLayoutName).renameTo(new File(layoutName));
             Free42Activity.showAlert("Skin Loaded");

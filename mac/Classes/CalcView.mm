@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -25,6 +25,12 @@
     self = [super initWithFrame:frame];
     if (self) {
         // Initialization code here.
+        self.postsFrameChangedNotifications = YES;
+        [[NSNotificationCenter defaultCenter]
+             addObserver:self
+             selector:@selector(frameDidChange:)
+             name:NSViewFrameDidChangeNotification
+             object:self];
     }
     return self;
 }
@@ -37,8 +43,23 @@
     return YES;
 }
 
+- (void) viewDidMoveToWindow {
+    [[self.window standardWindowButton:NSWindowZoomButton] setEnabled:NO];
+    [super viewDidMoveToWindow];
+}
+
+- (void)frameDidChange:(NSNotification*)notification {
+    int sw, sh;
+    skin_get_size(&sw, &sh);
+    state.mainWindowWidth = self.frame.size.width;
+    state.mainWindowHeight = self.frame.size.height;
+    [self scaleUnitSquareToSize:NSMakeSize(self.bounds.size.width / sw, self.bounds.size.height / sh)];
+    [self setNeedsDisplay:YES];
+}
+
 - (void)mouseDown:(NSEvent *)theEvent {
     NSPoint loc = [theEvent locationInWindow];
+    loc = [self convertPoint:loc fromView:nil];
     calc_mousedown((int) loc.x, (int) loc.y);
 }
 
@@ -46,28 +67,28 @@
     calc_mouseup();
 }
 
-static NSString *unicode(NSString *src) {
-    char buf[1024] = "";
-    int len = [src length];
-    for (int i = 0; i < len; i++) {
-        unsigned short c = [src characterAtIndex:i];
-        if (i > 0)
-            strcat(buf, " ");
-        sprintf(buf + strlen(buf), "0x%x", c);
-    }
-    return [NSString stringWithUTF8String:buf];
-}
-
 - (void)keyDown:(NSEvent *)theEvent {
     if ([theEvent isARepeat])
         return;
-    calc_keydown([theEvent characters], [theEvent modifierFlags], [theEvent keyCode]);
+    NSString *characters = [theEvent characters];
+    if ([characters length] == 0) {
+        if (@available(macOS 10.15, *)) {
+            characters = [theEvent charactersByApplyingModifiers:[theEvent modifierFlags] & NSEventModifierFlagDeviceIndependentFlagsMask ^ NSEventModifierFlagShift];
+        }
+    }
+    calc_keydown(characters, [theEvent modifierFlags], [theEvent keyCode]);
 }
 
 - (void)keyUp:(NSEvent *)theEvent {
     if ([theEvent isARepeat])
         return;
-    calc_keyup([theEvent characters], [theEvent modifierFlags], [theEvent keyCode]);
+    NSString *characters = [theEvent characters];
+    if ([characters length] == 0) {
+        if (@available(macOS 10.15, *)) {
+            characters = [theEvent charactersByApplyingModifiers:[theEvent modifierFlags] & NSEventModifierFlagDeviceIndependentFlagsMask ^ NSEventModifierFlagShift];
+        }
+    }
+    calc_keyup(characters, [theEvent modifierFlags], [theEvent keyCode]);
 }
 
 - (void)flagsChanged:(NSEvent *)theEvent {

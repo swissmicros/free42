@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -43,11 +43,14 @@ struct SkinKey {
 };
 
 #define SKIN_MAX_MACRO_LENGTH 63
+#define SKIN_MAX_HALF_MACRO_LENGTH ((SKIN_MAX_MACRO_LENGTH - 1) / 2)
 
 struct SkinMacro {
     int code;
     bool isName;
-    unsigned char macro[SKIN_MAX_MACRO_LENGTH + 1];
+    char secondType; // 0:none, 1:name, 2:text
+    unsigned char macro[SKIN_MAX_HALF_MACRO_LENGTH + 1];
+    unsigned char macro2[SKIN_MAX_HALF_MACRO_LENGTH + 1];
     SkinMacro *next;
 };
 
@@ -113,6 +116,7 @@ keymap_entry *parse_keymap_entry(char *line, int lineno) {
         char *tok;
         bool ctrl = false;
         bool alt = false;
+        bool numpad = false;
         bool shift = false;
         bool cshift = false;
         unsigned short keychar = 0;
@@ -132,6 +136,8 @@ keymap_entry *parse_keymap_entry(char *line, int lineno) {
                 ctrl = true;
             else if (strcasecmp(tok, "alt") == 0)
                 alt = true;
+            else if (strcasecmp(tok, "numpad") == 0)
+                numpad = true;
             else if (strcasecmp(tok, "shift") == 0)
                 shift = true;
             else if (strcasecmp(tok, "cshift") == 0)
@@ -171,6 +177,7 @@ keymap_entry *parse_keymap_entry(char *line, int lineno) {
         
         entry.ctrl = ctrl;
         entry.alt = alt;
+        entry.numpad = numpad;
         entry.shift = shift;
         entry.cshift = cshift;
         entry.keychar = keychar;
@@ -261,7 +268,7 @@ static bool skin_open(const char *skinname, bool open_layout, bool force_builtin
     
     if (!force_builtin) {
         /* Look for file */
-        sprintf(buf, "%s/Library/Application Support/Free42/%s.%s", getenv("HOME"), skinname, open_layout ? "layout" : "gif");
+        snprintf(buf, 1024, "%s/Library/Application Support/Free42/%s.%s", getenv("HOME"), skinname, open_layout ? "layout" : "gif");
         external_file = fopen(buf, "rb");
         if (external_file != NULL)
             return true;
@@ -442,11 +449,11 @@ void skin_load(long *width, long *height) {
         } else if (strncasecmp(line, "macro:", 6) == 0) {
             char *quot1 = strchr(line + 6, '"');
             if (quot1 != NULL) {
-                char *quot2 = strrchr(line + 6, '"');
-                if (quot2 != quot1) {
+                char *quot2 = strchr(quot1 + 1, '"');
+                if (quot2 != NULL) {
                     long len = quot2 - quot1 - 1;
-                    if (len > SKIN_MAX_MACRO_LENGTH)
-                        len = SKIN_MAX_MACRO_LENGTH;
+                    if (len > SKIN_MAX_HALF_MACRO_LENGTH)
+                        len = SKIN_MAX_HALF_MACRO_LENGTH;
                     int n;
                     if (sscanf(line + 6, "%d", &n) == 1 && n >= 38 && n <= 255) {
                         SkinMacro *macro = (SkinMacro *) malloc(sizeof(SkinMacro));
@@ -455,6 +462,21 @@ void skin_load(long *width, long *height) {
                         macro->isName = true;
                         memcpy(macro->macro, quot1 + 1, len);
                         macro->macro[len] = 0;
+                        macro->secondType = 0;
+                        quot1 = strchr(quot2 + 1, '"');
+                        if (quot1 == NULL)
+                            quot1 = strchr(quot2 + 1, '\'');
+                        if (quot1 != NULL) {
+                            quot2 = strchr(quot1 + 1, *quot1);
+                            if (quot2 != NULL) {
+                                len = quot2 - quot1 - 1;
+                                if (len > SKIN_MAX_HALF_MACRO_LENGTH)
+                                    len = SKIN_MAX_HALF_MACRO_LENGTH;
+                                memcpy(macro->macro2, quot1 + 1, len);
+                                macro->macro2[len] = 0;
+                                macro->secondType = *quot1 == '"' ? 1 : 2;
+                            }
+                        }
                         macro->next = macrolist;
                         macrolist = macro;
                     }
@@ -806,12 +828,17 @@ int skin_find_skey(int ckey) {
     return -1;
 }
 
-unsigned char *skin_find_macro(int ckey, bool *is_name) {
+unsigned char *skin_find_macro(int ckey, int *type) {
     SkinMacro *m = macrolist;
     while (m != NULL) {
         if (m->code == ckey) {
-            *is_name = m->isName;
-            return m->macro;
+            if (!m->isName || m->secondType == 0 || !core_alpha_menu()) {
+                *type = m->isName ? 1 : 0;
+                return m->macro;
+            } else {
+                *type = m->secondType;
+                return m->macro2;
+            }
         }
         m = m->next;
     }
@@ -819,21 +846,21 @@ unsigned char *skin_find_macro(int ckey, bool *is_name) {
 }
 
 unsigned char *skin_keymap_lookup(unsigned short keychar, bool printable,
-                                  bool ctrl, bool alt, bool shift, bool cshift,
-                                  bool *exact) {
+                                  bool ctrl, bool alt, bool numpad, bool shift,
+                                  bool cshift, bool *exact) {
     int i;
     unsigned char *macro = NULL;
     for (i = 0; i < keymap_length; i++) {
         keymap_entry *entry = keymap + i;
         if (ctrl == entry->ctrl
-            && alt == entry->alt
-            && (printable || shift == entry->shift)
-            && keychar == entry->keychar) {
-            if (cshift == entry->cshift) {
+                && alt == entry->alt
+                && (printable || shift == entry->shift)
+                && keychar == entry->keychar) {
+            if ((!numpad || shift == entry->shift) && numpad == entry->numpad && cshift == entry->cshift) {
                 *exact = true;
                 return entry->macro;
             }
-            if (cshift)
+            if ((numpad || !entry->numpad) && (cshift || !entry->cshift))
                 macro = entry->macro;
         }
     }
@@ -896,4 +923,9 @@ void skin_repaint_display() {
 
 void skin_display_set_enabled(bool enable) {
     display_enabled = enable;
+}
+
+void skin_get_size(int *width, int *height) {
+    *width = skin.width;
+    *height = skin.height;
 }

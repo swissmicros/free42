@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -516,6 +516,7 @@ int store_var(const char *name, int namelength, vartype *value, bool local) {
     if (varindex == -1) {
         if ( store_vvar(name, namelength, value) )
             return ERR_NONE;
+        /* Name not found; create new global or local */
         if (vars_count == vars_capacity) {
             int nc = vars_capacity + 25;
             var_struct *nv = (var_struct *) realloc(vars, nc * sizeof(var_struct));
@@ -531,14 +532,7 @@ int store_var(const char *name, int namelength, vartype *value, bool local) {
         vars[varindex].level = local ? get_rtn_level() : -1;
         vars[varindex].flags = 0;
     } else if (local && vars[varindex].level < get_rtn_level()) {
-        bool must_push = false;
-        if ((matedit_mode == 1 || matedit_mode == 3)
-                && string_equals(name, namelength, matedit_name, matedit_length)) {
-            if (matedit_mode == 3)
-                return ERR_RESTRICTED_OPERATION;
-            else
-                must_push = true;
-        }
+        /* Create local that hides an existing variable */
         if (vars_count == vars_capacity) {
             int nc = vars_capacity + 25;
             var_struct *nv = (var_struct *) realloc(vars, nc * sizeof(var_struct));
@@ -554,15 +548,21 @@ int store_var(const char *name, int namelength, vartype *value, bool local) {
             vars[varindex].name[i] = name[i];
         vars[varindex].level = get_rtn_level();
         vars[varindex].flags = VAR_HIDING;
-        if (must_push)
-            push_indexed_matrix();
     } else {
+        /* Update existing variable */
         if (matedit_mode == 1 &&
+                matedit_level == vars[varindex].level &&
                 string_equals(name, namelength, matedit_name, matedit_length)) {
-            if (value->type == TYPE_REALMATRIX || value->type == TYPE_COMPLEXMATRIX)
+            if (value->type == TYPE_REALMATRIX
+                    || value->type == TYPE_COMPLEXMATRIX
+                    || value->type == TYPE_LIST) {
                 matedit_i = matedit_j = 0;
-            else
+            } else {
                 matedit_mode = 0;
+                free(matedit_stack);
+                matedit_stack = NULL;
+                matedit_stack_depth = 0;
+            }
         }
         free_vartype(vars[varindex].value);
     }
@@ -590,8 +590,14 @@ bool purge_var(const char *name, int namelength, bool global, bool local) {
             // not an error, but don't delete.
             return true;
     }
-    if (matedit_mode == 1 && string_equals(matedit_name, matedit_length, name, namelength))
+    if (matedit_mode == 1
+            && matedit_level == vars[varindex].level
+            && string_equals(matedit_name, matedit_length, name, namelength)) {
         matedit_mode = 0;
+        free(matedit_stack);
+        matedit_stack = NULL;
+        matedit_stack_depth = 0;
+    }
     free_vartype(vars[varindex].value);
     if ((vars[varindex].flags & VAR_HIDING) != 0) {
         for (int i = varindex - 1; i >= 0; i--)
@@ -599,7 +605,6 @@ bool purge_var(const char *name, int namelength, bool global, bool local) {
                 vars[i].flags &= ~VAR_HIDDEN;
                 break;
             }
-        pop_indexed_matrix(name, namelength);
     }
     for (int i = varindex; i < vars_count - 1; i++)
         vars[i] = vars[i + 1];
@@ -624,8 +629,12 @@ bool vars_exist(int section) {
             return true;
         switch (vars[i].value->type) {
             case TYPE_REAL:
-            case TYPE_STRING:
                 if (section == CATSECT_REAL)
+                    return true;
+                else
+                    break;
+            case TYPE_STRING:
+                if (section == CATSECT_REAL || section == CATSECT_LIST_STR_ONLY)
                     return true;
                 else
                     break;
@@ -636,7 +645,12 @@ bool vars_exist(int section) {
                     break;
             case TYPE_REALMATRIX:
             case TYPE_COMPLEXMATRIX:
-                if (section == CATSECT_MAT)
+                if (section == CATSECT_MAT || section == CATSECT_MAT_LIST)
+                    return true;
+                else
+                    break;
+            case TYPE_LIST:
+                if (section == CATSECT_LIST_STR_ONLY || section == CATSECT_MAT_LIST)
                     return true;
                 else
                     break;

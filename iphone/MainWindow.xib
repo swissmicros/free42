@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<document type="com.apple.InterfaceBuilder3.CocoaTouch.XIB" version="3.0" toolsVersion="21225" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" colorMatched="YES">
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.XIB" version="3.0" toolsVersion="32700.99.1234" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" colorMatched="YES">
     <device id="retina4_7" orientation="portrait" appearance="light"/>
     <dependencies>
         <deployment identifier="iOS"/>
-        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="21207"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="22684"/>
         <capability name="System colors in document resources" minToolsVersion="11.0"/>
         <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
     </dependencies>
@@ -238,7 +238,7 @@
                     <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
                     <state key="normal" title="←"/>
                     <connections>
-                        <action selector="goBack" destination="Glm-RJ-JN7" eventType="primaryActionTriggered" id="ruS-TT-AZf"/>
+                        <action selector="goBack" destination="31h-BE-IyQ" eventType="primaryActionTriggered" id="6AD-eV-i7d"/>
                     </connections>
                 </button>
                 <button opaque="NO" contentMode="scaleToFill" fixedFrame="YES" contentHorizontalAlignment="center" contentVerticalAlignment="center" buttonType="system" lineBreakMode="middleTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="8TF-bi-44b">
@@ -246,7 +246,7 @@
                     <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
                     <state key="normal" title="→"/>
                     <connections>
-                        <action selector="goForward" destination="Glm-RJ-JN7" eventType="primaryActionTriggered" id="587-A6-ztq"/>
+                        <action selector="goForward" destination="31h-BE-IyQ" eventType="primaryActionTriggered" id="Xz2-we-jSp"/>
                     </connections>
                 </button>
                 <textField opaque="NO" contentMode="scaleToFill" fixedFrame="YES" contentHorizontalAlignment="left" contentVerticalAlignment="center" borderStyle="roundedRect" textAlignment="natural" minimumFontSize="17" translatesAutoresizingMaskIntoConstraints="NO" id="cDc-Mu-Sdq">
@@ -263,23 +263,24 @@
                         <action selector="reload" destination="31h-BE-IyQ" eventType="primaryActionTriggered" id="j6O-O2-hiF"/>
                     </connections>
                 </button>
-                <webView contentMode="scaleToFill" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="Glm-RJ-JN7">
-                    <rect key="frame" x="0.0" y="86" width="320" height="374"/>
+                <wkWebView contentMode="scaleToFill" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="jNB-NH-dVe">
+                    <rect key="frame" x="0.0" y="88" width="320" height="372"/>
                     <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                     <color key="backgroundColor" red="0.36078431370000003" green="0.38823529410000002" blue="0.4039215686" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
-                    <connections>
-                        <outlet property="delegate" destination="31h-BE-IyQ" id="5XU-kZ-vF0"/>
-                    </connections>
-                </webView>
+                    <wkWebViewConfiguration key="configuration">
+                        <audiovisualMediaTypes key="mediaTypesRequiringUserActionForPlayback" none="YES"/>
+                        <wkPreferences key="preferences"/>
+                    </wkWebViewConfiguration>
+                </wkWebView>
             </subviews>
             <color key="backgroundColor" systemColor="systemBackgroundColor"/>
             <freeformSimulatedSizeMetrics key="simulatedDestinationMetrics"/>
             <connections>
                 <outlet property="loadButton" destination="qqj-np-cnj" id="MEl-jh-Kla"/>
                 <outlet property="urlField" destination="cDc-Mu-Sdq" id="8Gt-jA-wlp"/>
-                <outlet property="webView" destination="Glm-RJ-JN7" id="yTw-yB-O3P"/>
+                <outlet property="webView" destination="jNB-NH-dVe" id="Aml-we-w95"/>
             </connections>
-            <point key="canvasLocation" x="2064" y="-66"/>
+            <point key="canvasLocation" x="2064" y="-66.566716641679164"/>
         </view>
         <view clearsContextBeforeDrawing="NO" contentMode="scaleToFill" id="67" customClass="PreferencesView">
             <rect key="frame" x="0.0" y="0.0" width="320" height="460"/>
@@ -560,7 +561,7 @@
                 <outlet property="singularMatrixSwitch" destination="124" id="150"/>
                 <outlet property="swipeDirectionSelector" destination="ZdJ-l8-XQR" id="SwU-vU-CYI"/>
             </connections>
-            <point key="canvasLocation" x="-35.200000000000003" y="520.83958020989508"/>
+            <point key="canvasLocation" x="-157" y="545"/>
         </view>
         <view clearsContextBeforeDrawing="NO" contentMode="scaleToFill" id="68" customClass="PrintView">
             <rect key="frame" x="0.0" y="0.0" width="320" height="460"/>
@@ -623,6 +624,7 @@
             <nil key="simulatedStatusBarMetrics"/>
             <freeformSimulatedSizeMetrics key="simulatedDestinationMetrics"/>
             <connections>
+                <outlet property="navBar" destination="76" id="m9g-wd-INJ"/>
                 <outlet property="scrollView" destination="221" id="223"/>
                 <outlet property="tile1" destination="226" id="228"/>
                 <outlet property="tile2" destination="227" id="229"/>
@@ -917,6 +919,7 @@
             <color key="backgroundColor" systemColor="systemBackgroundColor"/>
             <freeformSimulatedSizeMetrics key="simulatedDestinationMetrics"/>
             <connections>
+                <outlet property="navBar" destination="DfM-4E-VJT" id="8HI-89-y5X"/>
                 <outlet property="stateTable" destination="2Jz-QO-fwb" id="mc5-BD-HA1"/>
                 <outlet property="switchToButton" destination="mxI-wk-ow7" id="FyE-sC-CIC"/>
             </connections>

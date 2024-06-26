@@ -1,6 +1,6 @@
 ###############################################################################
 # Free42 -- an HP-42S calculator simulator
-# Copyright (C) 2004-2022  Thomas Okken
+# Copyright (C) 2004-2024  Thomas Okken
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License, version 2,
@@ -55,6 +55,14 @@ ifneq "$(findstring 6162,$(shell echo ab | od -x))" ""
 CFLAGS += -DF42_BIG_ENDIAN -DBID_BIG_ENDIAN
 endif
 
+ifeq "$(shell uname -m)" "arm64"
+CFLAGS += -fsigned-char -DBID_SIZE_LONG=8
+else ifeq "$(shell uname -m)" "aarch64"
+CFLAGS += -fsigned-char -DBID_SIZE_LONG=8
+else ifeq "$(shell uname -m | sed 's/^\(...\).*$$/\1/')" "arm"
+CFLAGS += -fsigned-char -DBID_SIZE_LONG=4
+endif
+
 SRCS = shell_main.cc shell_skin.cc skins.cc keymap.cc shell_loadimage.cc \
 	shell_spool.cc core_main.cc core_commands1.cc core_commands2.cc \
 	core_commands3.cc core_commands4.cc core_commands5.cc \
@@ -62,13 +70,14 @@ SRCS = shell_main.cc shell_skin.cc skins.cc keymap.cc shell_loadimage.cc \
 	core_helpers.cc core_keydown.cc core_linalg1.cc core_linalg2.cc \
 	core_math1.cc core_math2.cc core_phloat.cc core_sto_rcl.cc \
 	core_tables.cc core_variables.cc
-OBJS = shell_main.o shell_skin.o skins.o keymap.o shell_loadimage.o \
-	shell_spool.o core_main.o core_commands1.o core_commands2.o \
+CORE_OBJS = shell_spool.o core_main.o core_commands1.o core_commands2.o \
 	core_commands3.o core_commands4.o core_commands5.o \
 	core_commands6.o core_commands7.o core_display.o core_globals.o \
 	core_helpers.o core_keydown.o core_linalg1.o core_linalg2.o \
 	core_math1.o core_math2.o core_phloat.o core_sto_rcl.o \
 	core_tables.o core_variables.o
+OBJS = shell_main.o shell_skin.o skins.o keymap.o shell_loadimage.o \
+	$(CORE_OBJS)
 
 SRCS += core_aux.cc
 OBJS += core_aux.o
@@ -99,6 +108,12 @@ endif
 
 $(EXE): $(OBJS) gcc111libbid.a
 	$(CXX) -o $(EXE) $(LDFLAGS) $(OBJS) $(LIBS)
+
+txt2raw: symlinks txt2raw.o $(CORE_OBJS) gcc111libbid.a
+	$(CXX) -o txt2raw $(LDFLAGS) txt2raw.o $(CORE_OBJS) $(LIBS)
+
+raw2txt: symlinks raw2txt.o $(CORE_OBJS) gcc111libbid.a
+	$(CXX) -o raw2txt $(LDFLAGS) raw2txt.o $(CORE_OBJS) $(LIBS)
 
 $(SRCS) skin2cc.cc keymap2cc.cc skin2cc.conf: symlinks
 
@@ -132,7 +147,8 @@ clean: FORCE
 	rm -f `find . -type l ! -name readtest.c` \
 		skin2cc skin2cc.exe skins.cc \
 		keymap2cc keymap2cc.exe keymap.cc \
-		*.o *.d *.i *.ii *.s symlinks core.*
+		*.o *.d *.i *.ii *.s symlinks core.* \
+		raw2txt txt2raw
 
 cleaner: FORCE
 	rm -f `find . -type l` \
@@ -141,7 +157,8 @@ cleaner: FORCE
 		keymap2cc keymap2cc.exe keymap.cc \
 		readtest_lines.cc \
 		gcc111libbid.a \
-		*.o *.d *.i *.ii *.s symlinks core.*
+		*.o *.d *.i *.ii *.s symlinks core.* \
+		raw2txt txt2raw
 	rm -rf IntelRDFPMathLib20U1
 
 FORCE:

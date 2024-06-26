@@ -1,3 +1,200 @@
+2024-04-24: release 3.1.8
+
+* Fixed ALPHA pasting during command entry.
+
+2024-03-30: release 3.1.7
+
+* Now recognizing comment delimiters '@' and ';' for program pasting.
+* More accurate complex ASIN/ASINH.
+
+2024-03-26: release 3.1.6
+
+* Accuracy improvements for C.LN1+X, and complex LN, ATAN, and ATANH.
+
+2024-03-22: release 3.1.5b (iOS, Windows, and MacOS)
+
+* Windows version: Fixed display flicker using buffered painting.
+* iOS and MacOS versions: Changed skin loader to use WKWebView.
+
+2024-03-21: release 3.1.5a (Windows only)
+
+* Reduced display blurriness when the main window is resized.
+
+2024-03-07: release 3.1.5
+
+* Direct command mapping now supports alternate mappings for ALPHA mode.
+* Windows version: Fixed a couple of display glitches.
+
+2024-03-04: release 3.1.4g (Windows, MacOS, and Linux)
+
+* Windows, MacOS, and Linux versions: Constraining print-out window height to
+  multiples of 18 pixels, that is, to a whole number of lines.
+* Windows version: Fixed skin rendering problem in Windows Vista.
+* Linux version: Fixed a few bugs related to main window resizing.
+
+2024-03-01: release 3.1.4f (Linux only)
+
+* Resizable main window.
+* Ctrl-D shortcut for Clear Print-Out.
+
+2024-02-28: release 3.1.4e (iOS, Windows, and MacOS)
+
+* iOS version: Fixed crash when sharing on iPad.
+* Windows version: Σ+ looked like it was pressed at startup. Fixed.
+* MacOS version: Fixed crash when making the main window too small.
+
+2024-02-26: release 3.1.4d (Windows only)
+
+* Resizable main window.
+* Ctrl-D shortcut for Clear Print-Out.
+
+2024-02-21: release 3.1.4c (MacOS only)
+
+* Resizable main window.
+* Command-D shortcut for Clear Print-Out.
+
+2024-02-14: release 3.1.4b (iOS only)
+
+* iPad support.
+
+2024-02-09: release 3.1.4a (Android only)
+
+* Fixed Alt-key handling.
+
+2024-02-09: release 3.1.4
+
+* Keyboard mapping fixes.
+* Android version: Support for external keyboards.
+* Linux version: Changed ALSA device from "plughw:0,0" to "default".
+
+2024-01-24: release 3.1.3a (Android only)
+
+* Fixed crash in File Management Menu.
+* Fixed crash when importing or exporting to cloud storage.
+
+2024-01-17: release 3.1.3
+
+* Added C.LN1+X and C.E^X-1 functions. These are complex-capable versions of
+  LN1+X and E^X-1.
+* Fixed pasting of strings that start with E.
+* Binary version: When converting binary to decimal, only use 17 digits when
+  actually needed. This prevents 0.1 from turning into 1.0000000000000001e-1,
+  for example.
+* iOS version: Support for external keyboards.
+
+2023-12-18: release 3.1.2b (Android only)
+
+* Fixed file access for Android >= 11.
+
+2023-12-12: release 3.1.2a (iOS and MacOS)
+
+* Fixed crash when loading skin images with local colormaps, caused by a bug in
+  Xcode 15.
+
+2023-12-01: release 3.1.2
+
+* CSLD? did not handle intervening XEQ/RTN. Fixed.
+* FUNC did not detect previous FUNC/LNSTK/L4STK. Fixed.
+
+2023-11-29: release 3.1.1
+
+* In the matrix / list editor (EDIT and EDITN), GOTO would prompt for a column
+  even when editing a list, and any column number other than 1 would cause an
+  error. Lists are one-dimensional, so the user should only be asked for a row.
+  Fixed.
+* iOS and MacOS versions: ASSIGN "" didn't work, because the second ENTER
+  wasn't being handled correctly. This was caused by an optimizer bug in
+  Apple's latest compiler. Fixed.
+
+2023-11-15: release 3.1
+
+* EDIT, EDITN, and INDEX now support editing lists, nested lists, empty lists,
+  and matrices within lists. See the Free42 web site for details.
+* FUNC now hides the caller's RPN stack, so user-defined functions can use
+  functions like CLST and R↓ without causing side effects.
+* User-defined functions can now be made to support 'stack lift disable'
+  properly. For functions using FUNC, this happens automatically, and other
+  functions can use the new CSLD? function (Caller's Stack Lift Disabled?).
+* FNRM and UVEC, when called with very large parameters, could get incorrect
+  results due to overflows in intermediaries. Fixed.
+* Fixed parameter bounds check in PIXEL.
+* Windows, MacOS, and Linux versions: Keyboard maps now support separate
+  mappings for unshifted and shifted numeric keypad keys, and unshifted and
+  shifted Space.
+
+2023-08-11: release 3.0.21
+
+* INPUT would crash if R/S was pressed while the stack was empty, in NSTK mode.
+  Fixed.
+* ANUM would consider a decimal point or comma by itself as zero, instead of
+  ignoring it. Fixed.
+* EDIT, EDITN, and INDEX didn't clear flags 76 and 77 (matrix edge wrap and end
+  wrap), while they should. Fixed.
+* Decimal version: In HMS+ and HMS-, fixed handling of cases where either or
+  both of the arguments has a number of minutes or seconds >= 60. (The binary
+  version did not have this bug.)
+* Binary version: max digits for SHOW increased to 17. This was necessary
+  because 16 digits was actually never enough to begin with. For example, 5 1/X
+  and 5 SQRT X^2 1/X both returned a result that looked like 0.2 in SHOW, even
+  though they are different, as can be easily verified with X=Y? or by
+  subtracting them. It takes 17 decimal digits to ensure that different binary
+  numbers will always be rendered as different decimal numbers.
+
+2023-04-19: release 3.0.20
+
+* Changed Σ+/Σ- so that, in NSTK mode, they will accept a single real argument,
+  assuming Y=0 in that case.
+* Tuned TONE frequencies to A440 scale.
+
+2023-04-10: release 3.0.19a (iOS and MacOS)
+
+* Copy in PRGM mode was dropping line 01, because of an optimizer bug in the
+  latest compiler. Reduced optimization level from -Os to -O1 to work around
+  this problem.
+
+2023-04-05: release 3.0.19
+
+* Fixed crash in RTNERR when switching back to NSTK mode after FUNC/L4STK.
+* Fixed ASSIGN "" in programs.
+* Added PRREG to the PRINT menu.
+* NN→S now ignores the display mode and always acts like ALL mode is active.
+  The idea being that if you care about the display mode, you'll probably be
+  using N→S, and you only need NN→S if you specifically want to see full
+  internal precision.
+
+2023-03-17: release 3.0.18
+
+* EDIT, EDITN, and INDEX now support lists, acting like they are 1-column
+  matrices. (Empty lists are not supported, they must have at least one
+  element. This limitation will be removed in a future release. Note that you
+  can create a new 1-element list by simply doing NEWLIST 0 +.)
+  This includes STOIJ, RCLIJ, STOEL, RCLEL, I+, I-, J+, J-, ←, ↑, ↓, →, INSR,
+  DELR, and DIM.
+* Added PRREG. Because PRV "REGS" is not a good substitute.
+* Added NN→S. This works like N→S (convert number to string on the stack), but
+  without the 12-digit mantissa length limit, so you get full precision in ALL
+  mode.
+* Fixed stack lift handling in DELR and STOFLAG.
+* Fixed pasting 1/X, 10^X, and 4STK, when pasted without line number and with
+  trailing space.
+
+2022-12-14: release 3.0.17
+
+* Fixed a couple of bugs in Paste of scalars in BINM, OCTM, and HEXM modes.
+* Fixed pasting of U+22A2 and U+22A6 ('append' characters used by i41CX and
+  Emu42).
+
+2022-10-29: release 3.0.16
+
+* SOLVE does a better job of reporting Sign Reversal when a function changes
+  sign around a vertical asymptote, instead of reporting it as a root.
+* BASE: complex numbers were being copied in non-decimal bases in some cases.
+* Better OCTM handling in SHOW.
+* Fixed number entry in PRGM mode when BINM/OCTM/HEXM active.
+* No longer setting flag 22 if number entry ends with DROP in NSTK mode.
+* Added WIDTH and HEIGHT to CATALOG->MISC; moved A...F from CATALOG->MISC to
+  CATALOG->BASE.
+
 2022-10-01: release 3.0.15
 
 * Fixed crash in SHOW for certain complex numbers.
@@ -5,10 +202,9 @@
   A...F menu activated.
 * iOS version: Added Calculator / Print-Out swipe direction configuration
   option to Preferences.
-* Android, iOS, and MacOS versions: Fixed incorrect Out of Range error returned
-  by BASE functions in certain cases, e.g. BRESET 64 WSIZE 1 ENTER BASE÷
-  The problem is caused by an optimizer bug in the ARM compiler, and does not
-  affect the Windows and Linux versions, nor the MacOS version on Intel.
+* Android, iOS, and MacOS ARM versions: Fixed incorrect Out of Range error
+  returned by BASE functions in certain cases, e.g. BRESET 64 WSIZE 1 ENTER
+  BASE÷.
 
 2022-08-13: release 3.0.14
 
@@ -193,7 +389,7 @@
   instructions, like the top-level menu presented by SOLVER and ∫f(x). It is
   meant to be used by programs that aim to implement a similar behavior as
   those built-in menus.
-* On cold start, now setting the date and time format accordig to the host
+* On cold start, now setting the date and time format according to the host
   operating system's locale settings.
 * The Free42 extensions to the HP-42S instruction set are now shown in separate
   sections in CATALOG, rather than at the end of the FCN catalog.
@@ -463,7 +659,7 @@
 * Android version: Added file extension filtering for file, http, and https URL
   schemes. This should make Free42 not appear in as many file selection
   contexts as before, without making it disappear from contexts where it should
-  be offered as an option. N.B. File extension filtering is not supported with
+  be offered as an option. Note: file extension filtering is not supported with
   the content scheme, which means Free42 will still show up in all contexts
   where attachments are opened, and depending on the file manager used, also
   when opening files from file managers.
@@ -1324,7 +1520,7 @@
   conversions with code that uses the standard C library's equivalent
   functionality. This fixes final-digit errors in the Binary version, and also
   final-digit errors when switching from the Decimal to the Binary version.
-* All versions: Added angle reduction code to make SIN, COS, and ->REC more
+* All versions: Added angle reduction code to make SIN, COS, and →REC more
   accurate in DEG and GRAD modes.
 * Windows version: Now uses %APPDATA%\Free42 as the default Free42 directory
   (for storing state.bin, print.bin, and keymap.txt). This avoids permissions
@@ -1582,7 +1778,7 @@
 
 2009-11-25: release 1.4.61
 
-* Decimal version: ->OCT (decimal-to-octal conversion) was broken; it actually
+* Decimal version: →OCT (decimal-to-octal conversion) was broken; it actually
   converted octal to decimal. Fixed.
 
 2009-11-11: (no new code release)
@@ -2187,7 +2383,7 @@
 * Added a new voyager-style skin to the Free42Skins.zip package (Windows and
   Unix), and created a new package, Free42PocketPCSkins.zip, with skins
   specifically designed for the Pocket PC.
-* ->POL now detects the case that the real and/or imaginary parts are zero, and
+* →POL now detects the case that the real and/or imaginary parts are zero, and
   returns exact results for those cases.
 * Cancelling a partially-entered DEL, LIST, or PRP command in PRGM mode could
   cause the instruction pointer to be set to an invalid location. Fixed.
@@ -2341,9 +2537,9 @@
   return (1,0); this is not consistent with the real HP-42S, which returns
   "Invalid Data", but it is consistent with the way Free42 already treated
   0^0).
-* SIN, COS, P->R, and COMPLEX, when used in DEG and GRAD modes, now return
-  exact results for multiples of 90 degrees (100 grads). Also, the TAN function
-  now returns exact results for multiples of 45 degrees (50 grads).
+* SIN, COS, P→R, and COMPLEX, when used in DEG and GRAD modes, now return exact
+  results for multiples of 90 degrees (100 grads). Also, the TAN function now
+  returns exact results for multiples of 45 degrees (50 grads).
 * Added range checks to the complex versions of SIN and COS.
 * In PRGM mode, the A..F command in the BASE menu now says "Restricted
   Operation".
@@ -2451,11 +2647,11 @@
 
 2005-03-23: release 1.2.10
 
-* The code in ->HMS, HMS+, and HMS-, that was supposed to prevent results such
-  as ->HMS(61/60) = 1.006 (by adding 0.4 to fix the minutes, or 0.004 to fix
-  the seconds, to get 1.01 in this example) was incorrect; it would apply the
+* The code in →HMS, HMS+, and HMS-, that was supposed to prevent results such
+  as →HMS(61/60) = 1.006 (by adding 0.4 to fix the minutes, or 0.004 to fix the
+  seconds, to get 1.01 in this example) was incorrect; it would apply the
   correction in cases where the intermediate result was rounded down due to
-  binary round-off; this would cause ->HMS(119/60) to return 1.594 instead of
+  binary round-off; this would cause →HMS(119/60) to return 1.594 instead of
   1.59. Fixed by making the test for when to perform the adjustment more
   accurate.
 
@@ -2512,9 +2708,9 @@
   the format used on the calculator's display -- so flag 28 controls whether
   '.' or ',' is the decimal. Thousands separators are ignored regardless of the
   setting of flag 29.
-* 61 ENTER 60 / ->HMS now returns 1.01 instead of 1.006. I added a check to
-  see if round-off after the final computation step caused the seconds or
-  minutes to reach 60. I also added this same check to HMS+ and HMS-.
+* 61 ENTER 60 / →HMS now returns 1.01 instead of 1.006. I added a check to see
+  if round-off after the final computation step caused the seconds or minutes
+  to reach 60. I also added this same check to HMS+ and HMS-.
 * Clicking in the bottom half of the display now activates "soft" (menu) keys.
   This actually means you now simply have another way of clicking the six keys
   in the top row of the keyboard, but the visual feedback is different, and
@@ -3215,8 +3411,8 @@
 
 2004-11-06: release 1.0.1
 
-* Reduce arguments to SIN, COS, TAN, ->REC, and COMPLEX (in POLAR mode)
-  by applying fmod(x, 360) (in DEG mode) or fmod(x, 400) (in GRAD mode).
+* Reduce arguments to SIN, COS, TAN, →REC, and COMPLEX (in POLAR mode) by
+  applying fmod(x, 360) (in DEG mode) or fmod(x, 400) (in GRAD mode).
   In RAD mode, the behavior is unchanged. See angle_to_rad().
 * Fixed a bug in keydown_command_entry() that made it impossible to create
   alpha LBLs where the first character was a shifted alpha menu key (e.g.

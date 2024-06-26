@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -350,12 +350,9 @@ struct prgm_struct {
     int4 size;
     int lclbl_invalid;
     unsigned char *text;
-};
-struct prgm_struct_32bit {
-    int4 capacity;
-    int4 size;
-    int lclbl_invalid;
-    int4 text;
+    inline bool is_end(int4 pc) {
+        return text[pc] == CMD_END && (text[pc + 1] & 112) == 0;
+    }
 };
 extern int prgms_capacity;
 extern int prgms_count;
@@ -391,7 +388,7 @@ extern bool mode_clall;
 extern int (*mode_interruptible)(bool);
 extern bool mode_stoppable;
 extern bool mode_command_entry;
-extern bool mode_number_entry;
+extern char mode_number_entry;
 extern bool mode_alpha_entry;
 extern bool mode_shift;
 extern int mode_appmenu;
@@ -459,6 +456,9 @@ extern int4 incomplete_saved_highlight_row;
 #define CATSECT_EXT_MISC 21
 #define CATSECT_EXT_0_CMP 22
 #define CATSECT_EXT_X_CMP 23
+#define CATSECT_LIST_STR_ONLY 24
+#define CATSECT_MAT_LIST 25
+#define CATSECT_MAT_LIST_ONLY 26
 
 /* Command line handling temporaries */
 extern char cmdline[100];
@@ -467,12 +467,16 @@ extern int cmdline_row;
 
 /* Matrix editor / matrix indexing */
 extern int matedit_mode; /* 0=off, 1=index, 2=edit, 3=editn */
+extern int matedit_level;
 extern char matedit_name[7];
 extern int matedit_length;
 extern vartype *matedit_x;
 extern int4 matedit_i;
 extern int4 matedit_j;
 extern int matedit_prev_appmenu;
+extern int4 *matedit_stack;
+extern int matedit_stack_depth;
+extern bool matedit_is_list;
 
 /* INPUT */
 extern char input_name[11];
@@ -503,8 +507,8 @@ extern int keybuf[16];
 extern int remove_program_catalog;
 
 #define NUMBER_FORMAT_BINARY 0
-#define NUMBER_FORMAT_BCD20_OLD 1
-#define NUMBER_FORMAT_BCD20_NEW 2
+#define NUMBER_FORMAT_BCD20_OLD 1 // obsolete
+#define NUMBER_FORMAT_BCD20_NEW 2 // obsolete
 #define NUMBER_FORMAT_BID128 3
 extern int state_file_number_format;
 
@@ -539,6 +543,7 @@ int find_global_label(const arg_struct *arg, int *prgm, int4 *pc);
 int find_global_label_index(const arg_struct *arg, int *idx);
 int push_rtn_addr(int prgm, int4 pc);
 int push_indexed_matrix();
+void maybe_pop_indexed_matrix(const char *name, int len);
 int push_func_state(int n);
 int push_stack_state(bool big);
 int pop_func_state(bool error);
@@ -548,14 +553,13 @@ bool should_i_stop_at_this_level();
 int rtn(int err);
 int rtn_with_error(int err);
 void pop_rtn_addr(int *prgm, int4 *pc, bool *stop);
-void pop_indexed_matrix(const char *name, int namelen);
 void clear_all_rtns();
 int get_rtn_level();
+void save_csld();
+bool is_csld();
 bool solve_active();
 bool integ_active();
 bool unwind_stack_until_solve();
-
-extern bool state_is_portable;
 
 bool read_bool(bool *b);
 bool write_bool(bool b);
@@ -571,7 +575,7 @@ bool read_int8(int8 *n);
 bool write_int8(int8 n);
 bool read_phloat(phloat *d);
 bool write_phloat(phloat d);
-bool read_arg(arg_struct *arg, bool old);
+bool read_arg(arg_struct *arg);
 bool write_arg(const arg_struct *arg);
 
 bool load_state(int4 version, bool *clear, bool *too_new);

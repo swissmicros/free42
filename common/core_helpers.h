@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -107,6 +107,7 @@ const char *phloat2program(phloat d);
 int easy_phloat2string(phloat d, char *buf, int buflen, int base_mode);
 int ip2revstring(phloat d, char *buf, int buflen);
 
+
 #ifdef ARM
 #define mallocU(x) unguarded_malloc(x,__FILE__,__LINE__)
 #define reallocU(x,y) unguarded_realloc(x,y,__FILE__,__LINE__)
@@ -137,6 +138,7 @@ int statefile_putc(int c, FILE *stream);
 #define ungetc statefile_ungetc
 #define ftell  statefile_tell
 #define fputc  statefile_putc
+#define ferror(f) 0
 // ------------
 }
 
@@ -144,5 +146,10 @@ int statefile_putc(int c, FILE *stream);
 #define mallocU  malloc
 #define reallocU realloc
 #endif
+
+
+int matedit_get(vartype **res);
+void leave_matrix_editor();
+
 
 #endif

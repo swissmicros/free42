@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -51,6 +51,7 @@
         tapBackground.cancelsTouchesInView = NO;
         [self addGestureRecognizer:tapBackground];
     }
+    webView.navigationDelegate = self;
     NSString *url = [urlField text];
     if (url == nil || [url length] == 0)
         [urlField setText:@"https://thomasokken.com/free42/skins/"];
@@ -125,16 +126,24 @@
     [loadButton setEnabled:YES];
 }
 
-- (void)webViewDidStartLoad:(UIWebView *)webView {
+- (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation {
     [loadButton setEnabled:NO];
     [loadButton setTitle:@"..."];
 }
 
-- (void)webViewDidFinishLoad:(UIWebView *)webView {
-    NSString *url = [[[webView request] URL] absoluteString];
+- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
+    NSString *url = [[webView URL] absoluteString];
     [urlField setText:url];
     [loadButton setTitle:@"Load"];
     [loadButton setEnabled:[LoadSkinView skinUrlPair:url] != nil];
+}
+
+- (IBAction) goBack {
+    [webView goBack];
+}
+
+- (IBAction) goForward {
+    [webView goForward];
 }
 
 + (NSArray *)skinUrlPair:(NSString *)url {
@@ -159,7 +168,7 @@
         return nil;
     }
     NSString *baseName = [gifUrl lastPathComponent];
-    return [NSArray arrayWithObjects:gifUrl, layoutUrl, [baseName substringToIndex:[baseName length] - 4], nil];
+    return [NSArray arrayWithObjects:gifUrl, layoutUrl, [[baseName substringToIndex:[baseName length] - 4] stringByRemovingPercentEncoding], nil];
 }
 
 @end

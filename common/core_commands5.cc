@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -1294,15 +1294,14 @@ static int sigma_helper_1(int weight) {
         return ERR_NONE;
     } else {
         // stack[sp]->type == TYPE_REAL
-        if (sp < 1) {
-            return ERR_TOO_FEW_ARGUMENTS;
-        } else if (stack[sp - 1]->type == TYPE_REAL) {
+        if (sp == 0 || stack[sp - 1]->type == TYPE_REAL) {
             vartype_real *x = (vartype_real *) new_real(0);
             if (x == NULL)
                 return ERR_INSUFFICIENT_MEMORY;
+            phloat y = sp == 0 ? 0 : ((vartype_real *) stack[sp - 1])->x;
             x->x = sigma_helper_2(sigmaregs,
                                     ((vartype_real *) stack[sp])->x,
-                                    ((vartype_real *) stack[sp - 1])->x,
+                                    y,
                                     weight);
             free_vartype(lastx);
             lastx = stack[sp];

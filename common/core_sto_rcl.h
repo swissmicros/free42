@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -69,33 +69,5 @@ int generic_sto(arg_struct *arg, char operation);
 int map_unary(const vartype *src, vartype **dst, mappable_r, mappable_c mc);
 int map_binary(const vartype *src1, const vartype *src2, vartype **dst,
             mappable_rr mrr, mappable_rc mrc, mappable_cr mcr, mappable_cc mcc);
-
-/**************************************************************/
-/* Operators that can be used by the mapping functions, above */
-/**************************************************************/
-
-int div_rr(phloat x, phloat y, phloat *z);
-int div_rc(phloat x, phloat yre, phloat yim, phloat *zre, phloat *zim);
-int div_cr(phloat xre, phloat xim, phloat y, phloat *zre, phloat *zim);
-int div_cc(phloat xre, phloat xim, phloat yre, phloat yim,
-                                    phloat *zre, phloat *zim);
-
-int mul_rr(phloat x, phloat y, phloat *z);
-int mul_rc(phloat x, phloat yre, phloat yim, phloat *zre, phloat *zim);
-int mul_cr(phloat xre, phloat xim, phloat y, phloat *zre, phloat *zim);
-int mul_cc(phloat xre, phloat xim, phloat yre, phloat yim,
-                                    phloat *zre, phloat *zim);
-
-int sub_rr(phloat x, phloat y, phloat *z);
-int sub_rc(phloat x, phloat yre, phloat yim, phloat *zre, phloat *zim);
-int sub_cr(phloat xre, phloat xim, phloat y, phloat *zre, phloat *zim);
-int sub_cc(phloat xre, phloat xim, phloat yre, phloat yim,
-                                    phloat *zre, phloat *zim);
-
-int add_rr(phloat x, phloat y, phloat *z);
-int add_rc(phloat x, phloat yre, phloat yim, phloat *zre, phloat *zim);
-int add_cr(phloat xre, phloat xim, phloat y, phloat *zre, phloat *zim);
-int add_cc(phloat xre, phloat xim, phloat yre, phloat yim,
-                                    phloat *zre, phloat *zim);
 
 #endif

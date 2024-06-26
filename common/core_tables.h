@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -350,166 +350,127 @@
 #define CMD_MIN         312
 #define CMD_FIND        313
 #define CMD_XROM        314
-/* Underhill's COPAN extensions (Obsolete) */
-#define CMD_OPENF       315
-#define CMD_CLOSEF      316
-#define CMD_READP       317
-#define CMD_WRITEP      318
-#define CMD_GETXY       319
-#define CMD_PUTXY       320
-#define CMD_CLRP        321
-#define CMD_CLRD        322
-#define CMD_APPD        323
-#define CMD_GETN        324
-#define CMD_PUTN        325
-#define CMD_GETZ        326
-#define CMD_PUTZ        327
-#define CMD_DELP        328
-/* Big Stack; additional functions from 4STK */
-#define CMD_DROP        329
 /* iPhone hardware support */
-#define CMD_ACCEL       330
-#define CMD_LOCAT       331
-#define CMD_HEADING     332
+#define CMD_ACCEL       315
+#define CMD_LOCAT       316
+#define CMD_HEADING     317
 /* HP-41 Time Module & CX Time */
-#define CMD_ADATE       333
-#define CMD_ALMCAT      334
-#define CMD_ALMNOW      335
-#define CMD_ATIME       336
-#define CMD_ATIME24     337
-#define CMD_CLK12       338
-#define CMD_CLK24       339
-#define CMD_CLKT        340
-#define CMD_CLKTD       341
-#define CMD_CLOCK       342
-#define CMD_CORRECT     343
-#define CMD_DATE        344
-#define CMD_DATE_PLUS   345
-#define CMD_DDAYS       346
-#define CMD_DMY         347
-#define CMD_DOW         348
-#define CMD_MDY         349
-#define CMD_RCLAF       350
-#define CMD_RCLSW       351
-#define CMD_RUNSW       352
-#define CMD_SETAF       353
-#define CMD_SETDATE     354
-#define CMD_SETIME      355
-#define CMD_SETSW       356
-#define CMD_STOPSW      357
-#define CMD_SW          358
-#define CMD_T_PLUS_X    359
-#define CMD_TIME        360
-#define CMD_XYZALM      361
-#define CMD_CLALMA      362
-#define CMD_CLALMX      363
-#define CMD_CLRALMS     364
-#define CMD_RCLALM      365
-#define CMD_SWPT        366
+#define CMD_ADATE       318
+#define CMD_ATIME       319
+#define CMD_ATIME24     320
+#define CMD_CLK12       321
+#define CMD_CLK24       322
+#define CMD_DATE        323
+#define CMD_DATE_PLUS   324
+#define CMD_DDAYS       325
+#define CMD_DMY         326
+#define CMD_DOW         327
+#define CMD_MDY         328
+#define CMD_TIME        329
 /* Intel Decimal Floating-Point Math Library: self-test */
-#define CMD_FPTEST      367
+#define CMD_FPTEST      330
 /* Programming */
-#define CMD_LSTO        368
-#define CMD_SST_UP      369
-#define CMD_SST_RT      370
-#define CMD_WSIZE       371
-#define CMD_WSIZE_T     372
-#define CMD_YMD         373
-#define CMD_BSIGNED     374
-#define CMD_BWRAP       375
-#define CMD_BRESET      376
-/* The order up to and including BRESET is set in stone, because those       */
-/* functions can all appear in state files from before 2.5, when programs in */
-/* state files were still stored as memory dumps. From 2.5 onward, programs  */
-/* in state files are stored in "raw" format, so how they are stored in      */
-/* memory becomes a private implementation detail.                           */
-#define CMD_GETKEY1     377
-#define CMD_LASTO       378
-#define CMD_LCLV        379
+#define CMD_LSTO        331
+#define CMD_SST_UP      332
+#define CMD_SST_RT      333
+#define CMD_WSIZE       334
+#define CMD_WSIZE_T     335
+#define CMD_YMD         336
+#define CMD_BSIGNED     337
+#define CMD_BWRAP       338
+#define CMD_BRESET      339
+#define CMD_GETKEY1     340
+#define CMD_LASTO       341
+#define CMD_LCLV        342
 /* Useful X-Fcn functions missing from the 42S */
-#define CMD_ANUM        380
-#define CMD_X_SWAP_F    381
-#define CMD_RCLFLAG     382
-#define CMD_STOFLAG     383
+#define CMD_ANUM        343
+#define CMD_X_SWAP_F    344
+#define CMD_RCLFLAG     345
+#define CMD_STOFLAG     346
 /* User-defined functions */
-#define CMD_FUNC        384
-#define CMD_ERRMSG      385
-#define CMD_ERRNO       386
-#define CMD_RTNYES      387
-#define CMD_RTNNO       388
-#define CMD_RTNERR      389
-#define CMD_STRACE      390
+#define CMD_FUNC        347
+#define CMD_ERRMSG      348
+#define CMD_ERRNO       349
+#define CMD_RTNYES      350
+#define CMD_RTNNO       351
+#define CMD_RTNERR      352
+#define CMD_STRACE      353
 /* Big Stack */
-#define CMD_4STK        391
-#define CMD_L4STK       392
-#define CMD_NSTK        393
-#define CMD_LNSTK       394
-#define CMD_DEPTH       395
-#define CMD_DROPN       396
-#define CMD_DUP         397
-#define CMD_DUPN        398
-#define CMD_PICK        399
-#define CMD_UNPICK      400
-#define CMD_RDNN        401
-#define CMD_RUPN        402
-/* (Skipping 403 because of single-byte equality checks with CMD_END) */
+#define CMD_4STK        354
+#define CMD_L4STK       355
+#define CMD_NSTK        356
+#define CMD_LNSTK       357
+#define CMD_DEPTH       358
+#define CMD_DROP        359
+#define CMD_DROPN       360
+#define CMD_DUP         361
+#define CMD_DUPN        362
+#define CMD_PICK        363
+#define CMD_UNPICK      364
+#define CMD_RDNN        365
+#define CMD_RUPN        366
 /* Miscellaneous */
-#define CMD_NOP         404
-#define CMD_FMA         405
-#define CMD_PGMMENU     406
-#define CMD_PMEXEC      407
-#define CMD_PGMVAR      408
-#define CMD_VARMNU1     409
-#define CMD_X2LINE      410
-#define CMD_A2LINE      411
-#define CMD_A2PLINE     412
-#define CMD_RCOMPLX     413
-#define CMD_PCOMPLX     414
-#define CMD_CAPS        415
-#define CMD_MIXED       416
-#define CMD_SKIP        417
-#define CMD_CPXMAT_T    418
-#define CMD_TYPE_T      419
-#define CMD_A_THRU_F_2  420
+#define CMD_NOP         367
+#define CMD_FMA         368
+#define CMD_PGMMENU     369
+#define CMD_PMEXEC      370
+#define CMD_PGMVAR      371
+#define CMD_VARMNU1     372
+#define CMD_X2LINE      373
+#define CMD_A2LINE      374
+#define CMD_A2PLINE     375
+#define CMD_RCOMPLX     376
+#define CMD_PCOMPLX     377
+#define CMD_CAPS        378
+#define CMD_MIXED       379
+#define CMD_SKIP        380
+#define CMD_CPXMAT_T    381
+#define CMD_TYPE_T      382
+#define CMD_A_THRU_F_2  383
+#define CMD_DROP_CANCL  384
+#define CMD_PRREG       385
+#define CMD_CSLD_T      386
+#define CMD_C_LN_1_X    387
+#define CMD_C_E_POW_X_1 388
 /* String & List Functions */
-#define CMD_XSTR        421
-#define CMD_XASTO       422
-#define CMD_LXASTO      423
-#define CMD_XVIEW       424
-#define CMD_APPEND      425
-#define CMD_EXTEND      426
-#define CMD_SUBSTR      427
-#define CMD_LENGTH      428
-#define CMD_HEAD        429
-#define CMD_REV         430
-#define CMD_POS         431
-#define CMD_S_TO_N      432
-#define CMD_N_TO_S      433
-#define CMD_C_TO_N      434
-#define CMD_N_TO_C      435
-#define CMD_LIST_T      436
-#define CMD_NEWLIST     437
-#define CMD_NEWSTR      438
-#define CMD_TO_LIST     439
-#define CMD_FROM_LIST   440
+#define CMD_XSTR        389
+#define CMD_XASTO       390
+#define CMD_LXASTO      391
+#define CMD_XVIEW       392
+#define CMD_APPEND      393
+#define CMD_EXTEND      394
+#define CMD_SUBSTR      395
+#define CMD_LENGTH      396
+#define CMD_HEAD        397
+#define CMD_REV         398
+#define CMD_POS         399
+#define CMD_S_TO_N      400
+#define CMD_N_TO_S      401
+#define CMD_NN_TO_S     402
+#define CMD_C_TO_N      403
+#define CMD_N_TO_C      404
+#define CMD_LIST_T      405
+#define CMD_NEWLIST     406
+#define CMD_TO_LIST     407
+#define CMD_FROM_LIST   408
 /* Generalized Comparisons */
-#define CMD_X_EQ_NN     441
-#define CMD_X_NE_NN     442
-#define CMD_X_LT_NN     443
-#define CMD_X_GT_NN     444
-#define CMD_X_LE_NN     445
-#define CMD_X_GE_NN     446
-#define CMD_0_EQ_NN     447
-#define CMD_0_NE_NN     448
-#define CMD_0_LT_NN     449
-#define CMD_0_GT_NN     450
-#define CMD_0_LE_NN     451
-#define CMD_0_GE_NN     452
+#define CMD_X_EQ_NN     409
+#define CMD_X_NE_NN     410
+#define CMD_X_LT_NN     411
+#define CMD_X_GT_NN     412
+#define CMD_X_LE_NN     413
+#define CMD_X_GE_NN     414
+#define CMD_0_EQ_NN     415
+#define CMD_0_NE_NN     416
+#define CMD_0_LT_NN     417
+#define CMD_0_GT_NN     418
+#define CMD_0_LE_NN     419
+#define CMD_0_GE_NN     420
 /* For Plus42 compatibility */
-#define CMD_WIDTH       453
-#define CMD_HEIGHT      454
+#define CMD_WIDTH       421
+#define CMD_HEIGHT      422
 
-#define CMD_SENTINEL    455
+#define CMD_SENTINEL    423
 
 
 /* command_spec.argtype */

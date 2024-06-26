@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -30,7 +30,7 @@
 #define MAX_MANT_DIGITS 34
 #define ALWAYS_INT_FROM (pow(10, MAX_MANT_DIGITS))
 #else
-#define MAX_MANT_DIGITS 16
+#define MAX_MANT_DIGITS 17
 #define ALWAYS_INT_FROM ((double) (1LL << 53))
 #endif
 
@@ -42,6 +42,7 @@
 
 #define p_isinf(x) (isinf(x) ? (x) > 0 ? 1 : -1 : 0)
 #define p_isnan isnan
+#define p_isnormal isnormal
 #define p_sincos(x, s, c) { *(s) = sin(x); *(c) = cos(x); }
 #define to_digit(x) ((int) fmod((x), 10.0))
 #define to_char(x) ((char) (x))
@@ -82,6 +83,7 @@ class Phloat {
         Phloat operator=(uint8 i);
         Phloat operator=(double d);
         Phloat operator=(Phloat p);
+        void assign17digits(double d);
         bool operator==(Phloat p) const;
         bool operator!=(Phloat p) const;
         bool operator<(Phloat p) const;
@@ -107,6 +109,7 @@ class Phloat {
 // defines them as macros.
 int p_isinf(Phloat p);
 int p_isnan(Phloat p);
+int p_isnormal(Phloat p);
 
 // We don't define type cast operators, because they just lead
 // to tons of ambiguities. Defining explicit conversions instead.
@@ -149,6 +152,9 @@ Phloat fabs(Phloat p);
 Phloat pow(Phloat x, Phloat y);
 Phloat floor(Phloat x);
 Phloat fma(Phloat x, Phloat y, Phloat z);
+int ilogb(Phloat x);
+Phloat scalbn(Phloat x, int y);
+Phloat copysign(Phloat x, Phloat y);
 
 Phloat operator*(int x, Phloat y);
 Phloat operator/(int x, Phloat y);
@@ -158,8 +164,6 @@ Phloat operator-(int x, Phloat y);
 bool operator==(int4 x, Phloat y);
 
 extern Phloat PI;
-
-void update_decimal(BID_UINT128 *val);
 
 
 #endif // BCD_MATH

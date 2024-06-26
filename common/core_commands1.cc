@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -692,6 +692,8 @@ static int clv_helper(arg_struct *arg, bool global) {
             return ERR_RESTRICTED_OPERATION;
         if (!purge_var(arg->val.text, arg->length, global, !global))
             return ERR_RESTRICTED_OPERATION;
+        if (!global)
+            maybe_pop_indexed_matrix(arg->val.text, arg->length);
         remove_shadow(arg->val.text, arg->length);
         return ERR_NONE;
     } else

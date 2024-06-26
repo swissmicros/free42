@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -24,6 +24,7 @@
 #include "core_display.h"
 #include "core_helpers.h"
 #include "core_linalg1.h"
+#include "core_main.h"
 #include "core_math2.h"
 #include "core_sto_rcl.h"
 #include "core_variables.h"
@@ -36,32 +37,20 @@ int docmd_insr(arg_struct *arg) {
     vartype *m, *newx;
     vartype_realmatrix *rm;
     vartype_complexmatrix *cm;
+    vartype_list *list;
     int4 rows, columns, i;
     int err, refcount;
     int interactive;
 
-    switch (matedit_mode) {
-        case 0:
-            return ERR_NONEXISTENT;
-        case 1:
-        case 3:
-            m = recall_var(matedit_name, matedit_length);
-            break;
-        case 2:
-            m = matedit_x;
-            break;
-        default:
-            return ERR_INTERNAL_ERROR;
-    }
-    if (m == NULL)
-        return ERR_NONEXISTENT;
-    if (m->type != TYPE_REALMATRIX && m->type != TYPE_COMPLEXMATRIX)
-        return ERR_INVALID_TYPE;
+    err = matedit_get(&m);
+    if (err != ERR_NONE)
+        return err;
 
     interactive = matedit_mode == 2 || matedit_mode == 3;
     if (interactive && sp != -1) {
         err = docmd_stoel(NULL);
-        if (err != ERR_NONE)
+        if (err != ERR_NONE && err != ERR_NONEXISTENT)
+            // Nonexistent happens with empty lists
             return err;
     }
 
@@ -75,7 +64,7 @@ int docmd_insr(arg_struct *arg) {
             if (newx == NULL)
                 return ERR_INSUFFICIENT_MEMORY;
         }
-    } else {
+    } else if (m->type == TYPE_COMPLEXMATRIX) {
         cm = (vartype_complexmatrix *) m;
         rows = cm->rows;
         columns = cm->columns;
@@ -85,10 +74,20 @@ int docmd_insr(arg_struct *arg) {
             if (newx == NULL)
                 return ERR_INSUFFICIENT_MEMORY;
         }
+    } else {
+        list = (vartype_list *) m;
+        rows = list->size;
+        columns = 1;
+        refcount = list->array->refcount;
+        if (interactive) {
+            newx = new_real(0);
+            if (newx == NULL)
+                return ERR_INSUFFICIENT_MEMORY;
+        }
     }
 
     if (matedit_i >= rows)
-        matedit_i = rows - 1;
+        matedit_i = rows == 0 ? 0 : rows - 1;
     if (matedit_j >= columns)
         matedit_j = columns - 1;
 
@@ -110,20 +109,32 @@ int docmd_insr(arg_struct *arg) {
                 rm->array->is_string[i] = 0;
                 rm->array->data[i] = 0;
             }
-        } else {
+        } else if (m->type == TYPE_COMPLEXMATRIX) {
             for (i = 2 * rows * columns - 1;
                             i >= 2 * (matedit_i + 1) * columns; i--)
                 cm->array->data[i] = cm->array->data[i - 2 * columns];
             for (i = 2 * matedit_i * columns;
                             i < 2 * (matedit_i + 1) * columns; i++)
                 cm->array->data[i] = 0;
+        } else {
+            vartype *v = new_real(0);
+            if (v == NULL) {
+                free_vartype(newx);
+                return ERR_INSUFFICIENT_MEMORY;
+            }
+            memmove(list->array->data + matedit_i + 1, list->array->data + matedit_i, (rows - matedit_i - 1) * sizeof(vartype *));
+            list->array->data[matedit_i] = v;
         }
     } else {
         /* Make sure the new array is less than 2 GB,
          * so it's addressable with a signed 32-bit index */
-        double d_bytes = ((double) (rows + 1)) * ((double) columns) * sizeof(phloat);
-        if (m->type == TYPE_COMPLEXMATRIX)
-            d_bytes *= 2;
+        int esize;
+        switch (m->type) {
+            case TYPE_REALMATRIX: esize = sizeof(phloat); break;
+            case TYPE_COMPLEXMATRIX: esize = 2 * sizeof(phloat); break;
+            case TYPE_LIST: esize = sizeof(vartype *); break;
+        }
+        double d_bytes = ((double) (rows + 1)) * ((double) columns) * esize;
         if (((double) (int4) d_bytes) != d_bytes)
             return ERR_INSUFFICIENT_MEMORY;
 
@@ -169,7 +180,7 @@ int docmd_insr(arg_struct *arg) {
             rm->array->refcount--;
             rm->array = array;
             rm->rows++;
-        } else {
+        } else if (m->type == TYPE_COMPLEXMATRIX) {
             complexmatrix_data *array = (complexmatrix_data *)
                                 malloc(sizeof(complexmatrix_data));
             if (array == NULL) {
@@ -195,6 +206,38 @@ int docmd_insr(arg_struct *arg) {
             cm->array->refcount--;
             cm->array = array;
             cm->rows++;
+        } else {
+            list_data *array = (list_data *) malloc(sizeof(list_data));
+            if (array == NULL) {
+                if (interactive)
+                    free_vartype(newx);
+                return ERR_INSUFFICIENT_MEMORY;
+            }
+            array->data = (vartype **) malloc(newsize * sizeof(vartype *));
+            if (array->data == NULL) {
+                if (interactive)
+                    free_vartype(newx);
+                free(array);
+                return ERR_INSUFFICIENT_MEMORY;
+            }
+            for (int4 i = 0; i < newsize; i++) {
+                array->data[i] = i < matedit_i ? dup_vartype(list->array->data[i])
+                               : i > matedit_i ? dup_vartype(list->array->data[i - 1])
+                               : new_real(0);
+                if (array->data[i] == NULL) {
+                    for (int4 j = 0; j < i; j++)
+                        free_vartype(array->data[j]);
+                    if (interactive)
+                        free_vartype(newx);
+                    free(array->data);
+                    free(array);
+                    return ERR_INSUFFICIENT_MEMORY;
+                }
+            }
+            array->refcount = 1;
+            list->array->refcount--;
+            list->array = array;
+            list->size++;
         }
     }
     if (interactive) {
@@ -221,26 +264,59 @@ int docmd_j_add(arg_struct *arg) {
     int4 rows, columns;
     int4 oldi = matedit_i;
     int4 oldj = matedit_j;
-    int err = matedit_get_dim(&rows, &columns);
+    vartype *m;
+    int err = matedit_get_dim(&rows, &columns, &m);
     if (err != ERR_NONE)
         return err;
-    if (++matedit_j >= columns) {
+    if (m->type == TYPE_LIST) {
+        vartype_list *list = (vartype_list *) m;
+        if (matedit_i >= list->size)
+            return ERR_NONEXISTENT;
+        vartype *m2 = list->array->data[matedit_i];
+        if (m2->type != TYPE_REALMATRIX && m2->type != TYPE_COMPLEXMATRIX && m2->type != TYPE_LIST) {
+            if (matedit_i == list->size - 1 && flags.f.grow) {
+                if (!disentangle((vartype *) list))
+                    return ERR_INSUFFICIENT_MEMORY;
+                int4 newsize = list->size + 1;
+                vartype **newdata = (vartype **) realloc(list->array->data, newsize * sizeof(vartype *));
+                if (newdata == NULL)
+                    return ERR_INSUFFICIENT_MEMORY;
+                list->array->data = newdata;
+                vartype *zero = new_real(0);
+                if (zero == NULL)
+                    return ERR_INSUFFICIENT_MEMORY;
+                list->array->data[list->size++] = zero;
+                matedit_i++;
+                flags.f.matrix_edge_wrap = 1;
+                flags.f.matrix_end_wrap = 1;
+            } else
+                return ERR_INVALID_TYPE;
+        } else {
+            int4 *newstack = (int4 *) realloc(matedit_stack, (matedit_stack_depth + 1) * sizeof(int4));
+            if (newstack == NULL)
+                return ERR_INSUFFICIENT_MEMORY;
+            matedit_stack = newstack;
+            matedit_stack[matedit_stack_depth++] = matedit_i;
+            matedit_i = matedit_j = 0;
+            matedit_is_list = m2->type == TYPE_LIST;
+            flags.f.matrix_edge_wrap = 0;
+            flags.f.matrix_end_wrap = 0;
+        }
+    } else if (++matedit_j >= columns) {
         flags.f.matrix_edge_wrap = 1;
         matedit_j = 0;
         if (++matedit_i >= rows) {
             flags.f.matrix_end_wrap = 1;
             if (flags.f.grow) {
-                if (matedit_mode == 2)
-                    err = dimension_array_ref(matedit_x, rows + 1, columns);
-                else
-                    err = dimension_array(matedit_name, matedit_length,
-                                            rows + 1, columns, false);
+                vartype *m;
+                err = matedit_get(&m);
+                if (err == ERR_NONE)
+                    err = dimension_array_ref(m, rows + 1, columns);
                 if (err != ERR_NONE) {
                     matedit_i = oldi;
                     matedit_j = oldj;
-                    return err;
-                }
-                matedit_i = rows;
+                } else
+                    matedit_i = rows;
             } else
                 matedit_i = 0;
         } else
@@ -254,10 +330,21 @@ int docmd_j_add(arg_struct *arg) {
 
 int docmd_j_sub(arg_struct *arg) {
     int4 rows, columns;
-    int err = matedit_get_dim(&rows, &columns);
+    vartype *m;
+    int err = matedit_get_dim(&rows, &columns, &m);
     if (err != ERR_NONE)
         return err;
-    if (--matedit_j < 0) {
+    if (m->type == TYPE_LIST) {
+        if (matedit_stack_depth > 0) {
+            // Range check?
+            matedit_i = matedit_stack[--matedit_stack_depth];
+            matedit_stack = (int4 *) realloc(matedit_stack, matedit_stack_depth * sizeof(int4));
+            matedit_j = 0;
+            matedit_is_list = true;
+        }
+        flags.f.matrix_edge_wrap = 0;
+        flags.f.matrix_end_wrap = 0;
+    } else if (--matedit_j < 0) {
         flags.f.matrix_edge_wrap = 1;
         matedit_j = columns - 1;
         if (--matedit_i < 0) {
@@ -272,19 +359,78 @@ int docmd_j_sub(arg_struct *arg) {
     return ERR_NONE;
 }
 
-static int mappable_ln_1_x(phloat x, phloat *y) {
+static int mappable_ln_1_x_r(phloat x, phloat *y) {
     if (x <= -1)
         return ERR_INVALID_DATA;
     *y = log1p(x);
     return ERR_NONE;
 }
 
+static int mappable_ln_1_x_c(phloat xre, phloat xim, phloat *yre, phloat *yim) {
+    if (xim == 0) {
+        if (xre == -1)
+            return ERR_INVALID_DATA;
+        if (xre > -1) {
+            *yre = log1p(xre);
+            *yim = 0;
+        } else {
+            *yre = log(-(xre + 1));
+            *yim = PI;
+        }
+        return ERR_NONE;
+    } else if (xre == -1) {
+        if (xim > 0) {
+            *yre = log(xim);
+            *yim = PI / 2;
+        } else {
+            *yre = log(-xim);
+            *yim = -PI / 2;
+        }
+        return ERR_NONE;
+    } else {
+        phloat x1re = xre + 1;
+        phloat are, aim;
+        math_ln(x1re, xim, &are, &aim);
+        phloat bre = x1re - 1 - xre;
+        phloat cre, cim;
+        math_inv(x1re, xim, &cre, &cim);
+        *yre = are - bre * cre;
+        *yim = aim - bre * cim;
+        return ERR_NONE;
+    }
+}
+
 int docmd_ln_1_x(arg_struct *arg) {
     vartype *v;
-    int err = map_unary(stack[sp], &v, mappable_ln_1_x, NULL);
+    int err = map_unary(stack[sp], &v, mappable_ln_1_x_r, NULL);
     if (err == ERR_NONE)
         unary_result(v);
     return err;
+}
+
+int docmd_c_ln_1_x(arg_struct *arg) {
+    if (stack[sp]->type == TYPE_REAL && !flags.f.real_result_only) {
+        vartype_real *x = (vartype_real *) stack[sp];
+        if (x->x == -1)
+            return ERR_INVALID_DATA;
+        vartype *res;
+        if (x->x > -1)
+            res = new_real(log1p(x->x));
+        else
+            res = new_complex(log(-(x->x + 1)), PI);
+        if (res == NULL)
+            return ERR_INSUFFICIENT_MEMORY;
+        else {
+            unary_result(res);
+            return ERR_NONE;
+        }
+    } else {
+        vartype *v;
+        int err = map_unary(stack[sp], &v, mappable_ln_1_x_r, mappable_ln_1_x_c);
+        if (err == ERR_NONE)
+            unary_result(v);
+        return err;
+    }
 }
 
 int docmd_posa(arg_struct *arg) {
@@ -302,27 +448,10 @@ int docmd_putm(arg_struct *arg) {
     vartype *m;
     int4 i, j;
 
-    switch (matedit_mode) {
-        case 0:
-            return ERR_NONEXISTENT;
-        case 1:
-        case 3:
-            m = recall_var(matedit_name, matedit_length);
-            break;
-        case 2:
-            m = matedit_x;
-            break;
-        default:
-            return ERR_INTERNAL_ERROR;
-    }
-
-    if (m == NULL)
-        return ERR_NONEXISTENT;
-
-    if (m->type != TYPE_REALMATRIX && m->type != TYPE_COMPLEXMATRIX)
-        /* Shouldn't happen, but could, as long as I don't
-         * implement matrix locking
-         */
+    int err = matedit_get(&m);
+    if (err != ERR_NONE)
+        return err;
+    if (m->type == TYPE_LIST)
         return ERR_INVALID_TYPE;
 
     if (stack[sp]->type == TYPE_STRING)
@@ -405,22 +534,9 @@ int docmd_putm(arg_struct *arg) {
 
 int docmd_rclel(arg_struct *arg) {
     vartype *m, *v;
-    switch (matedit_mode) {
-        case 0:
-            return ERR_NONEXISTENT;
-        case 1:
-        case 3:
-            m = recall_var(matedit_name, matedit_length);
-            break;
-        case 2:
-            m = matedit_x;
-            break;
-        default:
-            return ERR_INTERNAL_ERROR;
-    }
-
-    if (m == NULL)
-        return ERR_NONEXISTENT;
+    int err = matedit_get(&m);
+    if (err != ERR_NONE)
+        return err;
 
     if (m->type == TYPE_REALMATRIX) {
         vartype_realmatrix *rm = (vartype_realmatrix *) m;
@@ -437,8 +553,12 @@ int docmd_rclel(arg_struct *arg) {
         int4 n = matedit_i * cm->columns + matedit_j;
         v = new_complex(cm->array->data[2 * n],
                         cm->array->data[2 * n + 1]);
-    } else
-        return ERR_INVALID_TYPE;
+    } else if (m->type == TYPE_LIST) {
+        vartype_list *list = (vartype_list *) m;
+        if (list->size == 0)
+            return ERR_NONEXISTENT;
+        v = dup_vartype(list->array->data[matedit_i]);
+    }
     if (v == NULL)
         return ERR_INSUFFICIENT_MEMORY;
     return recall_result(v);
@@ -590,26 +710,10 @@ int docmd_swap_r(arg_struct *arg) {
     phloat xx, yy;
     int4 x, y, i;
 
-    switch (matedit_mode) {
-        case 0:
-            return ERR_NONEXISTENT;
-        case 1:
-        case 3:
-            m = recall_var(matedit_name, matedit_length);
-            break;
-        case 2:
-            m = matedit_x;
-            break;
-        default:
-            return ERR_INTERNAL_ERROR;
-    }
-
-    if (m == NULL)
-        return ERR_NONEXISTENT;
-
-    if (m->type != TYPE_REALMATRIX && m->type != TYPE_COMPLEXMATRIX)
-        /* Should not happen, but could, as long as I don't implement
-         * matrix locking. */
+    int err = matedit_get(&m);
+    if (err != ERR_NONE)
+        return err;
+    if (m->type == TYPE_LIST)
         return ERR_INVALID_TYPE;
 
     if (stack[sp]->type == TYPE_STRING)
@@ -734,28 +838,9 @@ int docmd_sinh(arg_struct *arg) {
 
 int docmd_stoel(arg_struct *arg) {
     vartype *m;
-    switch (matedit_mode) {
-        case 0:
-            return ERR_NONEXISTENT;
-        case 1:
-        case 3:
-            m = recall_var(matedit_name, matedit_length);
-            break;
-        case 2:
-            m = matedit_x;
-            break;
-        default:
-            return ERR_INTERNAL_ERROR;
-    }
-
-    if (m == NULL)
-        return ERR_NONEXISTENT;
-
-    if (m->type != TYPE_REALMATRIX && m->type != TYPE_COMPLEXMATRIX)
-        /* Should not happen, but could, as long as I don't implement
-         * matrix locking.
-         */
-        return ERR_INVALID_TYPE;
+    int err = matedit_get(&m);
+    if (err != ERR_NONE)
+        return err;
 
     if (!disentangle(m))
         return ERR_INSUFFICIENT_MEMORY;
@@ -776,7 +861,7 @@ int docmd_stoel(arg_struct *arg) {
             return ERR_NONE;
         } else
             return ERR_INVALID_TYPE;
-    } else /* m->type == TYPE_COMPLEXMATRIX */ {
+    } else if (m->type == TYPE_COMPLEXMATRIX) {
         vartype_complexmatrix *cm = (vartype_complexmatrix *) m;
         int4 n = matedit_i * cm->columns + matedit_j;
         if (stack[sp]->type == TYPE_REAL) {
@@ -792,6 +877,16 @@ int docmd_stoel(arg_struct *arg) {
             return ERR_ALPHA_DATA_IS_INVALID;
         else
             return ERR_INVALID_TYPE;
+    } else /* m->type == TYPE_LIST */ {
+        vartype_list *list = (vartype_list *) m;
+        if (list->size == 0)
+            return ERR_NONEXISTENT;
+        vartype *v = dup_vartype(stack[sp]);
+        if (v == NULL)
+            return ERR_INSUFFICIENT_MEMORY;
+        free_vartype(list->array->data[matedit_i]);
+        list->array->data[matedit_i] = v;
+        return ERR_NONE;
     }
 }
 
@@ -800,22 +895,9 @@ int docmd_stoij(arg_struct *arg) {
     phloat x, y;
     int4 i, j;
 
-    switch (matedit_mode) {
-        case 0:
-            return ERR_NONEXISTENT;
-        case 1:
-        case 3:
-            m = recall_var(matedit_name, matedit_length);
-            break;
-        case 2:
-            m = matedit_x;
-            break;
-        default:
-            return ERR_INTERNAL_ERROR;
-    }
-
-    if (m == NULL)
-        return ERR_NONEXISTENT;
+    int err = matedit_get(&m);
+    if (err != ERR_NONE)
+        return err;
 
     if (stack[sp]->type == TYPE_STRING)
         return ERR_ALPHA_DATA_IS_INVALID;
@@ -848,10 +930,11 @@ int docmd_stoij(arg_struct *arg) {
         vartype_complexmatrix *cm = (vartype_complexmatrix *) m;
         if (i == 0 || i > cm->rows || j == 0 || j > cm->columns)
             return ERR_DIMENSION_ERROR;
-    } else
-        /* Should not happen, but could, as long as I don't implement
-         * matrix locking. */
-        return ERR_INVALID_TYPE;
+    } else if (m->type == TYPE_LIST) {
+        vartype_list *list = (vartype_list *) m;
+        if (i == 0 || i > list->size || j != 1)
+            return ERR_DIMENSION_ERROR;
+    }
 
     matedit_i = i - 1;
     matedit_j = j - 1;
@@ -987,6 +1070,159 @@ int docmd_x_swap(arg_struct *arg) {
 #define DIR_UP    2
 #define DIR_DOWN  3
 
+static int matedit_move_list(vartype_list *list, int direction) {
+    vartype *old_x = NULL;
+    vartype *new_x = NULL;
+    bool delete_old = false;
+    int4 new_i = matedit_i;
+    bool end_flag = false;
+
+    if (direction == DIR_LEFT && matedit_stack_depth == 0) {
+        if (!program_running())
+            squeak();
+        flags.f.matrix_edge_wrap = false;
+        flags.f.matrix_end_wrap = false;
+        return ERR_NONE;
+    }
+
+    // Prepare for storing X, but don't actually store it yet
+    if (sp != -1 && list->size > 0 && !vartype_equals(list->array->data[matedit_i], stack[sp])) {
+        if (!disentangle((vartype *) list))
+            return ERR_INSUFFICIENT_MEMORY;
+        old_x = dup_vartype(stack[sp]);
+        if (old_x == NULL)
+            return ERR_INSUFFICIENT_MEMORY;
+        delete_old = true;
+    }
+
+    if (list->size == 0 && direction != DIR_LEFT) {
+        if (direction == DIR_RIGHT && flags.f.grow)
+            goto grow;
+        if (!program_running())
+            squeak();
+        new_i = 0;
+        end_flag = direction != DIR_RIGHT;
+    } else if (direction == DIR_UP || direction == DIR_DOWN) {
+        if (direction == DIR_DOWN) {
+            if (++new_i >= list->size) {
+                new_i = 0;
+                end_flag = true;
+            }
+        } else {
+            if (--new_i < 0) {
+                new_i = list->size - 1;
+                end_flag = true;
+            }
+        }
+        if (new_i != matedit_i || sp == -1) {
+            new_x = dup_vartype(list->array->data[new_i]);
+            if (new_x == NULL) {
+                nomem:
+                free_vartype(old_x);
+                return ERR_INSUFFICIENT_MEMORY;
+            }
+        }
+    } else if (direction == DIR_LEFT) {
+        new_i = matedit_stack[--matedit_stack_depth];
+        vartype *m;
+        // Ignoring error; can't fail, because us getting here means
+        // that the matedit_get() in the caller succeeded, and that
+        // call requires that the list we're getting here must exist.
+        matedit_get(&m);
+        vartype_list *l2 = (vartype_list *) m;
+        if (new_i >= l2->size)
+            new_i = l2->size - 1;
+        new_x = dup_vartype(l2->array->data[new_i]);
+        if (new_x == NULL) {
+            matedit_stack_depth++;
+            goto nomem;
+        }
+    } else { // DIR_RIGHT
+        vartype *m;
+        m = sp != -1 ? stack[sp] : list->array->data[matedit_i];
+        if (m->type == TYPE_REALMATRIX || m->type == TYPE_COMPLEXMATRIX || m->type == TYPE_LIST) {
+            int4 *newstack = (int4 *) realloc(matedit_stack, (matedit_stack_depth + 1) * sizeof(int4));
+            if (newstack == NULL)
+                goto nomem;
+            matedit_stack = newstack;
+            new_i = 0;
+            if (m->type == TYPE_REALMATRIX) {
+                vartype_realmatrix *rm = (vartype_realmatrix *) m;
+                if (rm->array->is_string[0] != 0) {
+                    char *text;
+                    int4 len;
+                    get_matrix_string(rm, 0, &text, &len);
+                    new_x = new_string(text, len);
+                } else
+                    new_x = new_real(rm->array->data[0]);
+                if (new_x == NULL)
+                    goto nomem;
+                matedit_is_list = false;
+            } else if (m->type == TYPE_COMPLEXMATRIX) {
+                vartype_complexmatrix *cm = (vartype_complexmatrix *) m;
+                new_x = new_complex(cm->array->data[0], cm->array->data[1]);
+                if (new_x == NULL)
+                    goto nomem;
+                matedit_is_list = false;
+            } else { // TYPE_LIST
+                vartype_list *l2 = (vartype_list *) m;
+                if (new_i < l2->size)
+                    new_x = dup_vartype(l2->array->data[new_i]);
+                else
+                    new_x = new_real(0);
+                if (new_x == NULL)
+                    goto nomem;
+            }
+            matedit_stack[matedit_stack_depth++] = matedit_i;
+        } else if (matedit_i == list->size - 1 && flags.f.grow) {
+            grow:
+            vartype *zero1 = new_real(0);
+            vartype *zero2 = new_real(0);
+            if (zero1 == NULL || zero2 == NULL) {
+                nomem2:
+                free_vartype(zero1);
+                free_vartype(zero2);
+                goto nomem;
+            }
+            if (!disentangle((vartype *) list))
+                goto nomem2;
+            int4 newsize = list->size + 1;
+            vartype **newdata = (vartype **) realloc(list->array->data, newsize * sizeof(vartype *));
+            if (newdata == NULL)
+                goto nomem2;
+            newdata[list->size] = zero1;
+            list->array->data = newdata;
+            new_i = list->size++;
+            new_x = zero2;
+        } else {
+            if (!program_running())
+                squeak();
+        }
+    }
+
+    if (delete_old) {
+        vartype **old_loc = list->array->data + matedit_i;
+        free_vartype(*old_loc);
+        *old_loc = old_x;
+    }
+
+    if (new_x != NULL) {
+        if (sp == -1)
+            sp = 0;
+        else
+            free_vartype(stack[sp]);
+        stack[sp] = new_x;
+    }
+
+    matedit_i = new_i;
+    flags.f.matrix_edge_wrap = false;
+    flags.f.matrix_end_wrap = end_flag;
+    mode_disable_stack_lift = true;
+
+    print_trace();
+    return ERR_NONE;
+}
+
 static int matedit_move(int direction) {
     vartype *m, *v;
     vartype_realmatrix *rm;
@@ -995,35 +1231,65 @@ static int matedit_move(int direction) {
     int edge_flag = 0;
     int end_flag = 0;
 
-    switch (matedit_mode) {
-        case 0:
-            return ERR_NONEXISTENT;
-        case 1:
-        case 3:
-            m = recall_var(matedit_name, matedit_length);
-            break;
-        case 2:
-            m = matedit_x;
-            break;
-        default:
-            return ERR_INTERNAL_ERROR;
-    }
+    int err = matedit_get(&m);
+    if (err != ERR_NONE)
+        return err;
+    if (m->type == TYPE_LIST)
+        return matedit_move_list((vartype_list *) m, direction);
 
-    if (m == NULL)
-        return ERR_NONEXISTENT;
+    vartype *reg_x = sp == -1 ? NULL : stack[sp];
+    bool changed;
+
+    // Note: checking whether the current cell is unchanged, so we can avoid
+    // calling disentangle() unnecessarily. This is so that the matrix editor
+    // can be used to view the contents of a matrix, without duplicating it if
+    // we're not changing it.
 
     if (m->type == TYPE_REALMATRIX) {
         rm = (vartype_realmatrix *) m;
         rows = rm->rows;
         columns = rm->columns;
-    } else if (m->type == TYPE_COMPLEXMATRIX) {
+        old_n = matedit_i * columns + matedit_j;
+        if (reg_x == NULL) {
+            changed = false;
+        } else if (reg_x->type == TYPE_REAL) {
+            if (rm->array->is_string[old_n] != 0)
+                changed = true;
+            else
+                changed = rm->array->data[old_n] != ((vartype_real *) reg_x)->x;
+        } else if (reg_x->type == TYPE_STRING) {
+            if (rm->array->is_string[old_n] == 0)
+                changed = true;
+            else {
+                char *text;
+                int4 len;
+                get_matrix_string(rm, old_n, &text, &len);
+                vartype_string *s = (vartype_string *) reg_x;
+                changed = !string_equals(text, len, s->txt(), s->length);
+            }
+        } else {
+            return ERR_INVALID_TYPE;
+        }
+    } else { // TYPE_COMPLEXMATRIX
         cm = (vartype_complexmatrix *) m;
         rows = cm->rows;
         columns = cm->columns;
-    } else
-        return ERR_INVALID_TYPE;
+        old_n = matedit_i * columns + matedit_j;
+        if (reg_x == NULL) {
+            changed = false;
+        } else if (reg_x->type == TYPE_REAL) {
+            changed = cm->array->data[old_n * 2] != ((vartype_real *) reg_x)->x
+                   || cm->array->data[old_n * 2 + 1] != 0;
+        } else if (reg_x->type == TYPE_COMPLEX) {
+            vartype_complex *c = (vartype_complex *) reg_x;
+            changed = cm->array->data[old_n * 2] != c->re
+                   || cm->array->data[old_n * 2 + 1] != c->im;
+        } else {
+            return reg_x->type == TYPE_STRING ? ERR_ALPHA_DATA_IS_INVALID : ERR_INVALID_TYPE;
+        }
+    }
 
-    if (!disentangle(m))
+    if (changed && !disentangle(m))
         return ERR_INSUFFICIENT_MEMORY;
 
     new_i = matedit_i;
@@ -1046,13 +1312,7 @@ static int matedit_move(int direction) {
                 if (++new_i >= rows) {
                     end_flag = 1;
                     if (flags.f.grow) {
-                        int err;
-                        if (matedit_mode == 2)
-                            err = dimension_array_ref(matedit_x,
-                                                      rows + 1, columns);
-                        else
-                            err = dimension_array(matedit_name, matedit_length,
-                                                  rows + 1, columns, false);
+                        int err = dimension_array_ref(m, rows + 1, columns);
                         if (err != ERR_NONE)
                             return err;
                         new_i = rows++;
@@ -1083,7 +1343,6 @@ static int matedit_move(int direction) {
             break;
     }
 
-    old_n = matedit_i * columns + matedit_j;
     new_n = new_i * columns + new_j;
 
     if (m->type == TYPE_REALMATRIX) {
@@ -1098,43 +1357,36 @@ static int matedit_move(int direction) {
             if (v == NULL)
                 return ERR_INSUFFICIENT_MEMORY;
         }
-        if (sp == -1) {
+        if (!changed) {
             /* There's nothing to store, so leave cell unchanged */
         } else if (stack[sp]->type == TYPE_REAL) {
             if (rm->array->is_string[old_n] == 2)
                 free(*(void **) &rm->array->data[old_n]);
             rm->array->is_string[old_n] = 0;
             rm->array->data[old_n] = ((vartype_real *) stack[sp])->x;
-        } else if (stack[sp]->type == TYPE_STRING) {
+        } else {
             vartype_string *s = (vartype_string *) stack[sp];
             if (!put_matrix_string(rm, old_n, s->txt(), s->length)) {
                 free_vartype(v);
                 return ERR_INSUFFICIENT_MEMORY;
             }
-        } else {
-            free_vartype(v);
-            return ERR_INVALID_TYPE;
         }
-    } else /* m->type == TYPE_COMPLEXMATRIX */ {
+    } else { // m->type == TYPE_COMPLEXMATRIX
         if (old_n != new_n) {
             v = new_complex(cm->array->data[2 * new_n],
                             cm->array->data[2 * new_n + 1]);
             if (v == NULL)
                 return ERR_INSUFFICIENT_MEMORY;
         }
-        if (sp == -1) {
+        if (!changed) {
             /* There's nothing to store, so leave cell unchanged */
         } else if (stack[sp]->type == TYPE_REAL) {
             cm->array->data[2 * old_n] = ((vartype_real *) stack[sp])->x;
             cm->array->data[2 * old_n + 1] = 0;
-        } else if (stack[sp]->type == TYPE_COMPLEX) {
+        } else {
             vartype_complex *c = (vartype_complex *) stack[sp];
             cm->array->data[2 * old_n] = c->re;
             cm->array->data[2 * old_n + 1] = c->im;
-        } else {
-            free_vartype(v);
-            return stack[sp]->type == TYPE_STRING ? ERR_ALPHA_DATA_IS_INVALID
-                                              : ERR_INVALID_TYPE;
         }
     }
 
@@ -1224,11 +1476,9 @@ static int matx_completion(int error, vartype *res) {
         free_vartype(stack[sp]);
     stack[sp] = matx_v;
     matedit_mode = 3;
-    matedit_length = 4;
-    matedit_name[0] = 'M';
-    matedit_name[1] = 'A';
-    matedit_name[2] = 'T';
-    matedit_name[3] = 'X';
+    string_copy(matedit_name, &matedit_length, "MATX", 4);
+    int mi = lookup_var(matedit_name, matedit_length);
+    matedit_level = vars[mi].level;
     matedit_i = 0;
     matedit_j = 0;
     if (flags.f.big_stack)
@@ -1318,11 +1568,9 @@ static int matabx(int which) {
         free_vartype(stack[sp]);
     stack[sp] = v;
     matedit_mode = 3;
-    matedit_length = 4;
-    matedit_name[0] = 'M';
-    matedit_name[1] = 'A';
-    matedit_name[2] = 'T';
-    matedit_name[3] = which == 0 ? 'A' : 'B';
+    string_copy(matedit_name, &matedit_length, which == 0 ? "MATA" : "MATB", 4);
+    int mi = lookup_var(matedit_name, matedit_length);
+    matedit_level = vars[mi].level;
     matedit_i = 0;
     matedit_j = 0;
     if (flags.f.big_stack)
@@ -1452,21 +1700,9 @@ static int max_min_helper(int do_max) {
     int4 i, max_or_min_index = 0;
     vartype *new_x, *new_y;
 
-    switch (matedit_mode) {
-        case 0:
-            return ERR_NONEXISTENT;
-        case 1:
-        case 3:
-            m = recall_var(matedit_name, matedit_length);
-            break;
-        case 2:
-            m = matedit_x;
-            break;
-        default:
-            return ERR_INTERNAL_ERROR;
-    }
-    if (m == NULL)
-        return ERR_NONEXISTENT;
+    int err = matedit_get(&m);
+    if (err != ERR_NONE)
+        return err;
     if (m->type != TYPE_REALMATRIX)
         return ERR_INVALID_TYPE;
     rm = (vartype_realmatrix *) m;
@@ -1505,21 +1741,11 @@ int docmd_find(arg_struct *arg) {
     vartype *m;
     if (stack[sp]->type == TYPE_REALMATRIX || stack[sp]->type == TYPE_COMPLEXMATRIX)
         return ERR_INVALID_TYPE;
-    switch (matedit_mode) {
-        case 0:
-            return ERR_NONEXISTENT;
-        case 1:
-        case 3:
-            m = recall_var(matedit_name, matedit_length);
-            break;
-        case 2:
-            m = matedit_x;
-            break;
-        default:
-            return ERR_INTERNAL_ERROR;
-    }
-    if (m == NULL)
-        return ERR_NONEXISTENT;
+    int err = matedit_get(&m);
+    if (err != ERR_NONE)
+        return err;
+    if (m->type == TYPE_LIST)
+        return ERR_INVALID_TYPE;
     if (m->type == TYPE_REALMATRIX) {
         vartype_realmatrix *rm;
         int4 i, j, p = 0;

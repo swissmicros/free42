@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -26,6 +26,7 @@ int docmd_invrt(arg_struct *arg);
 int docmd_j_add(arg_struct *arg);
 int docmd_j_sub(arg_struct *arg);
 int docmd_ln_1_x(arg_struct *arg);
+int docmd_c_ln_1_x(arg_struct *arg);
 int docmd_posa(arg_struct *arg);
 int docmd_putm(arg_struct *arg);
 int docmd_rclel(arg_struct *arg);

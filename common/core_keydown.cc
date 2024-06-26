@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -21,6 +21,7 @@
 #include "core_keydown.h"
 #include "core_commands2.h"
 #include "core_commands3.h"
+#include "core_commands4.h"
 #include "core_display.h"
 #include "core_helpers.h"
 #include "core_main.h"
@@ -428,6 +429,7 @@ void keydown_number_entry(int shift, int key) {
      */
 
     if (key == KEY_BSP && cmdline_length == 1) {
+        char pne = mode_number_entry;
         mode_number_entry = false;
         if (flags.f.prgm_mode) {
             pc = line2pc(pc2line(pc) - 1);
@@ -435,7 +437,7 @@ void keydown_number_entry(int shift, int key) {
             redisplay();
             return;
         } else {
-            pending_command = flags.f.big_stack ? CMD_DROP : CMD_CLX;
+            pending_command = flags.f.big_stack ? pne == 2 ? CMD_DROP_CANCL : CMD_DROP : CMD_CLX;
             return;
         }
     }
@@ -495,10 +497,10 @@ void keydown_number_entry(int shift, int key) {
                         /* This is a bit odd, but it's how the HP-42S
                          * does it, so there.
                          */
-                        mode_number_entry = false;
                         free_vartype(stack[sp]);
                         stack[sp] = new_real(0);
-                        pending_command = flags.f.big_stack ? CMD_DROP : CMD_CLX;
+                        pending_command = flags.f.big_stack ? mode_number_entry == 2 ? CMD_DROP_CANCL : CMD_DROP : CMD_CLX;
+                        mode_number_entry = false;
                         return;
                     }
                 }
@@ -660,18 +662,8 @@ void keydown_number_entry(int shift, int key) {
             char2buf(buf, 100, &bufptr, '0');
         bufptr += int2string(line, buf + bufptr, 100 - bufptr);
         char2buf(buf, 100, &bufptr, 6);
-    } else if (matedit_mode == 2 || matedit_mode == 3) {
-        bufptr += int2string(matedit_i + 1, buf + bufptr, 100 - bufptr);
-        char2buf(buf, 100, &bufptr, ':');
-        bufptr += int2string(matedit_j + 1, buf + bufptr, 100 - bufptr);
-        char2buf(buf, 100, &bufptr, '=');
-    } else if (input_length > 0) {
-        string2buf(buf, 100, &bufptr, input_name, input_length);
-        char2buf(buf, 100, &bufptr, '?');
-    } else if (flags.f.big_stack) {
-        string2buf(buf, 100, &bufptr, "1\200", 2);
     } else {
-        string2buf(buf, 100, &bufptr, "x\200", 2);
+        xlabel2buf(buf, 100, &bufptr);
     }
 #ifdef ARM
     int promptlen = bufptr;
@@ -1008,6 +1000,33 @@ void keydown_command_entry(int shift, int key) {
                         pending_command_arg.val.text[i] =
                                             vars[itemindex].name[i];
                 }
+
+                if (!incomplete_ind
+                        && (pending_command == CMD_GTO
+                            || pending_command == CMD_XEQ
+                            || pending_command == CMD_LBL
+                            || (pending_command >= CMD_KEY1G
+                                && pending_command <= CMD_KEY9X))
+                        && pending_command_arg.length == 1
+                        && ((pending_command_arg.val.text[0] >= 'A'
+                                && pending_command_arg.val.text[0] <= 'J')
+                            || (pending_command_arg.val.text[0] >= 'a'
+                                && pending_command_arg.val.text[0] <= 'e'))) {
+                    /* Display XEQ "A" briefly before changing to XEQ A */
+                    mode_command_entry = false;
+                    if (flags.f.prgm_mode) {
+                        flags.f.prgm_mode = 0;
+                        redisplay();
+                        flags.f.prgm_mode = 1;
+                        shell_delay(125);
+                    } else
+                        redisplay();
+                    pending_command_arg.type = ARGTYPE_LCLBL;
+                    pending_command_arg.val.lclbl = pending_command_arg.val.text[0];
+                    finish_command_entry(false);
+                    return;
+                }
+
                 if (!incomplete_ind && incomplete_command == CMD_XEQ)
                     finish_xeq();
                 else
@@ -1208,9 +1227,16 @@ void keydown_command_entry(int shift, int key) {
             } else if (!shift) {
                 if (incomplete_command == CMD_GOTOROW) {
                     pending_command_arg.val.num = incomplete_num;
+                    vartype *m;
+                    int err = matedit_get(&m);
+                    if (err == ERR_NONE && m->type == TYPE_LIST) {
+                        incomplete_num = 1;
+                        goto do_goto1;
+                    }
                     start_incomplete_command(CMD_GOTOCOLUMN);
                     return;
                 } else if (incomplete_command == CMD_GOTOCOLUMN) {
+                    do_goto1:
                     matedit_goto(pending_command_arg.val.num, incomplete_num);
                     pending_command = CMD_NONE;
                     finish_command_entry(true);
@@ -1292,9 +1318,16 @@ void keydown_command_entry(int shift, int key) {
             if (incomplete_length == incomplete_maxdigits) {
                 if (incomplete_command == CMD_GOTOROW) {
                     pending_command_arg.val.num = incomplete_num;
+                    vartype *m;
+                    int err = matedit_get(&m);
+                    if (err == ERR_NONE && m->type == TYPE_LIST) {
+                        incomplete_num = 1;
+                        goto do_goto2;
+                    }
                     start_incomplete_command(CMD_GOTOCOLUMN);
                     return;
                 } else if (incomplete_command == CMD_GOTOCOLUMN) {
+                    do_goto2:
                     matedit_goto(pending_command_arg.val.num, incomplete_num);
                     pending_command = CMD_NONE;
                     finish_command_entry(true);
@@ -1426,7 +1459,7 @@ void keydown_command_entry(int shift, int key) {
             return;
         }
 
-        if (incomplete_length == 0 && shift && key == KEY_ADD) {
+        if (shift && key == KEY_ADD) {
             if (mode_commandmenu == MENU_CATALOG)
                 squeak();
             else {
@@ -1565,8 +1598,8 @@ void keydown_command_entry(int shift, int key) {
                         } else
                             goto out_of_alpha;
                     } else if (incomplete_argtype == ARG_MAT) {
-                        if (vars_exist(CATSECT_MAT))
-                            set_catalog_menu(CATSECT_MAT_ONLY);
+                        if (vars_exist(CATSECT_MAT_LIST))
+                            set_catalog_menu(CATSECT_MAT_LIST_ONLY);
                         else
                             set_menu(MENULEVEL_COMMAND, MENU_NONE);
                     } else if (incomplete_argtype == ARG_PRGM)
@@ -1630,8 +1663,8 @@ void keydown_command_entry(int shift, int key) {
                     if (vars_exist(CATSECT_REAL))
                         set_catalog_menu(CATSECT_REAL_ONLY);
                 } else if (incomplete_argtype == ARG_MAT) {
-                    if (vars_exist(CATSECT_MAT))
-                        set_catalog_menu(CATSECT_MAT_ONLY);
+                    if (vars_exist(CATSECT_MAT_LIST))
+                        set_catalog_menu(CATSECT_MAT_LIST_ONLY);
                 } else if (incomplete_argtype == ARG_PRGM)
                     set_catalog_menu(CATSECT_PGM_ONLY);
                 else if (incomplete_argtype == ARG_XSTR) {
@@ -1687,6 +1720,8 @@ void keydown_command_entry(int shift, int key) {
                             || catsect == CATSECT_PGM_ONLY
                             || catsect == CATSECT_REAL_ONLY
                             || catsect == CATSECT_MAT_ONLY
+                            || catsect == CATSECT_LIST_STR_ONLY
+                            || catsect == CATSECT_MAT_LIST_ONLY
                             || catsect == CATSECT_VARS_ONLY)) {
                     set_menu(MENULEVEL_COMMAND, MENU_ALPHA1);
                     redisplay();
@@ -1912,7 +1947,7 @@ void keydown_alpha_mode(int shift, int key) {
                 int4 line = pc2line(pc);
                 if (line != 0
                         && (current_prgm != prgms_count - 1
-                            || prgms[current_prgm].text[pc] != CMD_END)) {
+                            || !prgms[current_prgm].is_end(pc))) {
                     delete_command(pc);
                     pc = line2pc(line - 1);
                 }
@@ -2043,11 +2078,11 @@ void keydown_normal_mode(int shift, int key) {
             cmdline_row = 0;
         else
             cmdline_row = 1;
-        mode_number_entry = true;
+        mode_number_entry = !flags.f.prgm_mode && flags.f.big_stack && !flags.f.numeric_data_input ? 2 : 1;
         if (flags.f.prgm_mode) {
             if (pc == -1)
                 pc = 0;
-            else if (prgms[current_prgm].text[pc] != CMD_END)
+            else if (!prgms[current_prgm].is_end(pc))
                 pc += get_command_length(current_prgm, pc);
             prgm_highlight_row = 1;
             if (cmdline_row == 1)
@@ -2085,7 +2120,7 @@ void keydown_normal_mode(int shift, int key) {
         if (line == 0)
             return;
         if (current_prgm != prgms_count - 1
-                || prgms[current_prgm].text[pc] != CMD_END)
+                || !prgms[current_prgm].is_end(pc))
             delete_command(pc);
         pc = line2pc(line - 1);
         prgm_highlight_row = 0;
@@ -2605,6 +2640,28 @@ void keydown_normal_mode(int shift, int key) {
                     set_cat_row(3);
                 } else
                     set_menu(level, MENU_NONE);
+            } else if ((menu == MENU_MATRIX_EDIT1
+                       || menu == MENU_MATRIX_EDIT2)
+                       && matedit_stack_depth > 0) {
+                if (sp != -1) {
+                    int err = docmd_stoel(NULL);
+                    if (err != ERR_NONE && err != ERR_NONEXISTENT) {
+                        // Nonexistent happens with empty lists
+                        display_error(err, false);
+                        flush_display();
+                        return;
+                    }
+                }
+                matedit_i = matedit_stack[--matedit_stack_depth];
+                matedit_j = 0;
+                matedit_is_list = true;
+                if (sp != -1)
+                    flags.f.stack_lift_disable = true;
+                int err = docmd_rclel(NULL);
+                if (err != ERR_NONE)
+                    display_error(err, false);
+                redisplay();
+                return;
             } else {
                 const menu_spec *m = menus + menu;
                 set_menu(level, m->parent);

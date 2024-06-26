@@ -342,6 +342,11 @@ void get_pgm_info(pgm_info_t * pi) {
 static arg_struct pgm_arg;
 
 
+int is_program_line_entry() {
+  return is_pgm_mode() && (mode_command_entry || mode_number_entry || mode_alpha_entry);
+}
+
+
 void pgm_line_init(pgm_line_t * p, char * buf, int buflen) {
   memset(p, 0, sizeof(pgm_line_t));
   p->buf = buf;
@@ -361,10 +366,10 @@ int get_pgm_line(pgm_line_t * p, int line) {
       p->is_end = cmd == CMD_END;
     }
     p->line++;
-    len = prgmline2buf(p->buf, p->buflen, p->line, false, cmd, &pgm_arg,
-      NULL, // TODO: New arg - orig_num - resolve
-      false, true);
   }
+  len = prgmline2buf(p->buf, p->buflen, p->line, false, cmd, &pgm_arg,
+    NULL, // TODO: New arg - orig_num - resolve
+    false, true);
   return len;
 }
 

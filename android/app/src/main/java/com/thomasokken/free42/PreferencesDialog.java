@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -103,7 +103,7 @@ public class PreferencesDialog extends Dialog {
                 if (fromUser) {
                     if (val != prevVal) {
                         if (val > 0)
-                            Free42Activity.instance.playSound(val + 10, 0);
+                            Free42Activity.instance.playSound(val + 10);
                         prevVal = val;
                     }
                 }
@@ -205,8 +205,6 @@ public class PreferencesDialog extends Dialog {
     }
     
     private void browseTextFileName(Context context) {
-        if (!Free42Activity.checkStorageAccess())
-            return;
         FileSelectionDialog fsd = new FileSelectionDialog(context, new String[] { "txt", "*" });
         fsd.setPath(printToTextFileNameTF.getText().toString());
         fsd.setOkListener(new FileSelectionDialog.OkListener() {
@@ -218,8 +216,6 @@ public class PreferencesDialog extends Dialog {
     }
     
     private void browseGifFileName(Context context) {
-        if (!Free42Activity.checkStorageAccess())
-            return;
         FileSelectionDialog fsd = new FileSelectionDialog(context, new String[] { "gif", "*" });
         fsd.setPath(printToGifFileNameTF.getText().toString());
         fsd.setOkListener(new FileSelectionDialog.OkListener() {

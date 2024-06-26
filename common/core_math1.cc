@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -58,6 +58,8 @@ struct solve_state {
     phloat shadow_value[NUM_SHADOWS];
     uint4 last_disp_time;
     int prev_sp;
+    phloat f_gap;
+    int f_gap_worsening_counter;
 };
 
 static solve_state solve;
@@ -186,142 +188,101 @@ bool persist_math() {
     return true;
 }
 
-bool unpersist_math(int ver, bool discard) {
-    if (state_is_portable) {
-        if (!read_int(&solve.version)) return false;
-        if (fread(solve.prgm_name, 1, 7, gfile) != 7) return false;
-        if (!read_int(&solve.prgm_length)) return false;
-        if (fread(solve.active_prgm_name, 1, 7, gfile) != 7) return false;
-        if (!read_int(&solve.active_prgm_length)) return false;
-        if (fread(solve.var_name, 1, 7, gfile) != 7) return false;
-        if (!read_int(&solve.var_length)) return false;
-        if (!read_int(&solve.keep_running)) return false;
-        if (!read_int(&solve.prev_prgm)) return false;
-        if (!read_int4(&solve.prev_pc)) return false;
-        if (solve_active())
-            solve.prev_pc = global_line2pc(solve.prev_prgm, solve.prev_pc);
-        if (!read_int(&solve.state)) return false;
-        if (!read_int(&solve.which)) return false;
-        if (!read_int(&solve.toggle)) return false;
-        if (!read_int(&solve.retry_counter)) return false;
-        if (ver < 45) {
-            solve.secant_impatience = 0;
-        } else {
-            if (!read_int(&solve.secant_impatience)) return false;
-        }
-        if (!read_phloat(&solve.retry_value)) return false;
-        if (!read_phloat(&solve.x1)) return false;
-        if (!read_phloat(&solve.x2)) return false;
-        if (!read_phloat(&solve.x3)) return false;
-        if (!read_phloat(&solve.fx1)) return false;
-        if (!read_phloat(&solve.fx2)) return false;
-        if (!read_phloat(&solve.prev_x)) return false;
-        if (!read_phloat(&solve.curr_x)) return false;
-        if (!read_phloat(&solve.curr_f)) return false;
-        if (!read_phloat(&solve.xm)) return false;
-        if (!read_phloat(&solve.fxm)) return false;
-        if (ver >= 29) {
-            if (!read_phloat(&solve.best_f)) return false;
-            if (!read_phloat(&solve.best_x)) return false;
-            if (!read_phloat(&solve.second_f)) return false;
-            if (!read_phloat(&solve.second_x)) return false;
-        } else {
-            solve.best_f = solve.second_f = POS_HUGE_PHLOAT;
-            solve.best_x = solve.second_x = 0;
-        }
-        for (int i = 0; i < NUM_SHADOWS; i++) {
-            if (fread(solve.shadow_name[i], 1, 7, gfile) != 7) return false;
-            if (!read_int(&solve.shadow_length[i])) return false;
-            if (!read_phloat(&solve.shadow_value[i])) return false;
-        }
-        if (!read_int4((int4 *) &solve.last_disp_time)) return false;
-        if (ver >= 33) {
-            if (!read_int(&solve.prev_sp)) return false;
-        } else {
-            solve.prev_sp = -2;
-        }
-
-        if (!read_int(&integ.version)) return false;
-        if (fread(integ.prgm_name, 1, 7, gfile) != 7) return false;
-        if (!read_int(&integ.prgm_length)) return false;
-        if (fread(integ.active_prgm_name, 1, 7, gfile) != 7) return false;
-        if (!read_int(&integ.active_prgm_length)) return false;
-        if (fread(integ.var_name, 1, 7, gfile) != 7) return false;
-        if (!read_int(&integ.var_length)) return false;
-        if (!read_int(&integ.keep_running)) return false;
-        if (!read_int(&integ.prev_prgm)) return false;
-        if (!read_int4(&integ.prev_pc)) return false;
-        if (integ_active())
-            integ.prev_pc = global_line2pc(integ.prev_prgm, integ.prev_pc);
-        if (!read_int(&integ.state)) return false;
-        if (!read_phloat(&integ.llim)) return false;
-        if (!read_phloat(&integ.ulim)) return false;
-        if (!read_phloat(&integ.acc)) return false;
-        if (!read_phloat(&integ.a)) return false;
-        if (!read_phloat(&integ.b)) return false;
-        if (!read_phloat(&integ.eps)) return false;
-        if (!read_int(&integ.n)) return false;
-        if (!read_int(&integ.m)) return false;
-        if (!read_int(&integ.i)) return false;
-        if (!read_int(&integ.k)) return false;
-        if (!read_phloat(&integ.h)) return false;
-        if (!read_phloat(&integ.sum)) return false;
-        for (int i = 0; i < ROMB_K; i++)
-            if (!read_phloat(&integ.c[i])) return false;
-        for (int i = 0; i <= ROMB_K; i++)
-            if (!read_phloat(&integ.s[i])) return false;
-        if (!read_int(&integ.nsteps)) return false;
-        if (!read_phloat(&integ.p)) return false;
-        if (!read_phloat(&integ.t)) return false;
-        if (!read_phloat(&integ.u)) return false;
-        if (!read_phloat(&integ.prev_int)) return false;
-        if (!read_phloat(&integ.prev_res)) return false;
-        if (ver >= 33) {
-            if (!read_int(&integ.prev_sp)) return false;
-        } else {
-            integ.prev_sp = -2;
-        }
+bool unpersist_math(int ver) {
+    if (!read_int(&solve.version)) return false;
+    if (fread(solve.prgm_name, 1, 7, gfile) != 7) return false;
+    if (!read_int(&solve.prgm_length)) return false;
+    if (fread(solve.active_prgm_name, 1, 7, gfile) != 7) return false;
+    if (!read_int(&solve.active_prgm_length)) return false;
+    if (fread(solve.var_name, 1, 7, gfile) != 7) return false;
+    if (!read_int(&solve.var_length)) return false;
+    if (!read_int(&solve.keep_running)) return false;
+    if (!read_int(&solve.prev_prgm)) return false;
+    if (!read_int4(&solve.prev_pc)) return false;
+    if (solve_active())
+        solve.prev_pc = global_line2pc(solve.prev_prgm, solve.prev_pc);
+    if (!read_int(&solve.state)) return false;
+    if (!read_int(&solve.which)) return false;
+    if (!read_int(&solve.toggle)) return false;
+    if (!read_int(&solve.retry_counter)) return false;
+    if (ver < 45) {
+        solve.secant_impatience = 0;
     } else {
-        int size;
-        bool success;
-        void *dummy;
-
-        if (fread(&size, 1, sizeof(int), gfile) != sizeof(int))
-            return false;
-        if (!discard && size == sizeof(solve_state)) {
-            if (fread(&solve, 1, size, gfile) != size)
-                return false;
-            if (solve.version != SOLVE_VERSION)
-                reset_solve();
-        } else {
-            dummy = malloc(size);
-            if (dummy == NULL)
-                return false;
-            success = fread(dummy, 1, size, gfile) == size;
-            free(dummy);
-            if (!success)
-                return false;
-            reset_solve();
-        }
-
-        if (fread(&size, 1, sizeof(int), gfile) != sizeof(int))
-            return false;
-        if (!discard && size == sizeof(integ_state)) {
-            if (fread(&integ, 1, size, gfile) != size)
-                return false;
-            if (integ.version != INTEG_VERSION)
-                reset_integ();
-        } else {
-            dummy = malloc(size);
-            if (dummy == NULL)
-                return false;
-            success = fread(dummy, 1, size, gfile) == size;
-            free(dummy);
-            if (!success)
-                return false;
-            reset_integ();
-        }
+        if (!read_int(&solve.secant_impatience)) return false;
     }
+    if (!read_phloat(&solve.retry_value)) return false;
+    if (!read_phloat(&solve.x1)) return false;
+    if (!read_phloat(&solve.x2)) return false;
+    if (!read_phloat(&solve.x3)) return false;
+    if (!read_phloat(&solve.fx1)) return false;
+    if (!read_phloat(&solve.fx2)) return false;
+    if (!read_phloat(&solve.prev_x)) return false;
+    if (!read_phloat(&solve.curr_x)) return false;
+    if (!read_phloat(&solve.curr_f)) return false;
+    if (!read_phloat(&solve.xm)) return false;
+    if (!read_phloat(&solve.fxm)) return false;
+    if (ver >= 29) {
+        if (!read_phloat(&solve.best_f)) return false;
+        if (!read_phloat(&solve.best_x)) return false;
+        if (!read_phloat(&solve.second_f)) return false;
+        if (!read_phloat(&solve.second_x)) return false;
+    } else {
+        solve.best_f = solve.second_f = POS_HUGE_PHLOAT;
+        solve.best_x = solve.second_x = 0;
+    }
+    for (int i = 0; i < NUM_SHADOWS; i++) {
+        if (fread(solve.shadow_name[i], 1, 7, gfile) != 7) return false;
+        if (!read_int(&solve.shadow_length[i])) return false;
+        if (!read_phloat(&solve.shadow_value[i])) return false;
+    }
+    if (!read_int4((int4 *) &solve.last_disp_time)) return false;
+    if (ver >= 33) {
+        if (!read_int(&solve.prev_sp)) return false;
+    } else {
+        solve.prev_sp = -2;
+    }
+
+    if (!read_int(&integ.version)) return false;
+    if (fread(integ.prgm_name, 1, 7, gfile) != 7) return false;
+    if (!read_int(&integ.prgm_length)) return false;
+    if (fread(integ.active_prgm_name, 1, 7, gfile) != 7) return false;
+    if (!read_int(&integ.active_prgm_length)) return false;
+    if (fread(integ.var_name, 1, 7, gfile) != 7) return false;
+    if (!read_int(&integ.var_length)) return false;
+    if (!read_int(&integ.keep_running)) return false;
+    if (!read_int(&integ.prev_prgm)) return false;
+    if (!read_int4(&integ.prev_pc)) return false;
+    if (integ_active())
+        integ.prev_pc = global_line2pc(integ.prev_prgm, integ.prev_pc);
+    if (!read_int(&integ.state)) return false;
+    if (!read_phloat(&integ.llim)) return false;
+    if (!read_phloat(&integ.ulim)) return false;
+    if (!read_phloat(&integ.acc)) return false;
+    if (!read_phloat(&integ.a)) return false;
+    if (!read_phloat(&integ.b)) return false;
+    if (!read_phloat(&integ.eps)) return false;
+    if (!read_int(&integ.n)) return false;
+    if (!read_int(&integ.m)) return false;
+    if (!read_int(&integ.i)) return false;
+    if (!read_int(&integ.k)) return false;
+    if (!read_phloat(&integ.h)) return false;
+    if (!read_phloat(&integ.sum)) return false;
+    for (int i = 0; i < ROMB_K; i++)
+        if (!read_phloat(&integ.c[i])) return false;
+    for (int i = 0; i <= ROMB_K; i++)
+        if (!read_phloat(&integ.s[i])) return false;
+    if (!read_int(&integ.nsteps)) return false;
+    if (!read_phloat(&integ.p)) return false;
+    if (!read_phloat(&integ.t)) return false;
+    if (!read_phloat(&integ.u)) return false;
+    if (!read_phloat(&integ.prev_int)) return false;
+    if (!read_phloat(&integ.prev_res)) return false;
+    if (ver >= 33) {
+        if (!read_int(&integ.prev_sp)) return false;
+    } else {
+        integ.prev_sp = -2;
+    }
+    solve.f_gap = NAN_PHLOAT;
 
     return true;
 }
@@ -482,6 +443,7 @@ int start_solve(const char *name, int length, phloat x1, phloat x2) {
     solve.last_disp_time = 0;
     solve.toggle = 1;
     solve.secant_impatience = 0;
+    solve.f_gap = NAN_PHLOAT;
     solve.keep_running = !should_i_stop_at_this_level() && program_running();
     return call_solve_fn(1, 1);
 }
@@ -496,6 +458,7 @@ struct message_spec {
 #define SOLVE_EXTREMUM      2
 #define SOLVE_BAD_GUESSES   3
 #define SOLVE_CONSTANT      4
+#define SOLVE_NOT_SURE     -1
 
 static const message_spec solve_message[] = {
     { NULL,             0 },
@@ -511,6 +474,12 @@ static int finish_solve(int message) {
     int dummy, print;
 
     phloat final_f = solve.curr_f;
+
+    if (message == SOLVE_NOT_SURE)
+        if (!p_isnan(solve.f_gap) && solve.f_gap_worsening_counter >= 3)
+            message = SOLVE_SIGN_REVERSAL;
+        else
+            message = SOLVE_ROOT;
 
     if (solve.which == -1) {
         /* Ridders was terminated because it wasn't making progress; this does
@@ -611,6 +580,21 @@ static int finish_solve(int message) {
                     solve_message[message].length, true);
 
     return solve.keep_running ? ERR_NONE : ERR_STOP;
+}
+
+static void track_f_gap() {
+    phloat gap = solve.fx2 - solve.fx1;
+    if (gap == 0 || p_isnan(gap)) {
+        solve.f_gap = NAN_PHLOAT;
+        return;
+    }
+    if (p_isnan(solve.f_gap)
+            || (gap > 0) != (solve.f_gap > 0)
+            || fabs(gap) < fabs(solve.f_gap))
+        solve.f_gap_worsening_counter = 0;
+    else
+        solve.f_gap_worsening_counter++;
+    solve.f_gap = gap;
 }
 
 int return_to_solve(int failure, bool stop) {
@@ -858,6 +842,7 @@ int return_to_solve(int failure, bool stop) {
                 solve.fx1 = solve.fx2;
                 solve.fx2 = tmp;
             }
+            track_f_gap();
             do_secant:
             if (solve.fx1 == solve.fx2)
                 return finish_solve(SOLVE_EXTREMUM);
@@ -868,7 +853,7 @@ int return_to_solve(int failure, bool stop) {
             if (p_isinf(slope)) {
                 solve.x3 = (solve.x1 + solve.x2) / 2;
                 if (solve.x3 == solve.x1 || solve.x3 == solve.x2)
-                    return finish_solve(SOLVE_ROOT);
+                    return finish_solve(SOLVE_NOT_SURE);
                 else
                     return call_solve_fn(3, 4);
             } else if (slope == 0) {
@@ -904,7 +889,7 @@ int return_to_solve(int failure, bool stop) {
                     solve.which = 1;
                     solve.curr_f = solve.fx1;
                     solve.prev_x = solve.x2;
-                    return finish_solve(SOLVE_ROOT);
+                    return finish_solve(SOLVE_NOT_SURE);
                 }
                 if (solve.x3 == solve.x2) {
                     if (fabs(slope) > 1e50) {
@@ -915,7 +900,7 @@ int return_to_solve(int failure, bool stop) {
                     solve.which = 2;
                     solve.curr_f = solve.fx2;
                     solve.prev_x = solve.x1;
-                    return finish_solve(SOLVE_ROOT);
+                    return finish_solve(SOLVE_NOT_SURE);
                 }
                 /* If we're extrapolating, make sure we don't race away from
                  * the current interval too quickly */
@@ -981,7 +966,7 @@ int return_to_solve(int failure, bool stop) {
                  * We could handle this better but this seems adequate.
                  */
                 solve.which = -1;
-                return finish_solve(SOLVE_ROOT);
+                return finish_solve(SOLVE_NOT_SURE);
             }
             solve.xm = solve.x3;
             solve.fxm = f;
@@ -990,7 +975,7 @@ int return_to_solve(int failure, bool stop) {
             xnew = solve.xm + (solve.xm - solve.x1) * (solve.fxm / s);
             if (xnew == solve.x1 || xnew == solve.x2) {
                 solve.which = -1;
-                return finish_solve(SOLVE_ROOT);
+                return finish_solve(SOLVE_NOT_SURE);
             }
             solve.x3 = xnew;
             return call_solve_fn(3, 7);
@@ -1018,6 +1003,7 @@ int return_to_solve(int failure, bool stop) {
                 solve.x1 = solve.x3;
                 solve.fx1 = f;
             }
+            track_f_gap();
             do_ridders:
             solve.x3 = (solve.x1 + solve.x2) / 2;
             // TODO: The following termination condition should really be
@@ -1034,7 +1020,7 @@ int return_to_solve(int failure, bool stop) {
             // returns an incorrect result.
             if (solve.x3 <= solve.x1 || solve.x3 >= solve.x2) {
                 solve.which = -1;
-                return finish_solve(SOLVE_ROOT);
+                return finish_solve(SOLVE_NOT_SURE);
             } else
                 return call_solve_fn(3, 6);
 

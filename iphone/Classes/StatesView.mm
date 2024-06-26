@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -27,6 +27,7 @@
 @implementation StatesView
 
 @synthesize switchToButton;
+@synthesize navBar;
 @synthesize stateTable;
 
 - (id) initWithFrame:(CGRect)frame {
@@ -168,6 +169,11 @@
                     style:UIAlertActionStyleCancel
                     handler:^(UIAlertAction *action)
                         { return; }]];
+    if ([[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPad) {
+        UIPopoverPresentationController *pctrl = [ctrl popoverPresentationController];
+        pctrl.sourceView = self;
+        pctrl.sourceRect = navBar.bounds;
+    }
     [RootViewController presentViewController:ctrl animated:YES completion:nil];
 }
 
@@ -376,6 +382,11 @@
     if (strcmp([name UTF8String], state.coreName) == 0)
         core_save_state([statePath UTF8String]);
     UIActivityViewController *activityViewController = [[UIActivityViewController alloc] initWithActivityItems:@[[NSURL fileURLWithPath:statePath]] applicationActivities:nil];
+    if ([[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPad) {
+        UIPopoverPresentationController *pctrl = [activityViewController popoverPresentationController];
+        pctrl.sourceView = self;
+        pctrl.sourceRect = navBar.bounds;
+    }
     [self.window.rootViewController presentViewController:activityViewController animated:YES completion:nil];
 }
 

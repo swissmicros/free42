@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -23,6 +23,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.security.Key;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -64,6 +65,8 @@ public class SkinLayout {
     private static class SkinMacro {
         int code;
         Object macro;
+        String macro2;
+        boolean secondIsText;
     }
 
     private static class SkinAnnunciator {
@@ -78,6 +81,7 @@ public class SkinLayout {
     private SkinKey[] keylist = null;
     private SkinMacro[] macrolist = null;
     private SkinAnnunciator[] annunciators = new SkinAnnunciator[7];
+    private KeymapEntry[] keymap;
     private boolean display_enabled = true;
     private Bitmap skinBitmap;
     private Bitmap display = Bitmap.createBitmap(131, 16, Bitmap.Config.ARGB_8888);
@@ -144,12 +148,13 @@ public class SkinLayout {
             
             BufferedReader reader = new BufferedReader(new InputStreamReader(is, "UTF-8"));
             String line;
-            //int lineno = 0;
+            int lineno = 0;
             List<SkinKey> tempkeylist = new ArrayList<SkinKey>();
             List<SkinMacro> tempmacrolist = new ArrayList<SkinMacro>();
+            List<KeymapEntry> keymapList = new ArrayList<KeymapEntry>();
             lineloop:
             while ((line = reader.readLine()) != null) {
-                //lineno++;
+                lineno++;
                 line = line.replace('\t', ' ');
                 int pound = line.indexOf('#');
                 if (pound != -1)
@@ -248,8 +253,8 @@ public class SkinLayout {
                 } else if (lcline.startsWith("macro:")) {
                     int quot1 = line.indexOf('"');
                     if (quot1 != -1) {
-                        int quot2 = line.lastIndexOf('"');
-                        if (quot1 != quot2) {
+                        int quot2 = line.indexOf('"', quot1 + 1);
+                        if (quot2 != -1) {
                             int len = quot2 - quot1 - 1;
                             try {
                                 int n = Integer.parseInt(line.substring(6, quot1).trim());
@@ -257,6 +262,17 @@ public class SkinLayout {
                                     SkinMacro macro = new SkinMacro();
                                     macro.code = n;
                                     macro.macro = line.substring(quot1 + 1, quot2);
+                                    quot1 = line.indexOf('"', quot2 + 1);
+                                    if (quot1 == -1)
+                                        quot1 = line.indexOf('\'', quot2 + 1);
+                                    if (quot1 != -1) {
+                                        char q = line.charAt(quot1);
+                                        quot2 = line.indexOf(q, quot1 + 1);
+                                        if (quot2 != -1) {
+                                            macro.macro2 = line.substring(quot1 + 1, quot2);
+                                            macro.secondIsText = q == '\'';
+                                        }
+                                    }
                                     tempmacrolist.add(macro);
                                 }
                             } catch (Exception e) {
@@ -315,21 +331,15 @@ public class SkinLayout {
                     } catch (NumberFormatException e) {
                         // ignore
                     }
-                } else if (line.indexOf(':') != -1) {
-                    // TODO: Embedded keyboard mappings
-    //              keymap_entry *entry = parse_keymap_entry(line, lineno);
-    //              if (entry != NULL) {
-    //                  if (keymap_length == kmcap) {
-    //                      kmcap += 50;
-    //                      keymap = (keymap_entry *)
-    //                          realloc(keymap, kmcap * sizeof(keymap_entry));
-    //                  }
-    //                  memcpy(keymap + (keymap_length++), entry, sizeof(keymap_entry));
-    //              }
+                } else if (lcline.startsWith("droidkey:")) {
+                    KeymapEntry entry = KeymapEntry.parse(line.substring(9), lineno);
+                    if (entry != null)
+                        keymapList.add(entry);
                 }
             }
             keylist = tempkeylist.toArray(new SkinKey[0]);
             macrolist = tempmacrolist.toArray(new SkinMacro[0]);
+            keymap = keymapList.toArray(new KeymapEntry[0]);
         } catch (IOException e) {
             throw new IllegalArgumentException(e);
         } finally {
@@ -423,41 +433,45 @@ public class SkinLayout {
     public int find_skey(int ckey) {
         int i;
         for (i = 0; i < keylist.length; i++)
-        if (keylist[i].code == ckey || keylist[i].shifted_code == ckey)
-            return i;
+            if (keylist[i].code == ckey || keylist[i].shifted_code == ckey)
+                return i;
         return -1;
     }
 
     public Object find_macro(int ckey) {
         for (SkinMacro macro : macrolist)
-            if (macro.code == ckey)
-                return macro.macro;
+            if (macro.code == ckey) {
+                if (macro.macro instanceof byte[])
+                    return macro.macro;
+                else if (macro.macro2 == null || !Free42Activity.instance.core_alpha_menu())
+                    return new Object[] { macro.macro, false };
+                else
+                    return new Object[] { macro.macro2, macro.secondIsText };
+            }
         return null;
     }
 
-//unsigned char *skin_keymap_lookup(guint keyval, bool printable,
-//                bool ctrl, bool alt, bool shift, bool cshift,
-//                bool *exact) {
-//    int i;
-//    unsigned char *macro = NULL;
-//    for (i = 0; i < keymap_length; i++) {
-//  keymap_entry *entry = keymap + i;
-//  if (ctrl == entry->ctrl
-//      && alt == entry->alt
-//      && (printable || shift == entry->shift)
-//      && keyval == entry->keyval) {
-//      if (cshift == entry->cshift) {
-//      *exact = true;
-//      return entry->macro;
-//      }
-//      if (cshift)
-//      macro = entry->macro;
-//  }
-//    }
-//    *exact = false;
-//    return macro;
-//}
-    
+    public byte[] keymap_lookup(String keychar, boolean printable,
+                                boolean ctrl, boolean alt, boolean numpad, boolean shift,
+                                boolean cshift, BooleanHolder exact) {
+        byte[] macro = null;
+        for (KeymapEntry entry : keymap) {
+            if (ctrl == entry.ctrl
+                    && alt == entry.alt
+                    && (printable || shift == entry.shift)
+                    && keychar.equals(entry.keychar)) {
+                if ((!numpad || shift == entry.shift) && numpad == entry.numpad && cshift == entry.cshift) {
+                    exact.value = true;
+                    return entry.macro;
+                }
+                if ((numpad || !entry.numpad) && (cshift || !entry.cshift))
+                    macro = entry.macro;
+            }
+        }
+        exact.value = false;
+        return macro;
+    }
+
     private void repaint_key(Canvas canvas, Bitmap skin, int key, boolean state) {
         if (key >= -7 && key <= -2) {
             /* Soft key */

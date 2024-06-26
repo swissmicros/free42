@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -188,7 +188,8 @@ Java_com_thomasokken_free42_Free42Activity_core_1keydown(JNIEnv *env, jobject th
 
 extern "C" jboolean
 Java_com_thomasokken_free42_Free42Activity_core_1keydown_1command(JNIEnv *env, jobject thiz,
-                            jstring cmd, jobject enqueued, jobject repeat, jboolean immediate_return) {
+                            jstring cmd, jboolean is_text, jobject enqueued, jobject repeat,
+                            jboolean immediate_return) {
     Tracer T("core_keydown_command");
     gettimeofday(&keydown_end_time, NULL);
     if (!immediate_return) {
@@ -201,7 +202,7 @@ Java_com_thomasokken_free42_Free42Activity_core_1keydown_1command(JNIEnv *env, j
     bool enq;
     int rep;
     const char *buf = env->GetStringUTFChars(cmd, NULL);
-    jboolean ret = core_keydown_command(buf, &enq, &rep);
+    jboolean ret = core_keydown_command(buf, is_text, &enq, &rep);
     env->ReleaseStringUTFChars(cmd, buf);
     if (enqueued != NULL) {
         jclass klass = env->GetObjectClass(enqueued);
@@ -422,12 +423,12 @@ void shell_blitter(const char *bits, int bytesperline, int x, int y,
     env->DeleteLocalRef(bits2);
 }
 
-void shell_beeper(int frequency, int duration) {
+void shell_beeper(int tone) {
     Tracer T("shell_beeper");
     JNIEnv *env = getJniEnv();
     jclass klass = env->GetObjectClass(g_activity);
-    jmethodID mid = env->GetMethodID(klass, "shell_beeper", "(II)V");
-    env->CallVoidMethod(g_activity, mid, frequency, duration);
+    jmethodID mid = env->GetMethodID(klass, "shell_beeper", "(I)V");
+    env->CallVoidMethod(g_activity, mid, tone);
     // Delete local references
     env->DeleteLocalRef(klass);
 }
@@ -712,7 +713,7 @@ void shell_logprintf(const char *format, ...) {
     va_list ap;
     va_start(ap, format);
     char buf[1000];
-    vsprintf(buf, format, ap);
+    vsnprintf(buf, 1000, format, ap);
     shell_log(buf);
     va_end(ap);
 }

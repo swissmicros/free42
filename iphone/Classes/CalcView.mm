@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -32,6 +32,7 @@
 #import "core_display.h"
 #import "shell.h"
 #import "shell_spool.h"
+#import "shell_skin.h"
 #import "shell_skin_iphone.h"
 
 // For "audio enable" flag
@@ -63,6 +64,8 @@ public:
 static void quit2(bool really_quit);
 static void shell_keydown();
 static void shell_keyup();
+static void calc_keydown(NSString *characters, long flags, int keycode);
+static void calc_keyup(NSString *characters, long flags, int keycode);
 
 static int read_shell_state(int *version);
 static void init_shell_state(int version);
@@ -79,8 +82,13 @@ static bool we_want_cpu = false;
 static int ckey = 0;
 static int skey;
 static unsigned char *macro;
-static bool macro_is_name;
+static int macro_type;
+static bool mouse_key;
+static int active_keycode = -1;
+static bool just_pressed_shift = false;
 static UITouch *currentTouch = nil;
+static int keymap_length = 0;
+static keymap_entry *keymap = NULL;
 
 static bool timeout_active = false;
 static int timeout_which;
@@ -215,6 +223,7 @@ static CalcView *calcView = nil;
                     style:UIAlertActionStyleCancel
                     handler:^(UIAlertAction *action)
                         { return; }]];
+    skin_position_menu(self, ctrl);
     [RootViewController presentViewController:ctrl animated:YES completion:nil];
 }
 
@@ -247,6 +256,7 @@ static CalcView *calcView = nil;
                     style:UIAlertActionStyleCancel
                     handler:^(UIAlertAction *action)
                         { return; }]];
+    skin_position_menu(self, ctrl);
     [RootViewController presentViewController:ctrl animated:YES completion:nil];
 }
 
@@ -303,8 +313,9 @@ static CGPoint touchPoint;
                 UIImpactFeedbackGenerator *fbgen = [[UIImpactFeedbackGenerator alloc] initWithStyle:s];
                 [fbgen impactOccurred];
             }
-            macro = skin_find_macro(ckey, &macro_is_name);
+            macro = skin_find_macro(ckey, &macro_type);
             shell_keydown();
+            mouse_key = true;
         }
     }
     if (touchDelayed == 2) {
@@ -682,7 +693,153 @@ static CLLocationManager *locMgr = nil;
     }
 }
 
+- (void) setActive:(bool) active {
+    if (active)
+        [self becomeFirstResponder];
+    else
+        [self resignFirstResponder];
+}
+
+- (BOOL) canBecomeFirstResponder {
+    return YES;
+}
+
+static void read_key_map(const char *keymapfilename);
+
++ (void) readKeyMap {
+    mkdir("config", 0755);
+    read_key_map("config/keymap.txt");
+}
+
+// Keyboard handling (UIResponder methods)
+
+// Tells this object when a physical button is first pressed.
+- (void)pressesBegan:(NSSet<UIPress *> *)presses withEvent:(UIPressesEvent *)event {
+    NSArray *p = [presses allObjects];
+    bool handled = false;
+    for (int i = 0; i < [p count]; i++) {
+        UIPress *pr = [p objectAtIndex:i];
+        NSObject *k = [pr key];
+        if (k != nil) {
+            @try {
+                NSString *characters = [k valueForKey:@"characters"];
+                NSString *nonModCharacters = [k valueForKey:@"charactersIgnoringModifiers"];
+                if ([characters length] == 0 || [nonModCharacters hasPrefix:@"UIKeyInput"])
+                    characters = nonModCharacters;
+                long flags = [[k valueForKey:@"modifierFlags"] longValue];
+                int keycode = [[k valueForKey:@"keyCode"] intValue];
+                calc_keydown(characters, flags, keycode);
+                handled = true;
+            }
+            @catch (id ex) {
+                // [pr key] not an NSKey?
+                // The situation is a bit weird; the docs say UIPress.key is defined in
+                // iOS 9.0+, and is of type UIKey*, but the UIKey type is only defined
+                // in iOS 13.4+. I'm assuming that in iOS 9, UIKey is the same as in
+                // 13.4+, and that it just wasn't public, so that I should be able to
+                // use valueForKey to get at its fields in iOS [9.0, 13.4). If we get
+                // into this catch block, then that assumption would appear to be wrong.
+                // I don't have anything with sufficiently old iOS versions to find out,
+                // so at least for now, if there is an exception here, then the device
+                // will simply not respond to the keyboard in CalcView, which is a
+                // graceful failure mode at least.
+            }
+        }
+    }
+    if (!handled)
+        [super pressesBegan:presses withEvent:event];
+}
+
+// Tells the object when a button is released.
+- (void)pressesEnded:(NSSet<UIPress *> *)presses withEvent:(UIPressesEvent *)event {
+    NSArray *p = [presses allObjects];
+    bool handled = false;
+    for (int i = 0; i < [p count]; i++) {
+        UIPress *pr = [p objectAtIndex:i];
+        NSObject *k = [pr key];
+        if (k != nil) {
+            @try {
+                NSString *characters = [k valueForKey:@"characters"];
+                if ([characters length] == 0)
+                    characters = [k valueForKey:@"charactersIgnoringModifiers"];
+                long flags = [[k valueForKey:@"modifierFlags"] longValue];
+                int keycode = [[k valueForKey:@"keyCode"] intValue];
+                calc_keyup(characters, flags, keycode);
+                handled = true;
+            }
+            @catch (id ex) {
+                // [pr key] not an NSKey?
+                // The situation is a bit weird; the docs say UIPress.key is defined in
+                // iOS 9.0+, and is of type UIKey*, but the UIKey type is only defined
+                // in iOS 13.4+. I'm assuming that in iOS 9, UIKey is the same as in
+                // 13.4+, and that it just wasn't public, so that I should be able to
+                // use valueForKey to get at its fields in iOS [9.0, 13.4). If we get
+                // into this catch block, then that assumption would appear to be wrong.
+                // I don't have anything with sufficiently old iOS versions to find out,
+                // so at least for now, if there is an exception here, then the device
+                // will simply not respond to the keyboard in CalcView, which is a
+                // graceful failure mode at least.
+            }
+        }
+    }
+    if (!handled)
+        [super pressesEnded:presses withEvent:event];
+}
+
+// Tells this object when a value associated with a press has changed.
+- (void)pressesChanged:(NSSet<UIPress *> *)presses withEvent:(UIPressesEvent *)event {
+    // No need to handle this
+    [super pressesChanged:presses withEvent:event];
+}
+
+// Tells this object when a system event (such as a low-memory warning) cancels a press event.
+- (void)pressesCancelled:(NSSet<UIPress *> *)presses withEvent:(UIPressesEvent *)event {
+    // No need to handle this
+    [super pressesCancelled:presses withEvent:event];
+}
+
 @end
+
+static void read_key_map(const char *keymapfilename) {
+    FILE *keymapfile = fopen(keymapfilename, "r");
+    int kmcap = 0;
+    char line[1024];
+    int lineno = 0;
+
+    if (keymapfile == NULL) {
+        /* Try to create default keymap file */
+        keymapfile = fopen(keymapfilename, "wb");
+        if (keymapfile == NULL)
+            return;
+        NSString *path = [[NSBundle mainBundle] pathForResource:@"keymap" ofType:@"txt"];
+        [path getCString:line maxLength:1024 encoding:NSUTF8StringEncoding];
+        FILE *builtin_keymapfile = fopen(line, "r");
+        int n;
+        while ((n = fread(line, 1, 1024, builtin_keymapfile)) > 0)
+            fwrite(line, 1, n, keymapfile);
+        fclose(builtin_keymapfile);
+        fclose(keymapfile);
+
+        keymapfile = fopen(keymapfilename, "r");
+        if (keymapfile == NULL)
+            return;
+    }
+
+    while (fgets(line, 1024, keymapfile) != NULL) {
+        keymap_entry *entry = parse_keymap_entry(line, ++lineno);
+        if (entry == NULL)
+            continue;
+        /* Create new keymap entry */
+        if (keymap_length == kmcap) {
+            kmcap += 50;
+            keymap = (keymap_entry *) realloc(keymap, kmcap * sizeof(keymap_entry));
+            // TODO - handle memory allocation failure
+        }
+        memcpy(keymap + (keymap_length++), entry, sizeof(keymap_entry));
+    }
+
+    fclose(keymapfile);
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 /////                   Here beginneth thy olde C code                    /////
@@ -788,7 +945,9 @@ static void init_shell_state(int version) {
             state.swipeDirectionMode = 0;
             /* fall through */
         case 12:
-            /* current version (SHELL_VERSION = 12),
+            /* fall through */
+        case 13:
+            /* current version (SHELL_VERSION = 13),
              * so nothing to do here since everything
              * was initialized from the state file.
              */
@@ -846,9 +1005,9 @@ static void shell_keydown() {
     // EventAvail is an annoying omission of the iPhone API.)
         
     if (macro != NULL) {
-        if (macro_is_name) {
+        if (macro_type != 0) {
             we_want_cpu = true;
-            keep_running = core_keydown_command((const char *) macro, &enqueued, &repeat);
+            keep_running = core_keydown_command((const char *) macro, macro_type == 2, &enqueued, &repeat);
             we_want_cpu = false;
         } else {
             if (*macro == 0) {
@@ -931,6 +1090,216 @@ static void shell_keyup() {
     }
 }
 
+static void calc_keydown(NSString *characters, long flags, int keycode) {
+    if (ckey != 0 && mouse_key)
+        return;
+
+    int len = [characters length];
+    just_pressed_shift = len == 0
+        && (flags & (UIKeyModifierShift | UIKeyModifierControl | UIKeyModifierAlternate)) == UIKeyModifierShift;
+    if (len == 0)
+        return;
+
+    NSString *c2 = nil;
+    if ([characters hasPrefix:@"UIKeyInput"]) {
+        NSString *s = [characters substringFromIndex:10];
+        unsigned int fn;
+        if ([s isEqualToString:@"UpArrow"])
+            c2 = @"\uf700";
+        else if ([s isEqualToString:@"DownArrow"])
+            c2 = @"\uf701";
+        else if ([s isEqualToString:@"LeftArrow"])
+            c2 = @"\uf702";
+        else if ([s isEqualToString:@"RightArrow"])
+            c2 = @"\uf703";
+        else if ([s isEqualToString:@"Insert"])
+            c2 = @"\uf727";
+        else if ([s isEqualToString:@"Delete"])
+            c2 = @"\uf728";
+        else if ([s isEqualToString:@"Home"])
+            c2 = @"\uf729";
+        else if ([s isEqualToString:@"End"])
+            c2 = @"\uf72b";
+        else if ([s isEqualToString:@"PageUp"])
+            c2 = @"\uf72c";
+        else if ([s isEqualToString:@"PageDown"])
+            c2 = @"\uf72d";
+        else if ([s isEqualToString:@"Escape"])
+            c2 = @"\33";
+        else if ([s hasPrefix:@"F"] && sscanf([s UTF8String] + 1, "%u", &fn) == 1)
+            c2 = [NSString stringWithFormat:@"%C", (unsigned short) (0xf703 + fn)];
+        else
+            return;
+    } else if ([characters isEqualToString:@"\10"])
+        c2 = @"\177";
+    else if ([characters isEqualToString:@"\5"])
+        c2 = @"\uf727";
+    else if ([characters isEqualToString:@"\177"])
+        c2 = @"\uf728";
+    else if ([characters isEqualToString:@"\33"])
+        // Allow Ctrl-[ to be used as Esc, for keyboards without an Esc key
+        flags &= ~UIKeyModifierControl;
+    if (c2 != nil) {
+        characters = c2;
+        len = [c2 length];
+    }
+
+    bool ctrl = (flags & UIKeyModifierControl) != 0;
+    bool alt = (flags & UIKeyModifierAlternate) != 0;
+    bool numpad = (flags & UIKeyModifierNumericPad) != 0;
+    bool shift = (flags & UIKeyModifierShift) != 0;
+    bool cshift = ann_shift != 0;
+
+    unsigned short c = [characters characterAtIndex:0];
+    bool printable = !ctrl && len == 1 && c >= 33 && c <= 126;
+
+    if (ckey != 0) {
+        shell_keyup();
+        active_keycode = -1;
+    }
+
+    bool exact;
+    unsigned char *key_macro = skin_keymap_lookup(c, printable, ctrl, alt, numpad, shift, cshift, &exact);
+    if (key_macro == NULL || !exact) {
+        for (int i = 0; i < keymap_length; i++) {
+            keymap_entry *entry = keymap + i;
+            if (ctrl == entry->ctrl
+                    && alt == entry->alt
+                    && (printable || shift == entry->shift)
+                    && c == entry->keychar) {
+                if ((!numpad || shift == entry->shift) && numpad == entry->numpad && cshift == entry->cshift) {
+                    key_macro = entry->macro;
+                    break;
+                } else {
+                    if ((numpad || !entry->numpad) && (cshift || !entry->cshift) && key_macro == NULL)
+                        key_macro = entry->macro;
+                }
+            }
+        }
+    }
+
+    if (key_macro == NULL || (key_macro[0] != 36 || key_macro[1] != 0)
+            && (key_macro[0] != 28 || key_macro[1] != 36 || key_macro[2] != 0)) {
+        // The test above is to make sure that whatever mapping is in
+        // effect for R/S will never be overridden by the special cases
+        // for the ALPHA and A..F menus.
+        if (!ctrl && !alt) {
+            if ((printable || c == ' ') && core_alpha_menu()) {
+                if (c >= 'a' && c <= 'z')
+                    c = c + 'A' - 'a';
+                else if (c >= 'A' && c <= 'Z')
+                    c = c + 'a' - 'A';
+                ckey = 1024 + c;
+                skey = -1;
+                macro = NULL;
+                shell_keydown();
+                mouse_key = false;
+                active_keycode = keycode;
+                return;
+            } else if (core_hex_menu() && ((c >= 'a' && c <= 'f')
+                                        || (c >= 'A' && c <= 'F'))) {
+                if (c >= 'a' && c <= 'f')
+                    ckey = c - 'a' + 1;
+                else
+                    ckey = c - 'A' + 1;
+                skey = -1;
+                macro = NULL;
+                shell_keydown();
+                mouse_key = false;
+                active_keycode = keycode;
+                return;
+            } else if (c == 0xf702 || c == 0xf703 || c == 0xf728) {
+                int which;
+               if (c == 0xf702)
+                    which = shift ? 2 : 1;
+                else if (c == 0xf703)
+                    which = shift ? 4 : 3;
+                else if (c == 0xf728)
+                    which = 5;
+                else
+                    which = 0;
+                if (which != 0) {
+                    which = core_special_menu_key(which);
+                    if (which != 0) {
+                        ckey = which;
+                        skey = -1;
+                        macro = NULL;
+                        shell_keydown();
+                        mouse_key = false;
+                        active_keycode = keycode;
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    if (key_macro != NULL) {
+        // A keymap entry is a sequence of zero or more calculator
+        // keystrokes (1..37) and/or macros (38..255). We expand
+        // macros here before invoking shell_keydown().
+        // If the keymap entry is one key, or two keys with the
+        // first being 'shift', we highlight the key in question
+        // by setting ckey; otherwise, we set ckey to -10, which
+        // means no skin key will be highlighted.
+        ckey = -10;
+        skey = -1;
+        if (key_macro[0] != 0)
+            if (key_macro[1] == 0)
+                ckey = key_macro[0];
+            else if (key_macro[2] == 0 && key_macro[0] == 28)
+                ckey = key_macro[1];
+        bool needs_expansion = false;
+        for (int j = 0; key_macro[j] != 0; j++)
+            if (key_macro[j] > 37) {
+                needs_expansion = true;
+                break;
+            }
+        if (needs_expansion) {
+            static unsigned char macrobuf[1024];
+            int p = 0;
+            for (int j = 0; key_macro[j] != 0 && p < 1023; j++) {
+                int c = key_macro[j];
+                if (c <= 37)
+                    macrobuf[p++] = c;
+                else {
+                    unsigned char *m = skin_find_macro(c, &macro_type);
+                    if (m != NULL)
+                        while (*m != 0 && p < 1023)
+                            macrobuf[p++] = *m++;
+                }
+            }
+            macrobuf[p] = 0;
+            macro = macrobuf;
+        } else {
+            macro = key_macro;
+            macro_type = 0;
+        }
+        shell_keydown();
+        mouse_key = false;
+        active_keycode = keycode;
+//    } else {
+//        // Debug: place unmapped key codes in X register
+//        if ([characters length] == 1)
+//            characters = [NSString stringWithFormat:@"U+%04X", (int) [characters characterAtIndex:0]];
+//        core_paste([characters UTF8String]);
+    }
+}
+
+static void calc_keyup(NSString *characters, long flags, int keycode) {
+    if (just_pressed_shift) {
+        just_pressed_shift = false;
+        ckey = 28;
+        skey = -1;
+        macro = NULL;
+        shell_keydown();
+        shell_keyup();
+    } else if (!mouse_key && keycode == active_keycode) {
+        shell_keyup();
+        active_keycode = -1;
+    }
+}
+
 static int write_shell_state() {
     TRACE("write_shell_state");
     int magic = FREE42_MAGIC;
@@ -976,18 +1345,10 @@ const char *shell_platform() {
     return p;
 }
 
-void shell_beeper(int frequency, int duration) {
+void shell_beeper(int tone) {
     TRACE("shell_beeper");
-    const int cutoff_freqs[] = { 164, 220, 243, 275, 293, 324, 366, 418, 438, 550 };
-    for (int i = 0; i < 10; i++) {
-        if (frequency <= cutoff_freqs[i]) {
-            [RootViewController playSound:i];
-            shell_delay(250);
-            return;
-        }
-    }
-    [RootViewController playSound:10];
-    shell_delay(125);
+    [RootViewController playSound:tone];
+    shell_delay(tone == 10 ? 125 : 250);
 }
 
 void shell_annunciators(int updn, int shf, int prt, int run, int g, int rad) {

@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -399,7 +399,7 @@ const menu_spec menus[] = {
                         { 0x1000 + CMD_LIST,  0, "" },
                         { 0x1000 + CMD_ADV,   0, "" },
                         { 0x1000 + CMD_PRLCD, 0, "" },
-                        { 0x1000 + CMD_NULL,  0, "" },
+                        { 0x1000 + CMD_PRREG, 0, "" },
                         { 0x1000 + CMD_DELAY, 0, "" } } },
     { /* MENU_PRINT3 */ MENU_NONE, MENU_PRINT1, MENU_PRINT2,
                       { { 0x2000 + CMD_PON,    0, "" },
@@ -608,7 +608,7 @@ bool mode_clall;
 int (*mode_interruptible)(bool) = NULL;
 bool mode_stoppable;
 bool mode_command_entry;
-bool mode_number_entry;
+char mode_number_entry;
 bool mode_alpha_entry;
 bool mode_shift;
 int mode_appmenu;
@@ -622,6 +622,7 @@ bool mode_getkey;
 bool mode_getkey1;
 bool mode_pause = false;
 bool mode_disable_stack_lift; /* transient */
+bool mode_caller_stack_lift_disabled;
 bool mode_varmenu;
 bool mode_updown;
 int4 mode_sigma_reg;
@@ -659,12 +660,16 @@ int cmdline_row;
 
 /* Matrix editor / matrix indexing */
 int matedit_mode; /* 0=off, 1=index, 2=edit, 3=editn */
+int matedit_level;
 char matedit_name[7];
 int matedit_length;
 vartype *matedit_x;
 int4 matedit_i;
 int4 matedit_j;
 int matedit_prev_appmenu;
+int4 *matedit_stack = NULL;
+int matedit_stack_depth = 0;
+bool matedit_is_list;
 
 /* INPUT */
 char input_name[11];
@@ -710,62 +715,8 @@ bool no_keystrokes_yet;
 
 /* Version number for the state file.
  * State file versions correspond to application releases as follows:
+ * (Versions before 26 (2.5) are no longer supported.)
  *
- * Version  0: 1.0    first release
- * Version  1: 1.0.13 "IP Hack" option
- * Version  2: 1.0.13 "singular matrix" and matrix "out of range" options
- * Version  3: 1.0.16 "deferred_print" flag for NORM/TRACE printing
- * Version  4: 1.1    BCD conversion table no longer stored in state file
- * Version  5: 1.1    "raw text" option
- * Version  6: 1.1.8  GETKEY across power-cycle
- * Version  7: 1.1.12 FCN catalog assignments now HP-42S-compatible
- * Version  8: 1.1.14 F42 file format and "HP-42S byte counts" option removed
- * Version  9: 1.4    decimal version; removed IP Hack
- * Version 10: 1.4.16 persistent shared matrices
- * Version 11: 1.4.44 "Auto-Repeat" option
- * Version 12: 1.4.52 BIGSTACK (iphone only);
- *                    new BCDFloat format (Inf and NaN flags)
- *
- *  ========== NOTE: BCD20 Upgrade in Free42 1.4.52 ==========
- *  In version 1.4.52, I upgraded to a new version of BCD20, without realizing
- *  that it uses a slightly different storage format (NaN and Inifinity are now
- *  encoded using two flags in the exponent field, rather than using magical
- *  exponent values; the exponent field was narrowed by 2 bits to accommodate
- *  these flags).
- *  I should have added new code to convert BCDFloat numbers from the old
- *  format to the new at that time. Once I discovered this oversight, 1.4.52-54
- *  were already released.
- *  In 1.4.55, I introduced code to convert old-style BCDFloat to new-style if
- *  the state file version is less than 12, i.e. created by Free42 1.4.51 or
- *  earlier. This means that 1.4.55 will interpret BCDFloat from all previous
- *  versions correctly; however, any state file that has gone through the
- *  transition from <= 1.4.51 Decimal to 1.4.52-54 Decimal may still be
- *  corrupted, and the only way to be safe is to do CLALL and reload all
- *  programs and data in that case.
- *
- * Version 13: 1.4.55 Dynamically sized BIGSTACK (iphone only)
- * Version 14: 1.4.63 Moved BIGSTACK DROP command from index 315 to 329, to fix
- *                    the clash with Underhill's COPAN extensions. The iPhone
- *                    version, when reading a state file with version 12 or 13,
- *                    scans all programs and renumbers DROP where necessary.
- *                    All other versions can ignore this version number change.
- * Version 15: 1.4.63 "Enable Extension" options for COPAN, BIGSTACK, ACCEL,
- *                    LOCAT, HEADING, and HP-41 Time
- * Version 16: 1.4.63 time and date format flags
- * Version 17: 1.4.65 iPhone "OFF enable" flag
- * Version 18: 1.4.79 Replaced BCD20 with Intel's Decimal Floating Point
- *                    Library v.2.1.
- * Version 19: 1.5.14 Removed mode_time_dmy; now using flag 31 instead.
- * Version 20: 2.0.3  Removed "raw text" option, ext_copan, and ext_bigstack.
- * Version 21: 2.0.7  New random number generator.
- * Version 22: 2.0.17 Fixed bug where local GTO/XEQ targets didn't get cleared
- *                    when an END was deleted, and potentially (though never
- *                    reported) also when an END was inserted. Bumping the
- *                    state version so that older state files get their
- *                    potentially-incorrect jump targets cleared, just in case.
- * Version 23: 2.1    Added "prog" extension: SST^, SST->
- * Version 24: 2.2    Large RTN stack; local variables
- * Version 25: 2.4    WSIZE, BSIGNED, BWRAP
  * Version 26: 2.5    Separate and portable core state file
  * Version 27: 2.5.2  Recovery mode for corrupt 2.5 state files
  * Version 28: 2.5.3  Recording platform name and app version in state file
@@ -786,28 +737,28 @@ bool no_keystrokes_yet;
  * Version 43: 3.0.7  Plus42 stuff
  * Version 44: 3.0.8  cursor left, cursor right, del key handling
  * Version 45: 3.0.12 SOLVE secant impatience
+ * Version 46: 3.1    CSLD?
+ * Version 47: 3.1    Back-port of Plus42 RTN stack; FUNC stack hiding
+ * Version 48: 3.1    Matrix editor nested lists
  */
-#define FREE42_VERSION 45
+#define FREE42_VERSION 48
 
 
 /*******************/
 /* Private globals */
 /*******************/
 
-static bool state_bool_is_int;
-bool state_is_portable;
-
 struct rtn_stack_entry {
     int4 prgm;
     int4 pc;
     int4 get_prgm() {
-        int4 p = prgm & 0x3fffffff;
-        if ((p & 0x20000000) != 0)
-            p |= 0xc0000000;
+        int4 p = prgm & 0x1fffffff;
+        if ((p & 0x10000000) != 0)
+            p |= 0xe0000000;
         return p;
     }
     void set_prgm(int4 prgm) {
-        this->prgm = prgm & 0x3fffffff;
+        this->prgm = prgm & 0x1fffffff;
     }
     bool has_matrix() {
         return (prgm & 0x80000000) != 0;
@@ -827,32 +778,18 @@ struct rtn_stack_entry {
         else
             prgm &= 0xbfffffff;
     }
+    bool is_csld() {
+        return (prgm & 0x20000000) != 0;
+    }
+    void set_csld() {
+        if (flags.f.stack_lift_disable)
+            prgm |= 0x20000000;
+        else
+            prgm &= 0xdfffffff;
+    }
 };
 
-struct rtn_stack_matrix_name_entry {
-    unsigned char length;
-    char name[7];
-};
-
-struct rtn_stack_matrix_ij_entry {
-    int4 i, j;
-};
-
-/* Stack pointer vs. level:
- * The stack pointer is the pointer into the actual rtn_stack array, while
- * the stack level is the number of pending returns. The difference between
- * the two is due to the fact that a return may or may not have a saved
- * INDEX matrix name & position associated with it, and that saved matrix
- * state takes up 16 bytes, compared to 8 bytes for a return by itself.
- * I don't want to set aside 24 bytes for every return, and optimize by
- * storing 8 bytes for a plain return (rtn_stack_entry struct) and 24 bytes
- * for a return with INDEX matrix (rtn_stack_entry plus rtn_stack_matrix_name_entry
- * plus rtn_stack_matrix_ij_entry), but that means that the physical stack
- * pointer and the number of pending returns are no longer guaranteed to
- * be in sync, hence the need to track them separately.
- */
 #define MAX_RTN_LEVEL 1024
-static int rtn_sp = 0;
 static int rtn_stack_capacity = 0;
 static rtn_stack_entry *rtn_stack = NULL;
 static int rtn_level = 0;
@@ -884,14 +821,10 @@ static void **array_list;
 static bool array_list_grow();
 static int array_list_search(void *array);
 static bool persist_vartype(vartype *v);
-static bool unpersist_vartype(vartype **v, bool padded);
+static bool unpersist_vartype(vartype **v);
 static void update_label_table(int prgm, int4 pc, int inserted);
 static void invalidate_lclbls(int prgm_index, bool force);
 static int pc_line_convert(int4 loc, int loc_is_pc);
-static bool convert_programs(bool *clear_stack);
-#ifdef BCD_MATH
-static void update_decimal_in_programs();
-#endif
 
 #ifdef BCD_MATH
 #define bin_dec_mode_switch() ( state_file_number_format == NUMBER_FORMAT_BINARY )
@@ -1088,252 +1021,9 @@ int bug_mode;
 
 int4 ver;
 
-static bool unpersist_vartype(vartype **v, bool padded) {
-    if (state_is_portable) {
-        char type;
-        if (!read_char(&type))
-            return false;
-        switch (type) {
-            case TYPE_NULL: {
-                *v = NULL;
-                return true;
-            }
-            case TYPE_REAL: {
-                vartype_real *r = (vartype_real *) new_real(0);
-                if (r == NULL)
-                    return false;
-                if (!read_phloat(&r->x)) {
-                    free_vartype((vartype *) r);
-                    return false;
-                }
-                *v = (vartype *) r;
-                return true;
-            }
-            case TYPE_COMPLEX: {
-                vartype_complex *c = (vartype_complex *) new_complex(0, 0);
-                if (c == NULL)
-                    return false;
-                if (!read_phloat(&c->re) || !read_phloat(&c->im)) {
-                    free_vartype((vartype *) c);
-                    return false;
-                }
-                *v = (vartype *) c;
-                return true;
-            }
-            case TYPE_STRING: {
-                int4 len;
-                if (ver < 34) {
-                    char c;
-                    if (!read_char(&c))
-                        return false;
-                    len = c;
-                } else {
-                    if (!read_int4(&len))
-                        return false;
-                }
-                vartype_string *s = (vartype_string *) new_string(NULL, len);
-                if (s == NULL)
-                    return false;
-                if (fread(s->txt(), 1, len, gfile) != len) {
-                    free_vartype((vartype *) s);
-                    return false;
-                }
-                *v = (vartype *) s;
-                return true;
-            }
-            case TYPE_REALMATRIX: {
-                int4 rows, columns;
-                if (!read_int4(&rows) || !read_int4(&columns))
-                    return false;
-                if (rows == 0) {
-                    // Shared matrix
-                    vartype *m = dup_vartype((vartype *) array_list[columns]);
-                    if (m == NULL)
-                        return false;
-                    else {
-                        *v = m;
-                        return true;
-                    }
-                }
-                bool shared = rows < 0;
-                if (shared)
-                    rows = -rows;
-                vartype_realmatrix *rm = (vartype_realmatrix *) new_realmatrix(rows, columns);
-                if (rm == NULL)
-                    return false;
-                int4 size = rows * columns;
-                if (fread(rm->array->is_string, 1, size, gfile) != size) {
-                    free_vartype((vartype *) rm);
-                    return false;
-                }
-                bool success = true;
-                int4 i;
-                for (i = 0; i < size; i++) {
-                    success = false;
-                    if (rm->array->is_string[i] == 0) {
-                        if (!read_phloat(&rm->array->data[i]))
-                            break;
-                    } else {
-                        rm->array->is_string[i] = 1;
-                        if (bug_mode == 0) {
-                            if (ver < 34) {
-                                // 6 bytes of text followed by length byte
-                                char *t = (char *) &rm->array->data[i];
-                                if (fread(t + 1, 1, 7, gfile) != 7)
-                                    break;
-                                t[0] = t[7];
-                            } else {
-                                // 4-byte length followed by n bytes of text
-                                int4 len;
-                                if (!read_int4(&len))
-                                    break;
-                                if (len > SSLENM) {
-                                    int4 *p = (int4 *) malloc(len + 4);
-                                    if (p == NULL)
-                                        break;
-                                    if (fread(p + 1, 1, len, gfile) != len) {
-                                        free(p);
-                                        break;
-                                    }
-                                    *p = len;
-                                    *(int4 **) &rm->array->data[i] = p;
-                                    rm->array->is_string[i] = 2;
-                                } else {
-                                    char *t = (char *) &rm->array->data[i];
-                                    *t = len;
-                                    if (fread(t + 1, 1, len, gfile) != len)
-                                        break;
-                                }
-                            }
-                        } else if (bug_mode == 1) {
-                            // Could be as above, or could be length-prefixed.
-                            // Read 7 bytes, and if byte 7 looks plausible,
-                            // carry on; otherwise, set bug_mode to 3, signalling
-                            // we should start over in bug-compatibility mode.
-                            char *t = (char *) &rm->array->data[i];
-                            if (fread(t + 1, 1, 7, gfile) != 7)
-                                break;
-                            if (t[7] < 0 || t[7] > 6) {
-                                bug_mode = 3;
-                                break;
-                            }
-                            t[0] = t[7];
-                        } else {
-                            // bug_mode == 2, means this has to be a file with
-                            // length-prefixed strings in matrices. Bear in
-                            // mind that the prefixes are bogus, so for reading,
-                            // clamp them to the 0..6 range, but for advancing
-                            // in the file, take them at face value.
-                            unsigned char len;
-                            if (fread(&len, 1, 1, gfile) != 1)
-                                break;
-                            unsigned char reallen = len > 6 ? 6 : len;
-                            char *t = (char *) &rm->array->data[i];
-                            if (fread(t + 1, 1, reallen, gfile) != reallen)
-                                break;
-                            t[0] = reallen;
-                            len -= reallen;
-                            if (len > 0 && fseek(gfile, len, SEEK_CUR) != 0)
-                                break;
-                        }
-                    }
-                    success = true;
-                }
-                if (!success) {
-                    memset(rm->array->is_string + i, 0, size - i);
-                    free_vartype((vartype *) rm);
-                    return false;
-                }
-                if (shared) {
-                    if (!array_list_grow()) {
-                        free_vartype((vartype *) rm);
-                        return false;
-                    }
-                    array_list[array_count++] = rm;
-                }
-                *v = (vartype *) rm;
-                return true;
-            }
-            case TYPE_COMPLEXMATRIX: {
-                int4 rows, columns;
-                if (!read_int4(&rows) || !read_int4(&columns))
-                    return false;
-                if (rows == 0) {
-                    // Shared matrix
-                    vartype *m = dup_vartype((vartype *) array_list[columns]);
-                    if (m == NULL)
-                        return false;
-                    else {
-                        *v = m;
-                        return true;
-                    }
-                }
-                bool shared = rows < 0;
-                if (shared)
-                    rows = -rows;
-                vartype_complexmatrix *cm = (vartype_complexmatrix *) new_complexmatrix(rows, columns);
-                if (cm == NULL)
-                    return false;
-                int4 size = 2 * rows * columns;
-                for (int4 i = 0; i < size; i++) {
-                    if (!read_phloat(&cm->array->data[i])) {
-                        free_vartype((vartype *) cm);
-                        return false;
-                    }
-                }
-                if (shared) {
-                    if (!array_list_grow()) {
-                        free_vartype((vartype *) cm);
-                        return false;
-                    }
-                    array_list[array_count++] = cm;
-                }
-                *v = (vartype *) cm;
-                return true;
-            }
-            case TYPE_LIST: {
-                int4 size;
-                int data_index;
-                if (!read_int4(&size) || !read_int(&data_index))
-                    return false;
-                if (data_index >= 0) {
-                    // Shared list
-                    vartype *m = dup_vartype((vartype *) array_list[data_index]);
-                    if (m == NULL)
-                        return false;
-                    else {
-                        *v = m;
-                        return true;
-                    }
-                }
-                bool shared = data_index == -2;
-                vartype_list *list = (vartype_list *) new_list(size);
-                if (list == NULL)
-                    return false;
-                if (shared) {
-                    if (!array_list_grow()) {
-                        free_vartype((vartype *) list);
-                        return false;
-                    }
-                    array_list[array_count++] = list;
-                }
-                for (int4 i = 0; i < size; i++) {
-                    if (!unpersist_vartype(&list->array->data[i], false)) {
-                        free_vartype((vartype *) list);
-                        return false;
-                    }
-                }
-                *v = (vartype *) list;
-                return true;
-            }
-            default:
-                return false;
-        }
-    }
-
-    // !state_is_portable
-    int type;
-    if (fread(&type, 1, sizeof(int), gfile) != sizeof(int))
+static bool unpersist_vartype(vartype **v) {
+    char type;
+    if (!read_char(&type))
         return false;
     switch (type) {
         case TYPE_NULL: {
@@ -1344,47 +1034,9 @@ static bool unpersist_vartype(vartype **v, bool padded) {
             vartype_real *r = (vartype_real *) new_real(0);
             if (r == NULL)
                 return false;
-            if (bin_dec_mode_switch()) {
-                #ifdef BCD_MATH
-                    if (padded) {
-                        int4 dummy;
-                        if (fread(&dummy, 1, 4, gfile) != 4) {
-                            free_vartype((vartype *) r);
-                            return false;
-                        }
-                    }
-                    double x;
-                    if (fread(&x, 1, 8, gfile) != 8) {
-                        free_vartype((vartype *) r);
-                        return false;
-                    }
-                    r->x = x;
-                #else
-                    BID_UINT128 x;
-                    if (fread(&x, 1, 16, gfile) != 16) {
-                        free_vartype((vartype *) r);
-                        return false;
-                    }
-                    r->x = decimal2double(&x);
-                #endif
-            } else {
-                #ifndef BCD_MATH
-                    if (padded) {
-                        int4 dummy;
-                        if (fread(&dummy, 1, 4, gfile) != 4) {
-                            free_vartype((vartype *) r);
-                            return false;
-                        }
-                    }
-                #endif
-                if (fread(&r->x, 1, sizeof(phloat), gfile)
-                        != sizeof(phloat)) {
-                    free_vartype((vartype *) r);
-                    return false;
-                }
-                #ifdef BCD_MATH
-                    update_decimal(&r->x.val);
-                #endif
+            if (!read_phloat(&r->x)) {
+                free_vartype((vartype *) r);
+                return false;
             }
             *v = (vartype *) r;
             return true;
@@ -1393,73 +1045,41 @@ static bool unpersist_vartype(vartype **v, bool padded) {
             vartype_complex *c = (vartype_complex *) new_complex(0, 0);
             if (c == NULL)
                 return false;
-            if (bin_dec_mode_switch()) {
-                #ifdef BCD_MATH
-                    if (padded) {
-                        int4 dummy;
-                        if (fread(&dummy, 1, 4, gfile) != 4) {
-                            free_vartype((vartype *) c);
-                            return false;
-                        }
-                    }
-                    double parts[2];
-                    if (fread(parts, 1, 16, gfile) != 16) {
-                        free_vartype((vartype *) c);
-                        return false;
-                    }
-                    c->re = parts[0];
-                    c->im = parts[1];
-                #else
-                    BID_UINT128 parts[2];
-                    if (fread(parts, 1, 32, gfile) != 32) {
-                        free_vartype((vartype *) c);
-                        return false;
-                    }
-                    c->re = decimal2double(parts);
-                    c->im = decimal2double(parts + 1);
-                #endif
-            } else {
-                #ifndef BCD_MATH
-                    if (padded) {
-                        int4 dummy;
-                        if (fread(&dummy, 1, 4, gfile) != 4) {
-                            free_vartype((vartype *) c);
-                            return false;
-                        }
-                    }
-                #endif
-                if (fread(&c->re, 1, 2 * sizeof(phloat), gfile)
-                        != 2 * sizeof(phloat)) {
-                    free_vartype((vartype *) c);
-                    return false;
-                }
-                #ifdef BCD_MATH
-                    update_decimal(&c->re.val);
-                    update_decimal(&c->im.val);
-                #endif
+            if (!read_phloat(&c->re) || !read_phloat(&c->im)) {
+                free_vartype((vartype *) c);
+                return false;
             }
             *v = (vartype *) c;
             return true;
         }
         case TYPE_STRING: {
-            old_vartype_string os;
-            int n = sizeof(old_vartype_string) - sizeof(int);
-            if (fread(&os.type + 1, 1, n, gfile) != n)
-                return false;
-            vartype_string *s = (vartype_string *) new_string(os.text, os.length);
+            int4 len;
+            if (ver < 34) {
+                char c;
+                if (!read_char(&c))
+                    return false;
+                len = c;
+            } else {
+                if (!read_int4(&len))
+                    return false;
+            }
+            vartype_string *s = (vartype_string *) new_string(NULL, len);
             if (s == NULL)
                 return false;
+            if (fread(s->txt(), 1, len, gfile) != len) {
+                free_vartype((vartype *) s);
+                return false;
+            }
             *v = (vartype *) s;
             return true;
         }
         case TYPE_REALMATRIX: {
-            matrix_persister mp;
-            int n = sizeof(matrix_persister) - sizeof(int);
-            if (fread(&mp.type + 1, 1, n, gfile) != n)
+            int4 rows, columns;
+            if (!read_int4(&rows) || !read_int4(&columns))
                 return false;
-            if (mp.rows == 0) {
+            if (rows == 0) {
                 // Shared matrix
-                vartype *m = dup_vartype((vartype *) array_list[mp.columns]);
+                vartype *m = dup_vartype((vartype *) array_list[columns]);
                 if (m == NULL)
                     return false;
                 else {
@@ -1467,78 +1087,94 @@ static bool unpersist_vartype(vartype **v, bool padded) {
                     return true;
                 }
             }
-            bool shared = mp.rows < 0;
+            bool shared = rows < 0;
             if (shared)
-                mp.rows = -mp.rows;
-            vartype_realmatrix *rm = (vartype_realmatrix *) new_realmatrix(mp.rows, mp.columns);
+                rows = -rows;
+            vartype_realmatrix *rm = (vartype_realmatrix *) new_realmatrix(rows, columns);
             if (rm == NULL)
                 return false;
-            if (bin_dec_mode_switch()) {
-                int4 size = mp.rows * mp.columns;
-                #ifdef BCD_MATH
-                    int phsz = sizeof(double);
-                #else
-                    int phsz = sizeof(fake_bcd);
-                #endif
-                int4 tsz = size * phsz;
-                char *temp = (char *) malloc(tsz);
-                if (temp == NULL) {
-                    free_vartype((vartype *) rm);
-                    return false;
-                }
-                if (fread(temp, 1, tsz, gfile) != tsz) {
-                    free(temp);
-                    free_vartype((vartype *) rm);
-                    return false;
-                }
-                if (fread(rm->array->is_string, 1, size, gfile) != size) {
-                    free(temp);
-                    free_vartype((vartype *) rm);
-                    return false;
-                }
-                #ifdef BCD_MATH
-                    for (int4 i = 0; i < size; i++) {
-                        if (rm->array->is_string[i]) {
-                            char *src = temp + i * phsz;
-                            char *dst = (char *) (rm->array->data + i);
-                            *dst++ = src[6];
-                            for (int j = 0; j < 6; j++)
-                                *dst++ = *src++;
+            int4 size = rows * columns;
+            if (fread(rm->array->is_string, 1, size, gfile) != size) {
+                free_vartype((vartype *) rm);
+                return false;
+            }
+            bool success = true;
+            int4 i;
+            for (i = 0; i < size; i++) {
+                success = false;
+                if (rm->array->is_string[i] == 0) {
+                    if (!read_phloat(&rm->array->data[i]))
+                        break;
+                } else {
+                    rm->array->is_string[i] = 1;
+                    if (bug_mode == 0) {
+                        if (ver < 34) {
+                            // 6 bytes of text followed by length byte
+                            char *t = (char *) &rm->array->data[i];
+                            if (fread(t + 1, 1, 7, gfile) != 7)
+                                break;
+                            t[0] = t[7];
                         } else {
-                            rm->array->data[i] = ((double *) temp)[i];
+                            // 4-byte length followed by n bytes of text
+                            int4 len;
+                            if (!read_int4(&len))
+                                break;
+                            if (len > SSLENM) {
+                                int4 *p = (int4 *) malloc(len + 4);
+                                if (p == NULL)
+                                    break;
+                                if (fread(p + 1, 1, len, gfile) != len) {
+                                    free(p);
+                                    break;
+                                }
+                                *p = len;
+                                *(int4 **) &rm->array->data[i] = p;
+                                rm->array->is_string[i] = 2;
+                            } else {
+                                char *t = (char *) &rm->array->data[i];
+                                *t = len;
+                                if (fread(t + 1, 1, len, gfile) != len)
+                                    break;
+                            }
                         }
-                    }
-                #else
-                    for (int4 i = 0; i < size; i++) {
-                        if (rm->array->is_string[i]) {
-                            char *src = temp + i * phsz;
-                            char *dst = (char *) (rm->array->data + i);
-                            *dst++ = src[6];
-                            for (int j = 0; j < 6; j++)
-                                *dst++ = *src++;
-                        } else {
-                            rm->array->data[i] = decimal2double((char *) (temp + phsz * i));
+                    } else if (bug_mode == 1) {
+                        // Could be as above, or could be length-prefixed.
+                        // Read 7 bytes, and if byte 7 looks plausible,
+                        // carry on; otherwise, set bug_mode to 3, signalling
+                        // we should start over in bug-compatibility mode.
+                        char *t = (char *) &rm->array->data[i];
+                        if (fread(t + 1, 1, 7, gfile) != 7)
+                            break;
+                        if (t[7] < 0 || t[7] > 6) {
+                            bug_mode = 3;
+                            break;
                         }
+                        t[0] = t[7];
+                    } else {
+                        // bug_mode == 2, means this has to be a file with
+                        // length-prefixed strings in matrices. Bear in
+                        // mind that the prefixes are bogus, so for reading,
+                        // clamp them to the 0..6 range, but for advancing
+                        // in the file, take them at face value.
+                        unsigned char len;
+                        if (fread(&len, 1, 1, gfile) != 1)
+                            break;
+                        unsigned char reallen = len > 6 ? 6 : len;
+                        char *t = (char *) &rm->array->data[i];
+                        if (fread(t + 1, 1, reallen, gfile) != reallen)
+                            break;
+                        t[0] = reallen;
+                        len -= reallen;
+                        if (len > 0 && fseek(gfile, len, SEEK_CUR) != 0)
+                            break;
                     }
-                #endif
-                free(temp);
-            } else {
-                int4 size = mp.rows * mp.columns * sizeof(phloat);
-                if (fread(rm->array->data, 1, size, gfile) != size) {
-                    free_vartype((vartype *) rm);
-                    return false;
                 }
-                size = mp.rows * mp.columns;
-                if (fread(rm->array->is_string, 1, size, gfile) != size) {
-                    free_vartype((vartype *) rm);
-                    return false;
-                }
-                #ifdef BCD_MATH
-                    if (state_file_number_format != NUMBER_FORMAT_BID128)
-                        for (int4 i = 0; i < size; i++)
-                            if (!rm->array->is_string[i])
-                                update_decimal(&rm->array->data[i].val);
-                #endif
+                success = true;
+            }
+            if (!success) {
+                memset(rm->array->is_string + i, 0, size - i);
+                free_vartype((vartype *) rm);
+                return false;
             }
             if (shared) {
                 if (!array_list_grow()) {
@@ -1551,13 +1187,12 @@ static bool unpersist_vartype(vartype **v, bool padded) {
             return true;
         }
         case TYPE_COMPLEXMATRIX: {
-            matrix_persister mp;
-            int n = sizeof(matrix_persister) - sizeof(int);
-            if (fread(&mp.type + 1, 1, n, gfile) != n)
+            int4 rows, columns;
+            if (!read_int4(&rows) || !read_int4(&columns))
                 return false;
-            if (mp.rows == 0) {
+            if (rows == 0) {
                 // Shared matrix
-                vartype *m = dup_vartype((vartype *) array_list[mp.columns]);
+                vartype *m = dup_vartype((vartype *) array_list[columns]);
                 if (m == NULL)
                     return false;
                 else {
@@ -1565,33 +1200,18 @@ static bool unpersist_vartype(vartype **v, bool padded) {
                     return true;
                 }
             }
-            bool shared = mp.rows < 0;
+            bool shared = rows < 0;
             if (shared)
-                mp.rows = -mp.rows;
-            vartype_complexmatrix *cm = (vartype_complexmatrix *)
-                                        new_complexmatrix(mp.rows, mp.columns);
+                rows = -rows;
+            vartype_complexmatrix *cm = (vartype_complexmatrix *) new_complexmatrix(rows, columns);
             if (cm == NULL)
                 return false;
-            if (bin_dec_mode_switch()) {
-                int4 size = 2 * mp.rows * mp.columns;
-                for (int4 i = 0; i < size; i++)
-                    if (!read_phloat(cm->array->data + i)) {
-                        free_vartype((vartype *) cm);
-                        return false;
-                    }
-            } else {
-                int4 size = 2 * mp.rows * mp.columns * sizeof(phloat);
-                if (fread(cm->array->data, 1, size, gfile) != size) {
+            int4 size = 2 * rows * columns;
+            for (int4 i = 0; i < size; i++) {
+                if (!read_phloat(&cm->array->data[i])) {
                     free_vartype((vartype *) cm);
                     return false;
                 }
-                #ifdef BCD_MATH
-                    if (state_file_number_format != NUMBER_FORMAT_BID128) {
-                        size = mp.rows * mp.columns;
-                        for (int4 i = 0; i < size; i++)
-                            update_decimal(&cm->array->data[i].val);
-                    }
-                #endif
             }
             if (shared) {
                 if (!array_list_grow()) {
@@ -1601,6 +1221,41 @@ static bool unpersist_vartype(vartype **v, bool padded) {
                 array_list[array_count++] = cm;
             }
             *v = (vartype *) cm;
+            return true;
+        }
+        case TYPE_LIST: {
+            int4 size;
+            int data_index;
+            if (!read_int4(&size) || !read_int(&data_index))
+                return false;
+            if (data_index >= 0) {
+                // Shared list
+                vartype *m = dup_vartype((vartype *) array_list[data_index]);
+                if (m == NULL)
+                    return false;
+                else {
+                    *v = m;
+                    return true;
+                }
+            }
+            bool shared = data_index == -2;
+            vartype_list *list = (vartype_list *) new_list(size);
+            if (list == NULL)
+                return false;
+            if (shared) {
+                if (!array_list_grow()) {
+                    free_vartype((vartype *) list);
+                    return false;
+                }
+                array_list[array_count++] = list;
+            }
+            for (int4 i = 0; i < size; i++) {
+                if (!unpersist_vartype(&list->array->data[i])) {
+                    free_vartype((vartype *) list);
+                    return false;
+                }
+            }
+            *v = (vartype *) list;
             return true;
         }
         default:
@@ -1674,8 +1329,6 @@ static bool persist_globals() {
             goto done;
     if (!write_int(varmenu_role))
         goto done;
-    if (!write_int(rtn_sp))
-        goto done;
     if (!write_int(rtn_level))
         goto done;
     if (!write_bool(rtn_level_0_has_matrix_entry))
@@ -1684,29 +1337,13 @@ static bool persist_globals() {
         goto done;
     int saved_prgm;
     saved_prgm = current_prgm;
-    for (i = rtn_sp - 1; i >= 0; i--) {
-        bool matrix_entry_follows = i == 1 && rtn_level_0_has_matrix_entry;
-        if (matrix_entry_follows) {
-            i++;
-        } else {
-            matrix_entry_follows = rtn_stack[i].has_matrix();
-            current_prgm = rtn_stack[i].get_prgm();
-            int4 line = rtn_stack[i].pc;
-            if (current_prgm >= 0)
-                line = pc2line(line);
-            if (!write_int4(rtn_stack[i].prgm)
-                    || !write_int4(line))
-                goto done;
-        }
-        if (matrix_entry_follows) {
-            rtn_stack_matrix_name_entry *e1 = (rtn_stack_matrix_name_entry *) &rtn_stack[--i];
-            rtn_stack_matrix_ij_entry *e2 = (rtn_stack_matrix_ij_entry *) &rtn_stack[--i];
-            if (!write_char(e1->length)
-                    || fwrite(e1->name, 1, e1->length, gfile) != e1->length
-                    || !write_int4(e2->i)
-                    || !write_int4(e2->j))
-                goto done;
-        }
+    for (i = rtn_level - 1; i >= 0; i--) {
+        current_prgm = rtn_stack[i].get_prgm();
+        int4 line = rtn_stack[i].pc;
+        if (current_prgm >= 0)
+            line = pc2line(line);
+        if (!write_int4(rtn_stack[i].prgm) || !write_int4(line))
+            goto done;
     }
     current_prgm = saved_prgm;
     if (!write_bool(rtn_solve_active))
@@ -1728,11 +1365,6 @@ static bool unpersist_globals() {
     array_list_capacity = 0;
     array_list = NULL;
     bool ret = false;
-#ifdef WINDOWS
-    bool padded = ver < 18;
-#else
-    bool padded = false;
-#endif
     char tmp_dmy = 2;
 
     if (ver < 33) {
@@ -1753,7 +1385,7 @@ static bool unpersist_globals() {
         goto done;
     }
     for (int i = 0; i <= sp; i++) {
-        if (!unpersist_vartype(&stack[i], padded) || stack[i] == NULL) {
+        if (!unpersist_vartype(&stack[i]) || stack[i] == NULL) {
             for (int j = 0; j < i; j++)
                 free_vartype(stack[j]);
             free(stack);
@@ -1773,15 +1405,8 @@ static bool unpersist_globals() {
     }
 
     free_vartype(lastx);
-    if (!unpersist_vartype(&lastx, padded))
+    if (!unpersist_vartype(&lastx))
         goto done;
-
-    if (ver >= 12 && ver < 20) {
-        /* BIGSTACK -- obsolete */
-        bool bigstack;
-        if (!read_bool(&bigstack))
-            goto done;
-    }
 
     if (!read_int(&reg_alpha_length)) {
         reg_alpha_length = 0;
@@ -1799,32 +1424,18 @@ static bool unpersist_globals() {
         mode_goose = -1;
         goto done;
     }
-    if (ver >= 16) {
-        if (!read_bool(&mode_time_clktd)) {
-            mode_time_clktd = false;
-            goto done;
-        }
-        if (!read_bool(&mode_time_clk24)) {
-            mode_time_clk24 = false;
-            goto done;
-        }
-        if (ver < 19) {
-            bool dmy;
-            if (!read_bool(&dmy))
-                goto done;
-            tmp_dmy = dmy ? 1 : 0;
-        }
-    } else {
+    if (!read_bool(&mode_time_clktd)) {
         mode_time_clktd = false;
-        mode_time_clk24 = false;
+        goto done;
     }
-    if (ver >= 25) {
-        if (!read_int(&mode_wsize)) {
-            mode_wsize = 36;
-            goto done;
-        }
-    } else
+    if (!read_bool(&mode_time_clk24)) {
+        mode_time_clk24 = false;
+        goto done;
+    }
+    if (!read_int(&mode_wsize)) {
         mode_wsize = 36;
+        goto done;
+    }
     if (ver >= 42) {
         if (!read_bool(&mode_menu_caps)) {
             mode_menu_caps = false;
@@ -1837,51 +1448,8 @@ static bool unpersist_globals() {
         goto done;
     if (tmp_dmy != 2)
         flags.f.dmy = tmp_dmy;
-    if (ver < 25) {
-        flags.f.base_signed = 1;
-        flags.f.base_wrap = 0;
-    }
     if (ver < 33)
         flags.f.big_stack = 0;
-
-    if (!state_is_portable) {
-        vars_capacity = 0;
-        if (vars != NULL) {
-            free(vars);
-            vars = NULL;
-        }
-        if (!read_int(&vars_count)) {
-            vars_count = 0;
-            goto done;
-        }
-        vars = (var_struct *) malloc(vars_count * sizeof(var_struct));
-        if (vars == NULL) {
-            vars_count = 0;
-            goto done;
-        }
-        for (i = 0; i < vars_count; i++)
-            if (fread(vars + i, 1, 12, gfile) != 12) {
-                free(vars);
-                vars = NULL;
-                vars_count = 0;
-                goto done;
-            }
-        if (ver < 24)
-            for (i = 0; i < vars_count; i++) {
-                vars[i].level = -1;
-                vars[i].flags = 0;
-            }
-        for (i = 0; i < vars_count; i++)
-            if (!unpersist_vartype(&vars[i].value, padded)) {
-                for (int j = 0; j < i; j++)
-                    free_vartype(vars[j].value);
-                free(vars);
-                vars = NULL;
-                vars_count = 0;
-                goto done;
-            }
-        vars_capacity = vars_count;
-    }
 
     prgms_count = 0;
     prgms_capacity = 0;
@@ -1893,38 +1461,9 @@ static bool unpersist_globals() {
     if (!read_int(&nprogs)) {
         goto done;
     }
-    if (state_is_portable) {
-        loading_state = true;
-        core_import_programs(nprogs, NULL);
-        loading_state = false;
-    } else {
-        prgms_count = nprogs;
-        prgms = (prgm_struct *) malloc(prgms_count * sizeof(prgm_struct));
-        if (prgms == NULL) {
-            prgms_count = 0;
-            goto done;
-        }
-        for (i = 0; i < prgms_count; i++)
-            if (fread(prgms + i, 1, sizeof(prgm_struct_32bit), gfile) != sizeof(prgm_struct_32bit)) {
-                free(prgms);
-                prgms = NULL;
-                prgms_count = 0;
-                goto done;
-            }
-        prgms_capacity = prgms_count;
-        for (i = 0; i < prgms_count; i++) {
-            prgms[i].capacity = prgms[i].size;
-            prgms[i].text = (unsigned char *) mallocU(prgms[i].size);
-            // TODO - handle memory allocation failure
-        }
-        for (i = 0; i < prgms_count; i++) {
-            if (fread(prgms[i].text, 1, prgms[i].size, gfile)
-                    != prgms[i].size) {
-                clear_all_prgms();
-                goto done;
-            }
-        }
-    }
+    loading_state = true;
+    core_import_programs(nprogs, NULL);
+    loading_state = false;
     if (!read_int(&current_prgm)) {
         current_prgm = 0;
         goto done;
@@ -1933,59 +1472,55 @@ static bool unpersist_globals() {
         pc = -1;
         goto done;
     }
-    if (state_is_portable) {
-        pc = line2pc(pc);
-        incomplete_saved_pc = line2pc(incomplete_saved_pc);
-    }
+    pc = line2pc(pc);
+    incomplete_saved_pc = line2pc(incomplete_saved_pc);
     if (!read_int(&prgm_highlight_row)) {
         prgm_highlight_row = 0;
         goto done;
     }
 
-    if (state_is_portable) {
-        vars_capacity = 0;
-        if (vars != NULL) {
+    vars_capacity = 0;
+    if (vars != NULL) {
+        free(vars);
+        vars = NULL;
+    }
+    if (!read_int(&vars_count)) {
+        vars_count = 0;
+        goto done;
+    }
+    vars = (var_struct *) malloc(vars_count * sizeof(var_struct));
+    if (vars == NULL) {
+        vars_count = 0;
+        goto done;
+    }
+    for (i = 0; i < vars_count; i++) {
+        if (!read_char((char *) &vars[i].length))
+            goto vars_fail;
+        if (fread(vars[i].name, 1, vars[i].length, gfile) != vars[i].length)
+            goto vars_fail;
+        if (!read_int2(&vars[i].level))
+            goto vars_fail;
+        if (ver < 30) {
+            bool hidden, hiding;
+            if (!read_bool(&hidden) || !read_bool(&hiding))
+                goto vars_fail;
+            vars[i].flags = (hidden ? VAR_HIDDEN : 0)
+                            | (hiding ? VAR_HIDING : 0);
+        } else {
+            if (!read_int2(&vars[i].flags))
+                goto vars_fail;
+        }
+        if (!unpersist_vartype(&vars[i].value)) {
+            vars_fail:
+            for (int j = 0; j < i; j++)
+                free_vartype(vars[j].value);
             free(vars);
             vars = NULL;
-        }
-        if (!read_int(&vars_count)) {
             vars_count = 0;
             goto done;
         }
-        vars = (var_struct *) malloc(vars_count * sizeof(var_struct));
-        if (vars == NULL) {
-            vars_count = 0;
-            goto done;
-        }
-        for (i = 0; i < vars_count; i++) {
-            if (!read_char((char *) &vars[i].length))
-                goto vars_fail;
-            if (fread(vars[i].name, 1, vars[i].length, gfile) != vars[i].length)
-                goto vars_fail;
-            if (!read_int2(&vars[i].level))
-                goto vars_fail;
-            if (ver < 30) {
-                bool hidden, hiding;
-                if (!read_bool(&hidden) || !read_bool(&hiding))
-                    goto vars_fail;
-                vars[i].flags = (hidden ? VAR_HIDDEN : 0)
-                                | (hiding ? VAR_HIDING : 0);
-            } else {
-                if (!read_int2(&vars[i].flags))
-                    goto vars_fail;
-            }
-            if (!unpersist_vartype(&vars[i].value, false)) {
-                vars_fail:
-                for (int j = 0; j < i; j++)
-                    free_vartype(vars[j].value);
-                free(vars);
-                vars = NULL;
-                vars_count = 0;
-                goto done;
-            }
-        }
-        vars_capacity = vars_count;
     }
+    vars_capacity = vars_count;
 
     if (!read_int(&varmenu_length)) {
         varmenu_length = 0;
@@ -2003,127 +1538,128 @@ static bool unpersist_globals() {
         varmenu_length = 0;
         goto done;
     }
-    if (state_is_portable) {
-        char c;
-        for (i = 0; i < 6; i++) {
-            if (!read_char(&c)
-                    || fread(varmenu_labeltext[i], 1, c, gfile) != c)
-                goto done;
-            varmenu_labellength[i] = c;
-        }
-    } else {
-        if (fread(varmenu_labellength, 1, 6 * sizeof(int), gfile)
-                != 6 * sizeof(int))
+    char c;
+    for (i = 0; i < 6; i++) {
+        if (!read_char(&c)
+                || fread(varmenu_labeltext[i], 1, c, gfile) != c)
             goto done;
-        if (fread(varmenu_labeltext, 1, 42, gfile) != 42)
-            goto done;
+        varmenu_labellength[i] = c;
     }
     if (!read_int(&varmenu_role))
         goto done;
-    if (!read_int(&rtn_sp))
+    if (ver < 47) {
+        // rtn_sp; obsolete
+        int dummy;
+        if (!read_int(&dummy))
+            goto done;
+    }
+    if (!read_int(&rtn_level))
         goto done;
-    if (ver >= 24) {
-        if (!read_int(&rtn_level))
-            goto done;
-        if (!read_bool(&rtn_level_0_has_matrix_entry))
-            goto done;
-        if (ver >= 31) {
-            if (!read_bool(&rtn_level_0_has_func_state))
-                goto done;
-        } else {
-            rtn_level_0_has_func_state = false;
-        }
-        rtn_stack_capacity = 16;
-        while (rtn_sp > rtn_stack_capacity)
-            rtn_stack_capacity <<= 1;
-        rtn_stack = (rtn_stack_entry *) realloc(rtn_stack, rtn_stack_capacity * sizeof(rtn_stack_entry));
-        if (state_is_portable) {
-            int saved_prgm = current_prgm;
-            for (i = rtn_sp - 1; i >= 0; i--) {
-                bool matrix_entry_follows = i == 1 && rtn_level_0_has_matrix_entry;
-                if (matrix_entry_follows) {
-                    i++;
-                } else {
-                    int4 prgm, line;
-                    if (!read_int4(&prgm) || !read_int4(&line))
-                        goto done;
-                    rtn_stack[i].prgm = prgm;
-                    matrix_entry_follows = rtn_stack[i].has_matrix();
-                    current_prgm = rtn_stack[i].get_prgm();
-                    if (current_prgm >= 0)
-                        line = line2pc(line);
-                    rtn_stack[i].pc = line;
-                }
-                if (matrix_entry_follows) {
-                    rtn_stack_matrix_name_entry *e1 = (rtn_stack_matrix_name_entry *) &rtn_stack[--i];
-                    rtn_stack_matrix_ij_entry *e2 = (rtn_stack_matrix_ij_entry *) &rtn_stack[--i];
-                    if (!read_char((char *) &e1->length)
-                            || fread(e1->name, 1, e1->length, gfile) != e1->length
-                            || !read_int4(&e2->i)
-                            || !read_int4(&e2->j))
-                        goto done;
-                }
-            }
-            current_prgm = saved_prgm;
-        } else {
-            int sz = rtn_sp * sizeof(rtn_stack_entry);
-            if (fread(rtn_stack, 1, sz, gfile) != sz)
-                goto done;
-        }
-        if (!read_bool(&rtn_solve_active))
-            goto done;
-        if (!read_bool(&rtn_integ_active))
+    if (!read_bool(&rtn_level_0_has_matrix_entry))
+        goto done;
+    if (ver >= 31) {
+        if (!read_bool(&rtn_level_0_has_func_state))
             goto done;
     } else {
-        rtn_level = rtn_sp;
-        rtn_level_0_has_matrix_entry = false;
         rtn_level_0_has_func_state = false;
-        rtn_stack_capacity = 16;
-        rtn_stack = (rtn_stack_entry *) realloc(rtn_stack, rtn_stack_capacity * sizeof(rtn_stack_entry));
-        rtn_solve_active = false;
-        rtn_integ_active = false;
-        for (i = 0; i < 8; i++) {
-            int prgm;
-            if (fread(&prgm, 1, sizeof(int), gfile) != sizeof(int))
-                goto done;
-            rtn_stack[i].set_prgm(prgm);
-            if (i < rtn_sp)
-                if (prgm == -2)
-                    rtn_solve_active = true;
-                else if (prgm == -3)
-                    rtn_integ_active = true;
-        }
-        for (i = 0; i < 8; i++)
-            if (fread(&rtn_stack[i].pc, 1, sizeof(int4), gfile) != sizeof(int4))
-                goto done;
     }
-#ifdef IPHONE
-    if (ver >= 17 && ver <= 25)
-        if (!read_bool(&off_enable_flag))
-            goto done;
-#endif
-
-    if (!state_is_portable) {
-        if (bin_dec_mode_switch()) {
-            bool clear_stack;
-            if (!convert_programs(&clear_stack)) {
-                clear_all_prgms();
-                goto done;
+    rtn_stack_capacity = 16;
+    while (rtn_level > rtn_stack_capacity)
+        rtn_stack_capacity <<= 1;
+    rtn_stack = (rtn_stack_entry *) realloc(rtn_stack, rtn_stack_capacity * sizeof(rtn_stack_entry));
+    if (ver >= 47) {
+        int saved_prgm = current_prgm;
+        for (i = rtn_level - 1; i >= 0; i--) {
+            int4 line;
+            if (!read_int4(&rtn_stack[i].prgm)) goto done;
+            if (!read_int4(&line)) goto done;
+            current_prgm = rtn_stack[i].get_prgm();
+            if (current_prgm >= 0)
+                line = line2pc(line);
+            rtn_stack[i].pc = line;
+        }
+        current_prgm = saved_prgm;
+    } else {
+        int saved_prgm = current_prgm;
+        for (int lvl = rtn_level - 1; lvl >= -1; lvl--) {
+            bool matrix_entry_follows;
+            if (lvl == -1) {
+                matrix_entry_follows = rtn_level_0_has_matrix_entry;
+            } else {
+                int4 prgm, line;
+                if (!read_int4(&prgm) || !read_int4(&line))
+                    goto done;
+                rtn_stack[lvl].prgm = prgm;
+                matrix_entry_follows = rtn_stack[lvl].has_matrix();
+                current_prgm = rtn_stack[lvl].get_prgm();
+                if (current_prgm >= 0)
+                    line = line2pc(line);
+                rtn_stack[lvl].pc = line;
             }
-            if (clear_stack)
-                clear_all_rtns();
-        } else {
-            if (ver < 22)
-                for (i = 0; i < prgms_count; i++)
-                    invalidate_lclbls(i, true);
+            if (matrix_entry_follows) {
+                char m_len;
+                char m_name[7];
+                int4 m_i, m_j;
+                if (!read_char(&m_len)
+                        || fread(m_name, 1, m_len, gfile) != m_len
+                        || !read_int4(&m_i)
+                        || !read_int4(&m_j))
+                    goto done;
+                vartype_list *list = (vartype_list *) new_list(4);
+                if (list == NULL)
+                    goto done;
+                list->array->data[0] = new_string(m_name, m_len);
+                list->array->data[1] = new_real(0);
+                list->array->data[2] = new_real(m_i);
+                list->array->data[3] = new_real(m_j);
+                for (int i = 0; i < 4; i++)
+                    if (list->array->data[i] == NULL) {
+                        free_vartype((vartype *) list);
+                        goto done;
+                    }
+                int pos = vars_count - 1;
+                int m_lvl = -2;
+                for (; pos >= 0; pos--) {
+                    var_struct *vs = vars + pos;
+                    if (vs->level < lvl + 1 && string_equals(vs->name, vs->length, m_name, m_len)) {
+                        m_lvl = vs->level;
+                        break;
+                    }
+                }
+                if (m_lvl == -2) {
+                    // shouldn't happen
+                    free_vartype((vartype *) list);
+                    goto done;
+                }
+                ((vartype_real *) list->array->data[1])->x = m_lvl;
+                for (pos = 0; pos < vars_count; pos++)
+                    if (vars[pos].level >= lvl + 1)
+                        break;
+                if (vars_count == vars_capacity) {
+                    int newcap = vars_capacity + 8;
+                    var_struct *newvars = (var_struct *) realloc(vars, newcap * sizeof(var_struct));
+                    if (newvars == NULL) {
+                        free_vartype((vartype *) list);
+                        goto done;
+                    }
+                    vars = newvars;
+                    vars_capacity = newcap;
+                }
+                memmove(vars + pos + 1, vars + pos, (vars_count - pos) * sizeof(var_struct));
+                memcpy(vars[pos].name, "MAT", 3);
+                vars[pos].length = 3;
+                vars[pos].level = lvl + 1;
+                vars[pos].flags = VAR_PRIVATE;
+                vars[pos].value = (vartype *) list;
+                vars_count++;
+            }
         }
-        #ifdef BCD_MATH
-            if (state_file_number_format == NUMBER_FORMAT_BCD20_OLD
-                    || state_file_number_format == NUMBER_FORMAT_BCD20_NEW)
-                update_decimal_in_programs();
-        #endif
-        rebuild_label_table();
+        current_prgm = saved_prgm;
     }
+    if (!read_bool(&rtn_solve_active))
+        goto done;
+    if (!read_bool(&rtn_integ_active))
+        goto done;
 
     ret = true;
 
@@ -2864,7 +2400,7 @@ void store_command(int4 pc, int command, arg_struct *arg, const char *num_str) {
 void store_command_after(int4 *pc, int command, arg_struct *arg, const char *num_str) {
     if (*pc == -1)
         *pc = 0;
-    else if (prgms[current_prgm].text[*pc] != CMD_END)
+    else if (!prgms[current_prgm].is_end(*pc))
         *pc += get_command_length(current_prgm, *pc);
     store_command(*pc, command, arg, num_str);
 }
@@ -2982,7 +2518,7 @@ static int pc_line_convert(int4 loc, int loc_is_pc) {
             if (line >= loc)
                 return pc;
         }
-        if (prgm->text[pc] == CMD_END)
+        if (prgm->is_end(pc))
             return loc_is_pc ? line : pc;
         pc += get_command_length(current_prgm, pc);
         line++;
@@ -3120,7 +2656,7 @@ int find_global_label_index(const arg_struct *arg, int *idx) {
 int push_rtn_addr(int prgm, int4 pc) {
     if (rtn_level == MAX_RTN_LEVEL)
         return ERR_RTN_STACK_FULL;
-    if (rtn_sp == rtn_stack_capacity) {
+    if (rtn_level == rtn_stack_capacity) {
         int new_rtn_stack_capacity = rtn_stack_capacity + 16;
         rtn_stack_entry *new_rtn_stack = (rtn_stack_entry *) realloc(rtn_stack, new_rtn_stack_capacity * sizeof(rtn_stack_entry));
         if (new_rtn_stack == NULL)
@@ -3128,9 +2664,8 @@ int push_rtn_addr(int prgm, int4 pc) {
         rtn_stack_capacity = new_rtn_stack_capacity;
         rtn_stack = new_rtn_stack;
     }
-    rtn_stack[rtn_sp].set_prgm(prgm);
-    rtn_stack[rtn_sp].pc = pc;
-    rtn_sp++;
+    rtn_stack[rtn_level].set_prgm(prgm);
+    rtn_stack[rtn_level].pc = pc;
     rtn_level++;
     if (prgm == -2)
         rtn_solve_active = true;
@@ -3140,186 +2675,268 @@ int push_rtn_addr(int prgm, int4 pc) {
 }
 
 int push_indexed_matrix() {
-    if (rtn_level == 0) {
-        if (rtn_level_0_has_matrix_entry)
-            return ERR_NONE;
-        if (rtn_sp + 2 > rtn_stack_capacity) {
-            int new_rtn_stack_capacity = rtn_stack_capacity + 16;
-            rtn_stack_entry *new_rtn_stack = (rtn_stack_entry *) realloc(rtn_stack, new_rtn_stack_capacity * sizeof(rtn_stack_entry));
-            if (new_rtn_stack == NULL)
-                return ERR_INSUFFICIENT_MEMORY;
-            rtn_stack_capacity = new_rtn_stack_capacity;
-            rtn_stack = new_rtn_stack;
+    if (rtn_level == 0 ? rtn_level_0_has_matrix_entry : rtn_stack[rtn_level - 1].has_matrix())
+        return ERR_NONE;
+    vartype_list *list = (vartype_list *) new_list(4 + matedit_stack_depth);
+    if (list == NULL)
+        return ERR_INSUFFICIENT_MEMORY;
+    list->array->data[0] = new_string(matedit_name, matedit_length);
+    list->array->data[1] = new_real(matedit_level);
+    list->array->data[2] = new_real(matedit_i);
+    list->array->data[3] = new_real(matedit_is_list ? -1 : matedit_j);
+    for (int i = 0; i < matedit_stack_depth; i++)
+        list->array->data[4 + i] = new_real(matedit_stack[i]);
+    for (int i = 0; i < 4 + matedit_stack_depth; i++)
+        if (list->array->data[i] == NULL) {
+            free_vartype((vartype *) list);
+            return ERR_INSUFFICIENT_MEMORY;
         }
+    store_private_var("MAT", 3, (vartype *) list);
+    if (rtn_level == 0)
         rtn_level_0_has_matrix_entry = true;
-        rtn_sp += 2;
-        rtn_stack_matrix_name_entry e1;
-        int dlen;
-        string_copy(e1.name, &dlen, matedit_name, matedit_length);
-        e1.length = dlen;
-        memcpy(&rtn_stack[rtn_sp - 1], &e1, sizeof(e1));
-        rtn_stack_matrix_ij_entry e2;
-        e2.i = matedit_i;
-        e2.j = matedit_j;
-        memcpy(&rtn_stack[rtn_sp - 2], &e2, sizeof(e2));
-    } else {
-        if (rtn_stack[rtn_sp - 1].has_matrix())
-            return ERR_NONE;
-        if (rtn_sp + 2 > rtn_stack_capacity) {
-            int new_rtn_stack_capacity = rtn_stack_capacity + 16;
-            rtn_stack_entry *new_rtn_stack = (rtn_stack_entry *) realloc(rtn_stack, new_rtn_stack_capacity * sizeof(rtn_stack_entry));
-            if (new_rtn_stack == NULL)
-                return ERR_INSUFFICIENT_MEMORY;
-            rtn_stack_capacity = new_rtn_stack_capacity;
-            rtn_stack = new_rtn_stack;
-        }
-        rtn_sp += 2;
-        rtn_stack[rtn_sp - 1] = rtn_stack[rtn_sp - 3];
-        rtn_stack[rtn_sp - 1].set_has_matrix(true);
-        rtn_stack_matrix_name_entry e1;
-        int dlen;
-        string_copy(e1.name, &dlen, matedit_name, matedit_length);
-        e1.length = dlen;
-        memcpy(&rtn_stack[rtn_sp - 2], &e1, sizeof(e1));
-        rtn_stack_matrix_ij_entry e2;
-        e2.i = matedit_i;
-        e2.j = matedit_j;
-        memcpy(&rtn_stack[rtn_sp - 3], &e2, sizeof(e2));
-    }
+    else
+        rtn_stack[rtn_level - 1].set_has_matrix(true);
     matedit_mode = 0;
+    free(matedit_stack);
+    matedit_stack = NULL;
+    matedit_stack_depth = 0;
     return ERR_NONE;
 }
+
+void maybe_pop_indexed_matrix(const char *name, int len) {
+    if (rtn_level == 0 ? !rtn_level_0_has_matrix_entry : !rtn_stack[rtn_level - 1].has_matrix())
+        return;
+    if (!string_equals(matedit_name, matedit_length, name, len))
+        return;
+    vartype_list *list = (vartype_list *) recall_and_purge_private_var("MAT", 3);
+    if (list == NULL)
+        return;
+    int newdepth = list->size - 4;
+    int4 *newstack = newdepth == 0 ? NULL : (int4 *) malloc(newdepth * sizeof(int4));
+    // TODO Handle memory allocation failure
+    vartype_string *s = (vartype_string *) list->array->data[0];
+    string_copy(matedit_name, &matedit_length, s->txt(), s->length);
+    matedit_level = to_int4(((vartype_real *) list->array->data[1])->x);
+    matedit_i = to_int4(((vartype_real *) list->array->data[2])->x);
+    matedit_j = to_int4(((vartype_real *) list->array->data[3])->x);
+    matedit_is_list = matedit_j == -1;
+    if (matedit_is_list)
+        matedit_j = 0;
+    matedit_stack_depth = newdepth;
+    free(matedit_stack);
+    matedit_stack = newstack;
+    for (int i = 0; i < newdepth; i++)
+        matedit_stack[i] = to_int4(((vartype_real *) list->array->data[i + 4])->x);
+    matedit_mode = 1;
+    free_vartype((vartype *) list);
+    if (rtn_level == 0)
+        rtn_level_0_has_matrix_entry = false;
+    else
+        rtn_stack[rtn_level - 1].set_has_matrix(false);
+}
+
+/* Layout of STK list used to save state for FUNC and LNSTK/L4STK:
+ * 0: Mode: [0-4][0-4] for FUNC, or -1 for stand-alone LNSTK/L4STK;
+ * 1: State: "ABCDE<Text>" where A=Caller Big Stack, B=LNSTK/L4STK after FUNC,
+ *    C=CSLD, D=F25, E=ERRNO, <Text>=ERRMSG
+ *    For stand-alone LNSTK/L4STK, only A is present.
+ * 2: Saved stack. For stand-alone LNSTK/L4STK that didn't have to
+ *    change the actual stack mode, this is empty; for stand-alone
+ *    LNSTK, this is also empty; for all other cases, this is the entire stack.
+ * 3: Saved LASTX (FUNC only)
+ */
 
 int push_func_state(int n) {
     if (!program_running())
         return ERR_RESTRICTED_OPERATION;
-    vartype *fd = recall_private_var("FD", 2);
-    if (fd != NULL)
-        return ERR_INVALID_CONTEXT;
-    vartype *st = recall_private_var("ST", 2);
-    if (st != NULL)
+    int inputs = n / 10;
+    if (sp + 1 < inputs)
+        return ERR_TOO_FEW_ARGUMENTS;
+
+    vartype *stk = recall_private_var("STK", 3);
+    if (stk != NULL)
         return ERR_INVALID_CONTEXT;
     if (!ensure_var_space(1))
         return ERR_INSUFFICIENT_MEMORY;
-    int inputs = flags.f.big_stack ? n / 10 : 4;
-    if (sp + 1 < inputs)
-        return ERR_TOO_FEW_ARGUMENTS;
-    int size = inputs + 4;
-    // FD list layout:
-    // 0: n, the 2-digit parameter to FUNC
-    // 1: original stack depth, or -1 for 4-level stack
-    // 2: flag 25, ERRNO, and ERRMSG
-    // 3: lastx
-    // 4: X / level 1
-    // 5: Y / level 2
-    // etc.
-    // For 4-level stack, all 4 registers are saved;
-    // for big stack, the input parameters are saved.
-    fd = new_list(size);
-    if (fd == NULL)
+
+    /* Create the STK list */
+    stk = new_list(4);
+    if (stk == NULL)
         return ERR_INSUFFICIENT_MEMORY;
-    vartype **fd_data = ((vartype_list *) fd)->array->data;
-    fd_data[0] = new_real(n);
-    fd_data[1] = new_real(flags.f.big_stack ? sp + 1 : -1);
-    fd_data[2] = new_string(NULL, lasterr == -1 ? 2 + lasterr_length : 2);
-    fd_data[3] = dup_vartype(lastx);
-    for (int i = 0; i < inputs; i++)
-        fd_data[i + 4] = dup_vartype(stack[sp - i]);
-    for (int i = 0; i < size; i++)
-        if (fd_data[i] == NULL) {
-            free_vartype(fd);
+    vartype_list *slist = (vartype_list *) stk;
+    slist->array->data[0] = new_real(n);
+    slist->array->data[1] = new_string(NULL, lasterr == -1 ? 5 + lasterr_length : 5);
+    int i;
+    for (i = 0; i < 2; i++)
+        if (slist->array->data[i] == NULL) {
+            nomem1:
+            free_vartype(stk);
             return ERR_INSUFFICIENT_MEMORY;
         }
-    vartype_string *s = (vartype_string *) fd_data[2];
-    s->txt()[0] = flags.f.error_ignore ? '1' : '0';
-    s->txt()[1] = (char) lasterr;
+
+    /* Create the new stack
+     * Note that we're creating a list here, while the actual stack is just
+     * a plain array of (vartype *). We'll swap the array in this list with
+     * the one for the RPN stack once all allocations have been done, and then
+     * use this list to store the old stack in the STK list.
+     */
+    int newdepth = flags.f.big_stack ? inputs : 4;
+    // Allocating size 4 because the stack must always have capacity >= 4
+    vartype_list *tlist = (vartype_list *) new_list(4);
+    tlist->size = newdepth;
+    if (tlist == NULL)
+        goto nomem1;
+    for (i = 0; i < newdepth; i++) {
+        tlist->array->data[newdepth - 1 - i] = i < inputs ? dup_vartype(stack[sp - i]) : new_real(0);
+        if (tlist->array->data[newdepth - 1 - i] == NULL) {
+            nomem2:
+            free_vartype((vartype *) tlist);
+            goto nomem1;
+        }
+    }
+
+    vartype *newlastx = new_real(0);
+    if (newlastx == NULL)
+        goto nomem2;
+
+    /* OK, we have everything we need. Now move it all into place... */
+    vartype_string *s = (vartype_string *) slist->array->data[1];
+    s->txt()[0] = flags.f.big_stack ? '1' : '0';
+    s->txt()[1] = '0';
+    s->txt()[2] = sp != -1 && is_csld() ? '1' : '0';
+    s->txt()[3] = flags.f.error_ignore ? '1' : '0';
+    s->txt()[4] = (char) lasterr;
     if (lasterr == -1)
-        memcpy(s->txt() + 2, lasterr_text, lasterr_length);
-    store_private_var("FD", 2, fd);
+        memcpy(s->txt() + 5, lasterr_text, lasterr_length);
+    vartype **tmpstk = tlist->array->data;
+    int4 tmpdepth = tlist->size;
+    tlist->array->data = stack;
+    tlist->size = sp + 1;
+    stack = tmpstk;
+    stack_capacity = 4;
+    sp = tmpdepth - 1;
+    slist->array->data[2] = (vartype *) tlist;
+    slist->array->data[3] = lastx;
+    lastx = newlastx;
+
+    store_private_var("STK", 3, stk);
     flags.f.error_ignore = 0;
     lasterr = ERR_NONE;
 
     if (rtn_level == 0)
         rtn_level_0_has_func_state = true;
     else
-        rtn_stack[rtn_sp - 1].set_has_func(true);
+        rtn_stack[rtn_level - 1].set_has_func(true);
     return ERR_NONE;
 }
 
 int push_stack_state(bool big) {
-    vartype *st = recall_private_var("ST", 2);
-    if (st != NULL)
-        return ERR_INVALID_CONTEXT;
+    vartype *stk = recall_private_var("STK", 3);
+    if (stk != NULL) {
+        /* LNSTK/L4STK after FUNC */
+        vartype_list *slist = (vartype_list *) stk;
+        vartype_string *s = (vartype_string *) slist->array->data[1];
+        if (s->length == 1 || s->txt()[1] != '0')
+            /* LNSTK/L4STK after LNSTK/L4STK: not allowed */
+            return ERR_INVALID_CONTEXT;
+        if ((bool) flags.f.big_stack == big) {
+            /* Nothing to do */
+        } else if (big) {
+            /* Assuming we're being called right after FUNC, so
+             * the stack contains the parameters, padded to depth 4
+             * with zeros. We just remove the padding now.
+             */
+            vartype_real *mode = (vartype_real *) slist->array->data[0];
+            int inputs = to_int(mode->x) / 10;
+            int excess = 4 - inputs;
+            if (excess > 0) {
+                for (int i = 0; i < excess; i++)
+                    free_vartype(stack[i]);
+                memmove(stack, stack + excess, inputs * sizeof(vartype *));
+                sp = inputs - 1;
+            }
+            flags.f.big_stack = true;
+        } else {
+            /* Just a plain switch to 4STK using truncation to 4 levels.
+             * FUNC has already taken care of saving the entire stack,
+             * so there's no need to do that here.
+             */
+            int err = docmd_4stk(NULL);
+            if (err != ERR_NONE)
+                return err;
+        }
+        s->txt()[1] = '1';
+        return ERR_NONE;
+    } else {
+        /* Stand-alone LNSTK/L4STK */
 
-    if (!ensure_var_space(1))
-        return ERR_INSUFFICIENT_MEMORY;
-    int save_levels;
-    vartype *dups[4];
-    int n_dups = 0;
-    if (!big && flags.f.big_stack) {
-        // Save levels 5 and up, unless FUNC has been called, in which case,
-        // save levels <NumInputs> + 1 and up.
-        vartype *fd = recall_private_var("FD", 2);
-        if (fd != NULL) {
-            vartype **fd_data = ((vartype_list *) fd)->array->data;
-            int n = to_int(((vartype_real *) fd_data[0])->x);
-            int in = n / 10;
-            n_dups = 4 - in;
-            for (int i = 0; i < n_dups; i++) {
-                int p = sp - 3 + i;
-                if (p < 0)
-                    dups[i] = new_real(0);
-                else
-                    dups[i] = dup_vartype(stack[p]);
-                if (dups[i] == NULL) {
-                    n_dups = i;
+        bool save_stk = flags.f.big_stack && !big;
+
+        /* Create the STK list */
+        stk = new_list(3);
+        if (stk == NULL)
+            return ERR_INSUFFICIENT_MEMORY;
+        vartype_list *slist = (vartype_list *) stk;
+        slist->array->data[0] = new_real(-1);
+        slist->array->data[1] = new_string(flags.f.big_stack ? "1" : "0", 1);
+        slist->array->data[2] = NULL;
+        int i;
+        for (i = 0; i < 2; i++)
+            if (slist->array->data[i] == NULL) {
+                nomem:
+                free_vartype(stk);
+                return ERR_INSUFFICIENT_MEMORY;
+            }
+
+        /* When switching from NSTK to 4STK, save the stack */
+        if (save_stk) {
+            vartype_list *tlist = (vartype_list *) new_list(4);
+            if (tlist == NULL)
+                goto nomem;
+            for (i = 0; i < 4; i++) {
+                tlist->array->data[3 - i] = i <= sp ? dup_vartype(stack[sp - i]) : new_real(0);
+                if (tlist->array->data[3 - i] == NULL) {
+                    free_vartype((vartype *) tlist);
                     goto nomem;
                 }
             }
-            save_levels = sp + 1 - in;
-        } else {
-            save_levels = sp - 3;
-            for (int i = 0; i < 3 - sp; i++) {
-                dups[i] = new_real(0);
-                if (dups[i] == NULL)
-                    goto nomem;
-                n_dups = i + 1;
-            }
+            vartype **tmpstk = tlist->array->data;
+            int4 tmpdepth = tlist->size;
+            tlist->array->data = stack;
+            tlist->size = sp + 1;
+            stack = tmpstk;
+            stack_capacity = tmpdepth;
+            sp = tmpdepth - 1;
+            slist->array->data[2] = (vartype *) tlist;
         }
-        if (save_levels < 0)
-            save_levels = 0;
-    } else {
-        save_levels = 0;
-    }
-    st = new_list(save_levels + 1);
-    if (st == NULL) {
-        nomem:
-        for (int j = 0; j < n_dups; j++)
-            free_vartype(dups[j]);
-        return ERR_INSUFFICIENT_MEMORY;
-    }
 
-    vartype **st_data = ((vartype_list *) st)->array->data;
-    st_data[0] = new_string(flags.f.big_stack ? "1" : "0", 1);
-    if (st_data[0] == NULL) {
-        free_vartype(st);
-        goto nomem;
-    }
-    if (!big && flags.f.big_stack) {
-        memcpy(st_data + 1, stack, save_levels * sizeof(vartype *));
-        memmove(stack + n_dups, stack + sp - 3 + n_dups, (sp + 1 - save_levels) * sizeof(vartype *));
-        memcpy(stack, dups, n_dups * sizeof(vartype *));
-        sp -= save_levels - n_dups;
-    }
+        store_private_var("STK", 3, stk);
+        flags.f.big_stack = big;
 
-    store_private_var("ST", 2, st);
-    flags.f.big_stack = big;
+        if (rtn_level == 0)
+            rtn_level_0_has_func_state = true;
+        else
+            rtn_stack[rtn_level - 1].set_has_func(true);
+        return ERR_NONE;
+    }
+}
 
-    if (rtn_level == 0)
-        rtn_level_0_has_func_state = true;
-    else
-        rtn_stack[rtn_sp - 1].set_has_func(true);
-    return ERR_NONE;
+/* FUNC and L4STK save the stack in a list, but this has one undesirable
+ * side effect: if the state is saved and restored, the array inside the
+ * list will be created without any spare room. This is bad when restoring
+ * the stack, because there is the assumption that the stack array will
+ * always have capacity >= 4. This function makes sure the array has that
+ * capacity.
+ */
+static bool ensure_list_capacity_4(vartype_list *list) {
+    int4 size = list->size;
+    if (size < 4) {
+        vartype **newdata = (vartype **) realloc(list->array->data, 4 * sizeof(vartype *));
+        if (newdata == NULL)
+            return false;
+        list->array->data = newdata;
+    }
+    return true;
 }
 
 int pop_func_state(bool error) {
@@ -3327,263 +2944,223 @@ int pop_func_state(bool error) {
         if (!rtn_level_0_has_func_state)
             return ERR_NONE;
     } else {
-        if (!rtn_stack[rtn_sp - 1].has_func())
+        if (!rtn_stack[rtn_level - 1].has_func())
             return ERR_NONE;
     }
 
-    vartype_list *st = (vartype_list *) recall_private_var("ST", 2);
-    vartype_list *fd = (vartype_list *) recall_private_var("FD", 2);
-
-    if (st == NULL && fd == NULL)
-        // Pre-bigstack. Rather a hassle to deal with, so punt.
-        // Note that this can only happen if a user upgrades from
-        // 2.5.23 or 2.5.24 to >2.5.24 while execution is stopped
-        // with old FUNC data on the stack. That seems like a
-        // reasonable scenario to ignore.
+    vartype_list *stk = (vartype_list *) recall_private_var("STK", 3);
+    if (stk == NULL)
+        // Older FD/ST-based FUNC logic, pre-47. Too difficult to deal with, so
+        // we punt. Note that this can only happen if a user upgrades from <47
+        // to >=47 while execution is stopped with old FUNC data on the stack.
+        // That seems like a reasonable scenario to ignore.
         return ERR_INVALID_DATA;
 
-    if (st != NULL) {
-        vartype **st_data = st->array->data;
-        char big = ((vartype_string *) st_data[0])->txt()[0] == '1';
-        if (big == flags.f.big_stack)
-            st = NULL;
-    }
+    vartype **stk_data = stk->array->data;
+    int n = to_int(((vartype_real *) stk_data[0])->x);
+    vartype_string *state = (vartype_string *) stk_data[1];
+    bool big = state->txt()[0] == '1';
+    if (big && !core_settings.allow_big_stack)
+        return ERR_BIG_STACK_DISABLED;
 
-    if (st != NULL && fd == NULL) {
-        vartype **st_data = st->array->data;
-        char big = ((vartype_string *) st_data[0])->txt()[0] == '1';
-        if (big) {
-            if (!core_settings.allow_big_stack)
-                return ERR_BIG_STACK_DISABLED;
-            int4 size = st->size - 1;
-            if (size > 0) {
-                if (!ensure_stack_capacity(size))
-                    return ERR_INSUFFICIENT_MEMORY;
-                memmove(stack + size, stack, 4 * sizeof(vartype *));
-                memcpy(stack, st_data + 1, size * sizeof(vartype *));
-                memset(st_data + 1, 0, size * sizeof(vartype *));
-                sp += size;
-            }
-            flags.f.big_stack = 1;
-        } else {
-            int err = docmd_4stk(NULL);
-            if (err != ERR_NONE)
-                return err;
-        }
+    int err = ERR_NONE;
+    if (false) {
+        error:
+        free_vartype(lastx);
+        lastx = stk_data[3];
+        stk_data[3] = NULL;
         goto done;
     }
 
-    if (st == NULL && fd != NULL) {
-        vartype **fd_data = fd->array->data;
-        int n = to_int(((vartype_real *) fd_data[0])->x);
-        int old_depth = to_int(((vartype_real *) fd_data[1])->x);
-        char big = old_depth >= 0;
-        if (big != flags.f.big_stack)
-            // Note that this must be the result of NSTK or 4STK;
-            // the effects of LNSTK or L4STK would already have been
-            // undone by the time we get here (if switching back
-            // to the saved mode was a no-op), or we wouldn't even
-            // be here in the first place (the case of st != NULL
-            // and fd != NULL with a nontrivial L4STK/LNSTK
-            // wrap-up, is handled separately at the end of this
-            // function).
-            return ERR_INVALID_CONTEXT;
-
-        if (error)
-            n = 0;
-        int in = n / 10;
-        int out = n % 10;
-
-        if (!big) {
-            int n_tdups = (in == 4 ? 3 : in) - out;
-            if (n_tdups < 0)
-                n_tdups = 0;
-            vartype *tdups[3];
-            for (int i = 0; i < n_tdups; i++) {
-                tdups[i] = dup_vartype(fd_data[7]); // T
-                if (tdups[i] == NULL) {
-                    for (int j = 0; j < i; j++)
-                        free_vartype(tdups[j]);
-                    return ERR_INSUFFICIENT_MEMORY;
-                }
+    if (n == -1) {
+        // Stand-alone LNSTK/L4STK
+        if (big && !flags.f.big_stack && stk_data[2] != NULL) {
+            // Extend the stack back to its original size, restoring its
+            // original contents, but only those above level 4.
+            vartype_list *tlist = (vartype_list *) stk_data[2];
+            if (!ensure_list_capacity_4(tlist))
+                return ERR_INSUFFICIENT_MEMORY;
+            while (tlist->size < 4)
+                tlist->array->data[tlist->size++] = NULL;
+            for (int i = 0; i < 4; i++) {
+                free_vartype(tlist->array->data[tlist->size - 1 - i]);
+                tlist->array->data[tlist->size - 1 - i] = stack[sp - i];
+                stack[sp - i] = NULL;
             }
-            for (int d = out; d < 4; d++) {
-                int s = d + in - out;
-                vartype *v;
-                if (s < 4) {
-                    v = fd_data[s + 4];
-                    fd_data[s + 4] = NULL;
-                } else if (d > out) {
-                    v = tdups[--n_tdups];
+            vartype **tmpstk = stack;
+            int tmpsize = sp + 1;
+            stack = tlist->array->data;
+            stack_capacity = tlist->size;
+            sp = stack_capacity - 1;
+            tlist->array->data = tmpstk;
+            tlist->size = tmpsize;
+        } else if (!big && flags.f.big_stack) {
+            if (sp < 3) {
+                int extra = 3 - sp;
+                vartype *zeros[4];
+                bool nomem = false;
+                for (int i = 0; i < extra; i++) {
+                    zeros[i] = new_real(0);
+                    if (zeros[i] == NULL)
+                        nomem = true;
+                }
+                if (nomem || !ensure_stack_capacity(extra)) {
+                    for (int i = 0; i < extra; i++)
+                        free_vartype(zeros[i]);
+                    big = true; // because the switch back to 4STK has failed
+                    err = ERR_INSUFFICIENT_MEMORY;
                 } else {
-                    v = fd_data[7]; // T
-                    fd_data[7] = NULL;
+                    memmove(stack + extra, stack, (sp + 1) * sizeof(vartype *));
+                    for (int i = 0; i < extra; i++)
+                        stack[i] = zeros[i];
+                    sp = 3;
                 }
-                free_vartype(stack[sp - d]);
-                stack[sp - d] = v;
-            }
-        } else if (error) {
-            int other_depth = old_depth - fd->size + 4;
-            while (sp >= other_depth)
-                free_vartype(stack[sp--]);
-            for (int i = fd->size - 1; i >= 4; i--) {
-                stack[++sp] = fd_data[i];
-                fd_data[i] = NULL;
-            }
-        } else {
-            int depth = sp + 1;
-            int excess = depth - (old_depth - in + out);
-            if (excess > 0) {
+            } else if (sp > 3) {
+                int excess = sp - 3;
                 for (int i = 0; i < excess; i++)
-                    free_vartype(stack[sp - out - i]);
-                memmove(stack + depth - out - excess, stack + depth - out, out * sizeof(vartype *));
-                sp -= excess;
+                    free_vartype(stack[i]);
+                memmove(stack, stack + excess, 4 * sizeof(vartype *));
+                sp = 3;
             }
         }
-
-        free_vartype(lastx);
-        int li = in == 0 ? 3 : 4; // L : X
-        lastx = fd_data[li];
-        fd_data[li] = NULL;
-
-        vartype_string *s = (vartype_string *) fd_data[2];
-        flags.f.error_ignore = s->txt()[0] == '1';
-        if (s->length > 1) {
-            lasterr = (signed char) s->txt()[1];
-            if (lasterr == -1) {
-                lasterr_length = s->length - 2;
-                memcpy(lasterr_text, s->txt() + 2, lasterr_length);
-            }
+    } else {
+        // FUNC, with or without LNSTK/L4STK
+        vartype_list *tlist = (vartype_list *) stk_data[2];
+        if (!ensure_list_capacity_4(tlist)) {
+            err = ERR_INSUFFICIENT_MEMORY;
+            goto error;
         }
 
-        goto done;
-    }
-
-    if (st != NULL && fd != NULL) {
-        vartype **st_data = st->array->data;
-        char st_big = ((vartype_string *) st_data[0])->txt()[0] == '1';
-        vartype **fd_data = fd->array->data;
-        int old_depth = to_int(((vartype_real *) fd_data[1])->x);
-        char fd_big = old_depth >= 0;
-        if (st_big != fd_big)
-            // Apparently someone called 4STK/NSTK between FUNC and L4STK/LNSTK
-            return ERR_INVALID_CONTEXT;
-        if (fd_big && !core_settings.allow_big_stack)
-            return ERR_BIG_STACK_DISABLED;
-
-        int n = to_int(((vartype_real *) fd_data[0])->x);
+        vartype **tmpstk = stack;
+        int tmpsize = sp + 1;
+        stack = tlist->array->data;
+        stack_capacity = tlist->size;
+        sp = stack_capacity - 1;
+        if (stack_capacity < 4)
+            stack_capacity = 4;
+        tlist->array->data = tmpstk;
+        tlist->size = tmpsize;
 
         if (error)
-            n = 0;
-        int in = n / 10;
-        int out = n % 10;
+            goto error;
 
-        if (!fd_big) {
-            int n_tdups = (in == 4 ? 3 : in) - out;
-            if (n_tdups < 0)
-                n_tdups = 0;
-            vartype *tdups[3];
+        int inputs = n / 10;
+        int outputs = n % 10;
+        if (tmpsize < outputs) {
+            // One could make the case that this should be an error.
+            // I chose to be lenient and pad the result set with zeros instead.
+            int deficit = outputs - tmpsize;
+            memmove(tmpstk + deficit, tmpstk, tmpsize * sizeof(vartype *));
+            bool nomem = false;
+            for (int i = 0; i < deficit; i++) {
+                vartype *zero = new_real(0);
+                tmpstk[i] = zero;
+                if (zero == NULL)
+                    nomem = true;
+            }
+            tmpsize += deficit;
+            tlist->size = tmpsize;
+            if (nomem) {
+                err = ERR_INSUFFICIENT_MEMORY;
+                goto error;
+            }
+        }
+
+        bool do_lastx = inputs > 0;
+        if (n == 1 && state->txt()[2] == '1')
+            // RCL-like function with stack lift disabled
+            inputs = 1;
+        int growth = outputs - inputs;
+        if (big) {
+            flags.f.big_stack = true;
+            if (!ensure_stack_capacity(growth)) {
+                err = ERR_INSUFFICIENT_MEMORY;
+                goto error;
+            }
+            free_vartype(lastx);
+            if (do_lastx) {
+                lastx = stack[sp];
+                stack[sp] = NULL;
+            } else {
+                lastx = stk_data[3];
+                stk_data[3] = NULL;
+            }
+            for (int i = 0; i < inputs; i++) {
+                free_vartype(stack[sp - i]);
+                stack[sp - i] = NULL;
+            }
+            sp -= inputs;
+            sp += outputs;
+            for (int i = 0; i < outputs; i++) {
+                stack[sp - i] = tmpstk[tmpsize - i - 1];
+                tmpstk[tmpsize - i - 1] = NULL;
+            }
+        } else {
+            vartype *tdups[4];
+            int n_tdups = -growth;
             for (int i = 0; i < n_tdups; i++) {
-                tdups[i] = dup_vartype(fd_data[7]); // T
+                tdups[i] = dup_vartype(stack[0]);
                 if (tdups[i] == NULL) {
                     for (int j = 0; j < i; j++)
                         free_vartype(tdups[j]);
-                    return ERR_INSUFFICIENT_MEMORY;
+                    err = ERR_INSUFFICIENT_MEMORY;
+                    goto error;
                 }
             }
-            int err = docmd_4stk(NULL);
-            if (err != ERR_NONE) {
-                for (int i = 0; i < n_tdups; i++)
-                    free_vartype(tdups[i]);
-                return err;
+            free_vartype(lastx);
+            if (do_lastx) {
+                lastx = stack[sp];
+                stack[sp] = NULL;
+            } else {
+                lastx = stk_data[3];
+                stk_data[3] = NULL;
             }
-            for (int d = out; d < 4; d++) {
-                int s = d + in - out;
-                vartype *v;
-                if (s < 4) {
-                    v = fd_data[s + 4];
-                    fd_data[s + 4] = NULL;
-                } else if (d > out) {
-                    v = tdups[--n_tdups];
-                } else {
-                    v = fd_data[7]; // T
-                    fd_data[7] = NULL;
-                }
-                free_vartype(stack[sp - d]);
-                stack[sp - d] = v;
+            for (int i = 0; i < inputs; i++) {
+                free_vartype(stack[sp - i]);
+                stack[sp - i] = NULL;
             }
-        } else if (error) {
-            int fd_levels = fd->size - 4;
-            int st_levels = st->size - 1;
-            int old_depth = fd_levels + st_levels;
-            if (stack_capacity < old_depth) {
-                vartype **new_stack = (vartype **) realloc(stack, old_depth * sizeof(vartype *));
-                if (new_stack == NULL)
-                    return ERR_INSUFFICIENT_MEMORY;
-                stack = new_stack;
-                stack_capacity = old_depth;
+            if (growth > 0) {
+                for (int i = 0; i < growth; i++)
+                    free_vartype(stack[i]);
+                memmove(stack, stack + growth, (4 - outputs) * sizeof(vartype *));
+            } else if (growth < 0) {
+                int shrinkage = -growth;
+                memmove(stack + shrinkage, stack, (4 - inputs) * sizeof(vartype *));
+                for (int i = 0; i < shrinkage; i++)
+                    stack[i] = tdups[i];
             }
-            for (int i = 0; i <= sp; i++)
-                free_vartype(stack[i]);
-            memcpy(stack, st->array->data + 1, st_levels * sizeof(vartype *));
-            memset(st->array->data + 1, 0, st_levels * sizeof(vartype *));
-            sp = st_levels - 1;
-            for (int i = fd->size - 1; i >= 4; i++)
-                stack[++sp] = fd_data[i];
-            memset(fd->array->data + 4, 0, fd_levels * sizeof(vartype *));
-        } else {
-            int st_levels = st->size - 1;
-            int needed_capacity = st_levels + out;
-            if (stack_capacity < needed_capacity) {
-                vartype **new_stack = (vartype **) realloc(stack, needed_capacity * sizeof(vartype *));
-                if (new_stack == NULL)
-                    return ERR_INSUFFICIENT_MEMORY;
-                stack = new_stack;
-                stack_capacity = needed_capacity;
-            }
-            for (int i = 0; i <= sp - out; i++)
-                free_vartype(stack[i]);
-            memmove(stack + st_levels, stack + sp + 1 - out, out * sizeof(vartype *));
-            memcpy(stack, st->array->data + 1, st_levels * sizeof(vartype *));
-            sp = st_levels + out - 1;
-            memset(st->array->data + 1, 0, st_levels * sizeof(vartype *));
-        }
-
-        free_vartype(lastx);
-        int li = in == 0 ? 3 : 4; // L : X
-        lastx = fd_data[li];
-        fd_data[li] = NULL;
-
-        vartype_string *s = (vartype_string *) fd_data[2];
-        flags.f.error_ignore = s->txt()[0] == '1';
-        if (s->length > 1) {
-            lasterr = (signed char) s->txt()[1];
-            if (lasterr == -1) {
-                lasterr_length = s->length - 2;
-                memcpy(lasterr_text, s->txt() + 2, lasterr_length);
+            for (int i = 0; i < outputs; i++) {
+                stack[sp - i] = tmpstk[tmpsize - i - 1];
+                tmpstk[tmpsize - i - 1] = NULL;
             }
         }
 
-        flags.f.big_stack = fd_big;
+        flags.f.error_ignore = state->txt()[3] == '1';
+        lasterr = (signed char) state->txt()[4];
+        if (lasterr == -1) {
+            lasterr_length = state->length - 5;
+            memcpy(lasterr_text, state->txt() + 5, lasterr_length);
+        }
     }
 
     done:
     if (rtn_level == 0)
         rtn_level_0_has_func_state = false;
     else
-        rtn_stack[rtn_sp - 1].set_has_func(false);
+        rtn_stack[rtn_level - 1].set_has_func(false);
 
+    flags.f.big_stack = big;
     print_trace();
-    return ERR_NONE;
+    return err;
 }
 
 void step_out() {
-    if (rtn_sp > 0)
+    if (rtn_level > 0)
         rtn_stop_level = rtn_level - 1;
 }
 
 void step_over() {
-    if (rtn_sp >= 0)
+    if (rtn_level >= 0)
         rtn_stop_level = rtn_level;
 }
 
@@ -3595,6 +3172,8 @@ bool should_i_stop_at_this_level() {
 }
 
 static void remove_locals() {
+    if (matedit_mode == 3 && matedit_level >= rtn_level)
+        leave_matrix_editor();
     int last = -1;
     for (int i = vars_count - 1; i >= 0; i--) {
         if (vars[i].level == -1)
@@ -3602,12 +3181,16 @@ static void remove_locals() {
         if (vars[i].level < rtn_level)
             break;
         if ((matedit_mode == 1 || matedit_mode == 3)
+                && vars[i].level == matedit_level
                 && string_equals(vars[i].name, vars[i].length, matedit_name, matedit_length)) {
             if (matedit_mode == 3) {
                 set_appmenu_exitcallback(0);
                 set_menu(MENULEVEL_APP, MENU_NONE);
             }
             matedit_mode = 0;
+            free(matedit_stack);
+            matedit_stack = NULL;
+            matedit_stack_depth = 0;
         }
         if ((vars[i].flags & VAR_HIDING) != 0) {
             for (int j = i - 1; j >= 0; j--)
@@ -3687,67 +3270,44 @@ int rtn_with_error(int err) {
     return err;
 }
 
-/* When IJ is pushed because INDEX or EDITN are applied to a matrix more local
- * than the indexed matrix, it is possible for the pushed matrix to be deleted
- * before IJ are popped. Ideally, this should be handled by making sure that
- * the matrix named by the pushed name is actually the same one as currently
- * found by that name, but that would require saving additional state to the
- * stack. So, we use this simple check instead, which may not always prevent
- * the wrong matrix from ending up indexed, but will prevent crashes due to
- * accessing nonexistent matrices or to accessing the indexed matrix out of
- * range.
- */
-static void validate_matedit() {
-    if (matedit_mode != 1 && matedit_mode != 3)
-        return;
-    int idx = lookup_var(matedit_name, matedit_length);
-    if (idx == -1) {
-        fail:
-        matedit_mode = 0;
-        return;
-    }
-    vartype *v = vars[idx].value;
-    int4 rows, cols;
-    if (v->type == TYPE_REALMATRIX) {
-        vartype_realmatrix *rm = (vartype_realmatrix *) v;
-        rows = rm->rows;
-        cols = rm->columns;
-    } else if (v->type == TYPE_COMPLEXMATRIX) {
-        vartype_complexmatrix *cm = (vartype_complexmatrix *) v;
-        rows = cm->rows;
-        cols = cm->columns;
-    } else {
-        goto fail;
-    }
-    if (matedit_i >= rows || matedit_j >= cols)
-        goto fail;
-}
-
 void pop_rtn_addr(int *prgm, int4 *pc, bool *stop) {
+    if (rtn_level == 0 ? rtn_level_0_has_matrix_entry : rtn_stack[rtn_level - 1].has_matrix()) {
+        vartype_list *list = (vartype_list *) recall_and_purge_private_var("MAT", 3);
+        if (list != NULL) {
+            int newdepth = list->size - 4;
+            int4 *newstack = newdepth == 0 ? NULL : (int4 *) malloc(newdepth * sizeof(vartype *));
+            // TODO: Handle memory allocation failure
+            vartype_string *s = (vartype_string *) list->array->data[0];
+            string_copy(matedit_name, &matedit_length, s->txt(), s->length);
+            matedit_level = to_int4(((vartype_real *) list->array->data[1])->x);
+            matedit_i = to_int4(((vartype_real *) list->array->data[2])->x);
+            matedit_j = to_int4(((vartype_real *) list->array->data[3])->x);
+            matedit_is_list = matedit_j == -1;
+            if (matedit_is_list)
+                matedit_j = 0;
+            matedit_stack_depth = newdepth;
+            free(matedit_stack);
+            matedit_stack = newstack;
+            for (int i = 0; i < matedit_stack_depth; i++)
+                matedit_stack[i] = to_int4(((vartype_real *) list->array->data[i + 4])->x);
+            matedit_mode = 1;
+            free_vartype((vartype *) list);
+        }
+        if (rtn_level == 0)
+            rtn_level_0_has_matrix_entry = false;
+        else
+            rtn_stack[rtn_level - 1].set_has_matrix(false);
+    }
     remove_locals();
     if (rtn_level == 0) {
         *prgm = -1;
         *pc = -1;
         rtn_stop_level = -1;
         rtn_level_0_has_func_state = false;
-        if (rtn_level_0_has_matrix_entry) {
-            rtn_level_0_has_matrix_entry = false;
-            restore_indexed_matrix:
-            rtn_stack_matrix_name_entry e1;
-            memcpy(&e1, &rtn_stack[--rtn_sp], sizeof(e1));
-            string_copy(matedit_name, &matedit_length, e1.name, e1.length);
-            rtn_stack_matrix_ij_entry e2;
-            memcpy(&e2, &rtn_stack[--rtn_sp], sizeof(e2));
-            matedit_i = e2.i;
-            matedit_j = e2.j;
-            matedit_mode = 1;
-            validate_matedit();
-        }
     } else {
-        rtn_sp--;
         rtn_level--;
-        *prgm = rtn_stack[rtn_sp].get_prgm();
-        *pc = rtn_stack[rtn_sp].pc;
+        *prgm = rtn_stack[rtn_level].get_prgm();
+        *pc = rtn_stack[rtn_level].pc;
         if (rtn_stop_level >= rtn_level) {
             *stop = true;
             rtn_stop_level = -1;
@@ -3757,43 +3317,6 @@ void pop_rtn_addr(int *prgm, int4 *pc, bool *stop) {
             rtn_solve_active = false;
         else if (*prgm == -3)
             rtn_integ_active = false;
-        if (rtn_stack[rtn_sp].has_matrix())
-            goto restore_indexed_matrix;
-    }
-}
-
-void pop_indexed_matrix(const char *name, int namelen) {
-    if (rtn_level == 0) {
-        if (rtn_level_0_has_matrix_entry) {
-            rtn_stack_matrix_name_entry e1;
-            memcpy(&e1, &rtn_stack[rtn_sp - 1], sizeof(e1));
-            if (string_equals(e1.name, e1.length, name, namelen)) {
-                rtn_level_0_has_matrix_entry = false;
-                string_copy(matedit_name, &matedit_length, e1.name, e1.length);
-                rtn_stack_matrix_ij_entry e2;
-                memcpy(&e2, &rtn_stack[rtn_sp - 2], sizeof(e2));
-                matedit_i = e2.i;
-                matedit_j = e2.j;
-                matedit_mode = 1;
-                rtn_sp -= 2;
-            }
-        }
-    } else {
-        if (rtn_stack[rtn_sp - 1].has_matrix()) {
-            rtn_stack_matrix_name_entry e1;
-            memcpy(&e1, &rtn_stack[rtn_sp - 2], sizeof(e1));
-            if (string_equals(e1.name, e1.length, name, namelen)) {
-                string_copy(matedit_name, &matedit_length, e1.name, e1.length);
-                rtn_stack_matrix_ij_entry e2;
-                memcpy(&e2, &rtn_stack[rtn_sp - 3], sizeof(e2));
-                matedit_i = e2.i;
-                matedit_j = e2.j;
-                matedit_mode = 1;
-                rtn_stack[rtn_sp - 3].set_has_matrix(false);
-                rtn_stack[rtn_sp - 3].pc = rtn_stack[rtn_sp - 1].pc;
-                rtn_sp -= 2;
-            }
-        }
     }
 }
 
@@ -3802,14 +3325,14 @@ static void get_saved_stack_mode(int *m) {
         if (!rtn_level_0_has_func_state)
             return;
     } else {
-        if (!rtn_stack[rtn_sp - 1].has_func())
+        if (!rtn_stack[rtn_level - 1].has_func())
             return;
     }
-    vartype_list *st = (vartype_list *) recall_private_var("ST", 2);
-    if (st == NULL)
+    vartype_list *stk = (vartype_list *) recall_private_var("STK", 3);
+    if (stk == NULL)
         return;
-    vartype **st_data = st->array->data;
-    *m = ((vartype_string *) st_data[0])->txt()[0] == '1';
+    vartype **stk_data = stk->array->data;
+    *m = ((vartype_string *) stk_data[1])->txt()[0] == '1';
 }
 
 void clear_all_rtns() {
@@ -3839,6 +3362,20 @@ int get_rtn_level() {
     return rtn_level;
 }
 
+void save_csld() {
+    if (rtn_level == 0)
+        mode_caller_stack_lift_disabled = flags.f.stack_lift_disable;
+    else
+        rtn_stack[rtn_level - 1].set_csld();
+}
+
+bool is_csld() {
+    if (rtn_level == 0)
+        return mode_caller_stack_lift_disabled;
+    else
+        return rtn_stack[rtn_level - 1].is_csld();
+}
+
 bool solve_active() {
     return rtn_solve_active;
 }
@@ -3866,17 +3403,7 @@ bool unwind_stack_until_solve() {
 }
 
 bool read_bool(bool *b) {
-    if (state_bool_is_int) {
-        int t;
-        if (!read_int(&t))
-            return false;
-        if (t != 0 && t != 1)
-            return false;
-        *b = t != 0;
-        return true;
-    } else {
-        return read_char((char *) b);
-    }
+    return read_char((char *) b);
 }
 
 bool write_bool(bool b) {
@@ -3894,14 +3421,11 @@ bool write_char(char c) {
 }
 
 bool read_int(int *n) {
-    if (state_is_portable) {
-        int4 m;
-        if (!read_int4(&m))
-            return false;
-        *n = (int) m;
-        return true;
-    } else
-        return fread(n, 1, sizeof(int), gfile) == sizeof(int);
+    int4 m;
+    if (!read_int4(&m))
+        return false;
+    *n = (int) m;
+    return true;
 }
 
 bool write_int(int n) {
@@ -3910,17 +3434,16 @@ bool write_int(int n) {
 
 bool read_int2(int2 *n) {
     #ifdef F42_BIG_ENDIAN
-        if (state_is_portable) {
-            char buf[2];
-            if (fread(buf, 1, 2, gfile) != 2)
-                return false;
-            char *dst = (char *) n;
-            for (int i = 0; i < 2; i++)
-                dst[i] = buf[1 - i];
-            return true;
-        }
-    #endif
+        char buf[2];
+        if (fread(buf, 1, 2, gfile) != 2)
+            return false;
+        char *dst = (char *) n;
+        for (int i = 0; i < 2; i++)
+            dst[i] = buf[1 - i];
+        return true;
+    #else
         return fread(n, 1, 2, gfile) == 2;
+    #endif
 }
 
 bool write_int2(int2 n) {
@@ -3937,17 +3460,16 @@ bool write_int2(int2 n) {
 
 bool read_int4(int4 *n) {
     #ifdef F42_BIG_ENDIAN
-        if (state_is_portable) {
-            char buf[4];
-            if (fread(buf, 1, 4, gfile) != 4)
-                return false;
-            char *dst = (char *) n;
-            for (int i = 0; i < 4; i++)
-                dst[i] = buf[3 - i];
-            return true;
-        }
-    #endif
+        char buf[4];
+        if (fread(buf, 1, 4, gfile) != 4)
+            return false;
+        char *dst = (char *) n;
+        for (int i = 0; i < 4; i++)
+            dst[i] = buf[3 - i];
+        return true;
+    #else
         return fread(n, 1, 4, gfile) == 4;
+    #endif
 }
 
 bool write_int4(int4 n) {
@@ -3964,17 +3486,16 @@ bool write_int4(int4 n) {
 
 bool read_int8(int8 *n) {
     #ifdef F42_BIG_ENDIAN
-        if (state_is_portable) {
-            char buf[8];
-            if (fread(buf, 1, 8, gfile) != 8)
-                return false;
-            char *dst = (char *) n;
-            for (int i = 0; i < 8; i++)
-                dst[i] = buf[7 - i];
-            return true;
-        }
+        char buf[8];
+        if (fread(buf, 1, 8, gfile) != 8)
+            return false;
+        char *dst = (char *) n;
+        for (int i = 0; i < 8; i++)
+            dst[i] = buf[7 - i];
+        return true;
+    #else
+        return fread(n, 1, 8, gfile) == 8;
     #endif
-    return fread(n, 1, 8, gfile) == 8;
 }
 
 bool write_int8(int8 n) {
@@ -3992,70 +3513,64 @@ bool write_int8(int8 n) {
 bool read_phloat(phloat *d) {
     if (bin_dec_mode_switch()) {
         #ifdef F42_BIG_ENDIAN
-            if (state_is_portable) {
-                #ifdef BCD_MATH
-                    char buf[8];
-                    if (fread(buf, 1, 8, gfile) != 8)
-                        return false;
-                    double dbl;
-                    char *dst = (char *) &dbl;
-                    for (int i = 0; i < 8; i++)
-                        dst[i] = buf[7 - i];
-                    *d = dbl;
-                    return true;
-                #else
-                    char buf[16], data[16];
-                    if (fread(buf, 1, 16, gfile) != 16)
-                        return false;
-                    for (int i = 0; i < 16; i++)
-                        data[i] = buf[15 - i];
-                    *d = decimal2double(data);
-                    return true;
-                #endif
-            }
-        #endif
-        #ifdef BCD_MATH
-            double dbl;
-            if (fread(&dbl, 1, 8, gfile) != 8)
-                return false;
-            *d = dbl;
-            return true;
+            #ifdef BCD_MATH
+                char buf[8];
+                if (fread(buf, 1, 8, gfile) != 8)
+                    return false;
+                double dbl;
+                char *dst = (char *) &dbl;
+                for (int i = 0; i < 8; i++)
+                    dst[i] = buf[7 - i];
+                d->assign17digits(dbl);
+                return true;
+            #else
+                char buf[16], data[16];
+                if (fread(buf, 1, 16, gfile) != 16)
+                    return false;
+                for (int i = 0; i < 16; i++)
+                    data[i] = buf[15 - i];
+                *d = decimal2double(data);
+                return true;
+            #endif
         #else
-            char data[16];
-            if (fread(data, 1, 16, gfile) != 16)
-                return false;
-            *d = decimal2double(data);
-            return true;
+            #ifdef BCD_MATH
+                double dbl;
+                if (fread(&dbl, 1, 8, gfile) != 8)
+                    return false;
+                d->assign17digits(dbl);
+                return true;
+            #else
+                char data[16];
+                if (fread(data, 1, 16, gfile) != 16)
+                    return false;
+                *d = decimal2double(data);
+                return true;
+            #endif
         #endif
     } else {
         #ifdef F42_BIG_ENDIAN
-            if (state_is_portable) {
-                #ifdef BCD_MATH
-                    char buf[16];
-                    if (fread(buf, 1, 16, gfile) != 16)
-                        return false;
-                    char *dst = (char *) d;
-                    for (int i = 0; i < 16; i++)
-                        dst[i] = buf[15 - i];
-                    update_decimal(&d->val);
-                    return true;
-                #else
-                    char buf[8];
-                    if (fread(buf, 1, 8, gfile) != 8)
-                        return false;
-                    char *dst = (char *) d;
-                    for (int i = 0; i < 8; i++)
-                        dst[i] = buf[7 - i];
-                    return true;
-                #endif
-            }
+            #ifdef BCD_MATH
+                char buf[16];
+                if (fread(buf, 1, 16, gfile) != 16)
+                    return false;
+                char *dst = (char *) d;
+                for (int i = 0; i < 16; i++)
+                    dst[i] = buf[15 - i];
+                return true;
+            #else
+                char buf[8];
+                if (fread(buf, 1, 8, gfile) != 8)
+                    return false;
+                char *dst = (char *) d;
+                for (int i = 0; i < 8; i++)
+                    dst[i] = buf[7 - i];
+                return true;
+            #endif
+        #else
+            if (fread(d, 1, sizeof(phloat), gfile) != sizeof(phloat))
+                return false;
+            return true;
         #endif
-        if (fread(d, 1, sizeof(phloat), gfile) != sizeof(phloat))
-            return false;
-        #ifdef BCD_MATH
-            update_decimal(&d->val);
-        #endif
-        return true;
     }
 }
 
@@ -4079,153 +3594,39 @@ bool write_phloat(phloat d) {
     #endif
 }
 
-struct dec_arg_struct {
-    unsigned char type;
-    unsigned char length;
-    int4 target;
-    union {
-        int4 num;
-        char text[15];
-        char stk;
-        int cmd;
-        char lclbl;
-    } val;
-    fake_bcd val_d;
-};
-
-struct bin_arg_struct {
-    unsigned char type;
-    unsigned char length;
-    int4 target;
-    union {
-        int4 num;
-        char text[15];
-        char stk;
-        int cmd;
-        char lclbl;
-    } val;
-    double val_d;
-};
-
-bool read_arg(arg_struct *arg, bool old) {
-    if (state_is_portable) {
-        if (!read_char((char *) &arg->type))
-            return false;
-        char c;
-        switch (arg->type) {
-            case ARGTYPE_NONE:
-                return true;
-            case ARGTYPE_NUM:
-            case ARGTYPE_NEG_NUM:
-            case ARGTYPE_IND_NUM:
-            case ARGTYPE_LBLINDEX:
-                return read_int4(&arg->val.num);
-            case ARGTYPE_STK:
-            case ARGTYPE_IND_STK:
-                return read_char(&arg->val.stk);
-            case ARGTYPE_STR:
-            case ARGTYPE_IND_STR:
-                // Serializing 'length' as a char for backward compatibility.
-                // Values > 255 only happen for XSTR, and those are never
-                // serialized.
-                if (!read_char(&c))
-                    return false;
-                arg->length = c & 255;
-                return fread(arg->val.text, 1, arg->length, gfile) == arg->length;
-            case ARGTYPE_COMMAND:
-                return read_int(&arg->val.cmd);
-            case ARGTYPE_LCLBL:
-                return read_char(&arg->val.lclbl);
-            case ARGTYPE_DOUBLE:
-                return read_phloat(&arg->val_d);
-            default:
-                // Should never happen
+bool read_arg(arg_struct *arg) {
+    if (!read_char((char *) &arg->type))
+        return false;
+    char c;
+    switch (arg->type) {
+        case ARGTYPE_NONE:
+            return true;
+        case ARGTYPE_NUM:
+        case ARGTYPE_NEG_NUM:
+        case ARGTYPE_IND_NUM:
+        case ARGTYPE_LBLINDEX:
+            return read_int4(&arg->val.num);
+        case ARGTYPE_STK:
+        case ARGTYPE_IND_STK:
+            return read_char(&arg->val.stk);
+        case ARGTYPE_STR:
+        case ARGTYPE_IND_STR:
+            // Serializing 'length' as a char for backward compatibility.
+            // Values > 255 only happen for XSTR, and those are never
+            // serialized.
+            if (!read_char(&c))
                 return false;
-        }
-    }
-    if (old) {
-        // Prior to core state version 9, the arg_struct type saved a bit of
-        // by using a union to hold the argument value.
-        // In version 9, we switched from using 'double' as our main numeric
-        // data type to 'phloat' -- but since 'phloat' is a class, with a
-        // constructor, it cannot be a member of a union.
-        // So, I had to change the 'val' member from a union to a struct.
-        // Of course, this means that the arg_struct layout is now different,
-        // and when deserializing a pre-9 state file, I must make sure to
-        // deserialize an old-stype arg_struct and then convert it to a
-        // new one.
-        struct {
-            unsigned char type;
-            unsigned char length;
-            int4 target;
-            union {
-                int4 num;
-                char text[15];
-                char stk;
-                int cmd; /* For backward compatibility only! */
-                char lclbl;
-                double d;
-            } val;
-        } old_arg;
-        if (fread(&old_arg, 1, sizeof(old_arg), gfile)
-            != sizeof(old_arg))
+            arg->length = c & 255;
+            return fread(arg->val.text, 1, arg->length, gfile) == arg->length;
+        case ARGTYPE_COMMAND:
+            return read_int(&arg->val.cmd);
+        case ARGTYPE_LCLBL:
+            return read_char(&arg->val.lclbl);
+        case ARGTYPE_DOUBLE:
+            return read_phloat(&arg->val_d);
+        default:
+            // Should never happen
             return false;
-        arg->type = old_arg.type;
-        arg->length = old_arg.length;
-        arg->target = old_arg.target;
-        char *d = (char *) &arg->val;
-        char *s = (char *) &old_arg.val;
-        for (unsigned int i = 0; i < sizeof(old_arg.val); i++)
-            *d++ = *s++;
-        arg->val_d = old_arg.val.d;
-        return true;
-    } else if (bin_dec_mode_switch()) {
-#ifdef BCD_MATH
-        bin_arg_struct ba;
-        if (fread(&ba, 1, sizeof(bin_arg_struct), gfile)
-            != sizeof(bin_arg_struct))
-            return false;
-        arg->type = ba.type;
-        arg->length = ba.length;
-        arg->target = ba.target;
-        char *d = (char *) &arg->val;
-        char *s = (char *) &ba.val;
-        for (unsigned int i = 0; i < sizeof(ba.val); i++)
-            *d++ = *s++;
-        arg->val_d = ba.val_d;
-#else
-        dec_arg_struct da;
-        if (fread(&da, 1, sizeof(dec_arg_struct), gfile)
-            != sizeof(dec_arg_struct))
-            return false;
-        arg->type = da.type;
-        arg->length = da.length;
-        arg->target = da.target;
-        char *d = (char *) &arg->val;
-        char *s = (char *) &da.val;
-        for (unsigned int i = 0; i < sizeof(da.val); i++)
-            *d++ = *s++;
-        arg->val_d = decimal2double(da.val_d.data);
-#endif
-        return true;
-    } else {
-#if BCD_MATH
-        // For explanation, see the comment in write_arg()
-        if (fread(arg, 1, sizeof(dec_arg_struct), gfile)
-            != sizeof(dec_arg_struct))
-            return false;
-        int offset = sizeof(arg_struct) - sizeof(dec_arg_struct);
-        if (offset != 0) {
-            char *s = ((char *) arg) + sizeof(dec_arg_struct);
-            char *d = ((char *) arg) + sizeof(arg_struct);
-            for (unsigned int i = 0; i < 16; i++)
-                *--d = *--s;
-        }
-        return true;
-#else
-        return fread(arg, 1, sizeof(arg_struct), gfile)
-        == sizeof(arg_struct);
-#endif
     }
 }
 
@@ -4277,29 +3678,26 @@ static bool load_state2(bool *clear, bool *too_new) {
      * and loaded the shell state, before we got called.
      */
 
-    state_bool_is_int = ver < 9;
-    state_is_portable = ver >= 26;
-
-    if (state_is_portable) {
-        int4 magic;
-        if (!read_int4(&magic))
-            return false;
-        if (magic != FREE42_MAGIC)
-            return false;
-        if (!read_int4(&ver)) {
-            // A state file containing nothing after the magic number
-            // is considered empty, and results in a hard reset. This
-            // is *not* an error condition; such state files are used
-            // when creating a new state in the States window.
-            *clear = true;
-            return false;
-        }
+    if (!read_int4(&magic))
+        return false;
+    if (magic != FREE42_MAGIC)
+        return false;
+    if (!read_int4(&ver)) {
+        // A state file containing nothing after the magic number
+        // is considered empty, and results in a hard reset. This
+        // is *not* an error condition; such state files are used
+        // when creating a new state in the States window.
+        *clear = true;
+        return false;
     }
 
     if (ver > FREE42_VERSION) {
         *too_new = true;
         return false;
     }
+    if (ver < 26)
+        // Pre-2.5, non-portable state. Not supported any more.
+        return false;
 
     if (bug_mode == 0 && ver == 26)
         bug_mode = 1;
@@ -4317,61 +3715,21 @@ static bool load_state2(bool *clear, bool *too_new) {
         }
     }
 
-    if (ver < 9) {
+    bool state_is_decimal;
+    if (!read_bool(&state_is_decimal)) return false;
+    if (!state_is_decimal)
         state_file_number_format = NUMBER_FORMAT_BINARY;
-    } else {
-        bool state_is_decimal;
-        if (!read_bool(&state_is_decimal)) return false;
-        if (!state_is_decimal)
-            state_file_number_format = NUMBER_FORMAT_BINARY;
-        else if (ver < 12)
-            state_file_number_format = NUMBER_FORMAT_BCD20_OLD;
-        else if (ver < 18)
-            state_file_number_format = NUMBER_FORMAT_BCD20_NEW;
-        else
-            state_file_number_format = NUMBER_FORMAT_BID128;
-    }
+    else
+        state_file_number_format = NUMBER_FORMAT_BID128;
 
-    if (ver >= 2) {
-        bool bdummy;
-        if (!read_bool(&bdummy)) return false;
-        if (!read_bool(&bdummy)) return false;
-        if (ver < 9) {
-            int dummy;
-            if (!read_int(&dummy)) return false;
-        }
-    }
-    if (ver >= 5 && ver < 20) {
-        bool bdummy;
-        if (!read_bool(&bdummy)) return false;
-        if (ver < 8) {
-            int dummy;
-            if (!read_int(&dummy)) return false;
-        }
-    }
-    if (ver >= 11) {
-        bool dummy;
-        if (!read_bool(&dummy)) return false;
-    }
-    if (ver >= 15 && ver <= 25) {
-        bool dummy;
-        if (ver < 20) {
-            if (!read_bool(&dummy)) return false;
-            if (!read_bool(&dummy)) return false;
-        }
-        if (!read_bool(&dummy)) return false;
-        if (!read_bool(&dummy)) return false;
-        if (!read_bool(&dummy)) return false;
-        if (!read_bool(&dummy)) return false;
-    }
-    if (ver >= 23 && ver <= 25) {
-        bool dummy;
-        if (!read_bool(&dummy)) return false;
-    }
+    bool bdummy;
+    if (!read_bool(&bdummy)) return false;
+    if (!read_bool(&bdummy)) return false;
+    if (!read_bool(&bdummy)) return false;
 
     if (!read_bool(&mode_clall)) return false;
     if (!read_bool(&mode_command_entry)) return false;
-    if (!read_bool(&mode_number_entry)) return false;
+    if (!read_char(&mode_number_entry)) return false;
     if (!read_bool(&mode_alpha_entry)) return false;
     if (!read_bool(&mode_shift)) return false;
     if (!read_int(&mode_appmenu)) return false;
@@ -4381,26 +3739,26 @@ static bool load_state2(bool *clear, bool *too_new) {
     if (!read_int(&mode_alphamenu)) return false;
     if (!read_int(&mode_commandmenu)) return false;
     if (ver < 33) {
-        int extra = ver < 25 ? 3 : 2;
-        int highestmode = ver < 25 ? MENU_MODES2 : MENU_MODES3;
-        if (mode_appmenu > highestmode)
-            mode_appmenu += extra;
-        if (mode_plainmenu > highestmode)
-            mode_plainmenu += extra;
-        if (mode_transientmenu > highestmode)
-            mode_transientmenu += extra;
-        if (mode_alphamenu > highestmode)
-            mode_alphamenu += extra;
-        if (mode_commandmenu > highestmode)
-            mode_commandmenu += extra;
+        if (mode_appmenu > MENU_MODES3)
+            mode_appmenu += 2;
+        if (mode_plainmenu > MENU_MODES3)
+            mode_plainmenu += 2;
+        if (mode_transientmenu > MENU_MODES3)
+            mode_transientmenu += 2;
+        if (mode_alphamenu > MENU_MODES3)
+            mode_alphamenu += 2;
+        if (mode_commandmenu > MENU_MODES3)
+            mode_commandmenu += 2;
     }
     if (!read_bool(&mode_running)) return false;
+    if (ver < 46)
+        mode_caller_stack_lift_disabled = false;
+    else if (!read_bool(&mode_caller_stack_lift_disabled))
+        return false;
     if (!read_bool(&mode_varmenu)) return false;
     if (!read_bool(&mode_updown)) return false;
 
-    if (ver < 6)
-        mode_getkey = false;
-    else if (!read_bool(&mode_getkey))
+    if (!read_bool(&mode_getkey))
         return false;
 
     if (!read_phloat(&entered_number)) return false;
@@ -4408,7 +3766,7 @@ static bool load_state2(bool *clear, bool *too_new) {
     if (fread(entered_string, 1, 15, gfile) != 15) return false;
 
     if (!read_int(&pending_command)) return false;
-    if (!read_arg(&pending_command_arg, ver < 9)) return false;
+    if (!read_arg(&pending_command_arg)) return false;
     if (!read_int(&xeq_invisible)) return false;
 
     if (!read_int(&incomplete_command)) return false;
@@ -4436,16 +3794,44 @@ static bool load_state2(bool *clear, bool *too_new) {
     if (!read_int(&cmdline_row)) return false;
 
     if (!read_int(&matedit_mode)) return false;
+    if (ver < 47)
+        matedit_level = -2; // This is handled later in this function
+    else
+        if (!read_int(&matedit_level)) return false;
     if (fread(matedit_name, 1, 7, gfile) != 7) return false;
     if (!read_int(&matedit_length)) return false;
-    if (!unpersist_vartype(&matedit_x, ver < 18)) return false;
+    if (!unpersist_vartype(&matedit_x)) return false;
     if (!read_int4(&matedit_i)) return false;
     if (!read_int4(&matedit_j)) return false;
     if (!read_int(&matedit_prev_appmenu)) return false;
+    if (ver < 48) {
+        matedit_stack = NULL;
+        matedit_stack_depth = 0;
+        matedit_is_list = false;
+    } else {
+        if (!read_int(&matedit_stack_depth)) return false;
+        if (matedit_stack_depth == 0) {
+            matedit_stack = NULL;
+        } else {
+            matedit_stack = (int4 *) malloc(matedit_stack_depth * sizeof(int4));
+            if (matedit_stack == NULL) {
+                matedit_stack_depth = 0;
+                return false;
+            }
+            for (int i = 0; i < matedit_stack_depth; i++)
+                if (!read_int4(matedit_stack + i)) {
+                    free(matedit_stack);
+                    matedit_stack = NULL;
+                    matedit_stack_depth = 0;
+                    return false;
+                }
+        }
+        if (!read_bool(&matedit_is_list)) return false;
+    }
 
     if (fread(input_name, 1, 11, gfile) != 11) return false;
     if (!read_int(&input_length)) return false;
-    if (!read_arg(&input_arg, ver < 9)) return false;
+    if (!read_arg(&input_arg)) return false;
 
     if (ver < 39) {
         lasterr = 0;
@@ -4457,72 +3843,44 @@ static bool load_state2(bool *clear, bool *too_new) {
 
     if (!read_int(&baseapp)) return false;
 
-    if (ver < 21) {
-        phloat random_number;
-        if (!read_phloat(&random_number))
-            return false;
-        random_number_low = to_int8(random_number * 1000000) * 10 + 1;
-        random_number_high = 0;
-    } else {
-        if (!read_int8(&random_number_low)) return false;
-        if (!read_int8(&random_number_high)) return false;
-    }
+    if (!read_int8(&random_number_low)) return false;
+    if (!read_int8(&random_number_high)) return false;
 
-    if (ver < 3) {
-        deferred_print = 0;
-    } else {
-        if (!read_int(&deferred_print)) return false;
-    }
+    if (!read_int(&deferred_print)) return false;
 
     if (!read_int(&keybuf_head)) return false;
     if (!read_int(&keybuf_tail)) return false;
-    if (state_is_portable) {
-        for (int i = 0; i < 16; i++)
-            if (!read_int(&keybuf[i]))
-                return false;
-    } else {
-        if (fread(keybuf, 1, 16 * sizeof(int), gfile)
-                != 16 * sizeof(int))
+    for (int i = 0; i < 16; i++)
+        if (!read_int(&keybuf[i]))
             return false;
-    }
 
     if (!unpersist_display(ver))
         return false;
     if (!unpersist_globals())
         return false;
 
-    if (ver < 4) {
-        /* Before state file version 4, I used to save the BCD table in the
-         * state file. We don't use the BCD table any more, so all this code
-         * does is skip it.
-         */
-        int min_pow2, max_pow2;
-        uint4 n1, n2, n3, n4, n;
-        char dummy[1024];
-        if (!read_int(&min_pow2))
-            return false;
-        if (!read_int(&max_pow2))
-            return false;
-        n1 = 16 * (max_pow2 + 1);          /* size of pos_pow2mant table */
-        n2 = sizeof(int) * (max_pow2 + 1); /* size of pos_pow2exp table  */
-        n3 = 16 * (-min_pow2);             /* size of neg_pow2mant table */
-        n4 = sizeof(int) * (-min_pow2);    /* size of neg_pow2exp table  */
-        n = n1 + n2 + n3 + n4;             /* total number of bytes to skip */
-        while (n > 0) {
-            int count = n < 1024 ? n : 1024;
-            if (fread(dummy, 1, count, gfile) != count)
-                return false;
-            n -= count;
+    /* When loading older states, figure out matedit_level.
+     * This is needed for EDITN and INDEX to keep working across
+     * upgrades. Note that we're not dealing with saved matrix
+     * info on the RTN stack, though, so this provides only
+     * partial compatibility, covering only the most common
+     * scenarios.
+     */
+    if (matedit_level == -2 && (matedit_mode == 1 || matedit_mode == 3)) {
+        matedit_level = -1;
+        for (int i = vars_count - 1; i >= 0; i--) {
+            var_struct *vs = vars + i;
+            if ((vs->flags & (VAR_HIDDEN | VAR_PRIVATE)) != 0)
+                continue;
+            if (string_equals(matedit_name, matedit_length, vs->name, vs->length)) {
+                matedit_level = vs->level;
+                break;
+            }
         }
     }
 
-#ifdef BCD_MATH
-    if (!unpersist_math(ver, state_file_number_format != NUMBER_FORMAT_BID128))
+    if (!unpersist_math(ver))
         return false;
-#else
-    if (!unpersist_math(ver, state_file_number_format != NUMBER_FORMAT_BINARY))
-        return false;
-#endif
 
     if (!read_int4(&magic)) return false;
     if (magic != FREE42_MAGIC)
@@ -4576,7 +3934,7 @@ void save_state(bool *success) {
     if (!write_bool(core_settings.auto_repeat)) return;
     if (!write_bool(mode_clall)) return;
     if (!write_bool(mode_command_entry)) return;
-    if (!write_bool(mode_number_entry)) return;
+    if (!write_char(mode_number_entry)) return;
     if (!write_bool(mode_alpha_entry)) return;
     if (!write_bool(mode_shift)) return;
     if (!write_int(mode_appmenu)) return;
@@ -4586,6 +3944,7 @@ void save_state(bool *success) {
     if (!write_int(mode_alphamenu)) return;
     if (!write_int(mode_commandmenu)) return;
     if (!write_bool(mode_running)) return;
+    if (!write_bool(mode_caller_stack_lift_disabled)) return;
     if (!write_bool(mode_varmenu)) return;
     if (!write_bool(mode_updown)) return;
     if (!write_bool(mode_getkey)) return;
@@ -4614,12 +3973,17 @@ void save_state(bool *success) {
     if (!write_int(cmdline_row)) return;
 
     if (!write_int(matedit_mode)) return;
+    if (!write_int(matedit_level)) return;
     if (fwrite(matedit_name, 1, 7, gfile) != 7) return;
     if (!write_int(matedit_length)) return;
     if (!persist_vartype(matedit_x)) return;
     if (!write_int4(matedit_i)) return;
     if (!write_int4(matedit_j)) return;
     if (!write_int(matedit_prev_appmenu)) return;
+    if (!write_int(matedit_stack_depth)) return;
+    for (int i = 0; i < matedit_stack_depth; i++)
+        if (!write_int4(matedit_stack[i])) return;
+    if (!write_bool(matedit_is_list)) return;
 
     if (fwrite(input_name, 1, 11, gfile) != 11) return;
     if (!write_int(input_length)) return;
@@ -4686,7 +4050,6 @@ void hard_reset(int reason) {
         free(rtn_stack);
     rtn_stack_capacity = 16;
     rtn_stack = (rtn_stack_entry *) malloc(rtn_stack_capacity * sizeof(rtn_stack_entry));
-    rtn_sp = 0;
     rtn_level = 0;
     rtn_stop_level = -1;
     rtn_solve_active = false;
@@ -4710,6 +4073,9 @@ void hard_reset(int reason) {
     pending_command = CMD_NONE;
 
     matedit_mode = 0;
+    matedit_stack_depth = 0;
+    free(matedit_stack);
+    matedit_stack = NULL;
     input_length = 0;
     baseapp = 0;
     random_number_low = 0;
@@ -4803,6 +4169,7 @@ void hard_reset(int reason) {
     mode_running = false;
     mode_getkey = false;
     mode_pause = false;
+    mode_caller_stack_lift_disabled = false;
     mode_varmenu = false;
     prgm_highlight_row = 0;
     varmenu_length = 0;
@@ -4833,278 +4200,6 @@ void hard_reset(int reason) {
     display_x(1);
     flush_display();
 }
-
-static bool convert_programs(bool *clear_stack) {
-    // This function is called if the setting of mode_decimal recorded in the
-    // state file does not match the current setting (i.e., if we're a binary
-    // Free42 and the state file was written by the decimal version, or vice
-    // versa).
-    // This function looks for floating-point number literals (command =
-    // CMD_NUMBER with arg.type = ARGTYPE_DOUBLE) and converts them from double
-    // to Phloat or the other way around.
-
-    int saved_prgm = current_prgm;
-    int4 saved_pc = pc;
-    int i;
-    bool success = false;
-    *clear_stack = false;
-
-    // Since converting programs can cause instructions to move, I have to
-    // update all stored PC values to correct for this. PCs are stored in the
-    // 'pc' and 'rtn_pc[]' globals. I copy those values into a local array,
-    // which I then sort by program index and pc; this allows me to do the
-    // updates very efficiently later on.
-    int *mod_prgm = (int *) malloc((rtn_level + 2) * sizeof(int));
-    int4 *mod_pc = (int4 *) malloc((rtn_level + 2) * sizeof(int4));
-    int *mod_sp = (int *) malloc((rtn_level + 2) * sizeof(int));
-    if (mod_prgm == NULL || mod_pc == NULL || mod_sp == NULL) {
-        end:
-        free(mod_prgm);
-        free(mod_pc);
-        free(mod_sp);
-        return success;
-    }
-    int mod_count = 0;
-    int rsp = rtn_sp;
-    if (rtn_solve_active || rtn_integ_active) {
-        *clear_stack = true;
-    } else {
-        for (i = 0; i < rtn_level; i++) {
-            rsp--;
-            mod_prgm[mod_count] = rtn_stack[rsp].get_prgm();
-            mod_pc[mod_count] = rtn_stack[rsp].pc;
-            mod_sp[mod_count] = rsp;
-            if (rtn_stack[rsp].has_matrix())
-                rsp -= 2;
-            mod_count++;
-        }
-    }
-    if (saved_pc > 0) {
-        mod_prgm[mod_count] = current_prgm;
-        mod_pc[mod_count] = saved_pc;
-        mod_sp[mod_count] = -1;
-        mod_count++;
-    }
-    if (incomplete_saved_pc > 0) {
-        mod_prgm[mod_count] = current_prgm;
-        mod_pc[mod_count] = incomplete_saved_pc;
-        mod_sp[mod_count] = -2;
-        mod_count++;
-    }
-    mod_count--;
-
-    // I know, I know, bubble sort, right?
-    // Bear in mind that this only applies to old state files,
-    // where the stack has only 8 levels max.
-    for (i = 0; i < mod_count; i++)
-        for (int j = i + 1; j <= mod_count; j++)
-            if (mod_prgm[i] < mod_prgm[j]
-                    || mod_prgm[i] == mod_prgm[j] && mod_pc[i] < mod_pc[j]) {
-                int tmp = mod_prgm[i];
-                mod_prgm[i] = mod_prgm[j];
-                mod_prgm[j] = tmp;
-                int4 tmp4 = mod_pc[i];
-                mod_pc[i] = mod_pc[j];
-                mod_pc[j] = tmp4;
-                tmp = mod_sp[i];
-                mod_sp[i] = mod_sp[j];
-                mod_sp[j] = tmp;
-            }
-
-    for (i = 0; i < prgms_count; i++) {
-        current_prgm = i;
-        pc = 0;
-        int4 oldpc = 0;
-        prgm_struct *prgm = prgms + i;
-        prgm->lclbl_invalid = 1;
-        while (true) {
-            while (mod_count >= 0 && current_prgm == mod_prgm[mod_count]
-                                  && oldpc >= mod_pc[mod_count]) {
-                // oldpc should never be greater than mod_pc[mod_count]; this
-                // means that something is out of whack, because we have an old
-                // PC value that does not actually coincide with the beginning
-                // of an instruction.
-                int s = mod_sp[mod_count];
-                if (s == -1)
-                    saved_pc = pc;
-                else if (s == -2)
-                    incomplete_saved_pc = pc;
-                else
-                    rtn_stack[s].pc = pc;
-                mod_count--;
-            }
-            int4 prevpc = pc;
-            int command = prgm->text[pc++];
-            int argtype = prgm->text[pc++];
-            // Note: not handling original number for CMD_NUMBER here, since
-            // that was introduced after we'd stopped writing the in-memory
-            // representations of programs to state files.
-            command |= (argtype & 240) << 4;
-            argtype &= 15;
-
-            if (command == CMD_END)
-                break;
-            if ((command == CMD_GTO || command == CMD_XEQ)
-                    && (argtype == ARGTYPE_NUM || argtype == ARGTYPE_STK
-                                               || argtype == ARGTYPE_LCLBL)) {
-                // Invalidate local label offsets
-                prgm->text[pc++] = 255;
-                prgm->text[pc++] = 255;
-                prgm->text[pc++] = 255;
-                prgm->text[pc++] = 255;
-            }
-            switch (argtype) {
-                case ARGTYPE_NUM:
-                case ARGTYPE_NEG_NUM:
-                case ARGTYPE_IND_NUM: {
-                    while ((prgm->text[pc++] & 128) == 0);
-                    break;
-                }
-                case ARGTYPE_STK:
-                case ARGTYPE_IND_STK:
-                case ARGTYPE_COMMAND:
-                case ARGTYPE_LCLBL:
-                    pc++;
-                    break;
-                case ARGTYPE_STR:
-                case ARGTYPE_IND_STR: {
-                    pc += prgm->text[pc] + 1;
-                    break;
-                }
-                case ARGTYPE_DOUBLE:
-                    #ifdef BCD_MATH
-                        double d;
-                        int j;
-                        unsigned char *b = (unsigned char *) &d;
-                        for (j = 0; j < (int) sizeof(double); j++)
-                            *b++ = prgm->text[pc++];
-                        pc -= sizeof(double);
-
-                        int growth = sizeof(phloat) - sizeof(double);
-                        int4 pos;
-                        if (prgm->size + growth > prgm->capacity) {
-                            unsigned char *newtext;
-                            prgm->capacity += 512;
-                            newtext = (unsigned char *) malloc(prgm->capacity);
-                            if (newtext == NULL)
-                                // Failed to grow program; abort.
-                                goto end;
-                            for (pos = 0; pos < pc; pos++)
-                                newtext[pos] = prgm->text[pos];
-                            for (pos = pc; pos < prgm->size; pos++)
-                                newtext[pos + growth] = prgm->text[pos];
-                            if (prgm->text != NULL)
-                                free(prgm->text);
-                            prgm->text = newtext;
-                        } else {
-                            for (pos = prgm->size - 1; pos >= pc; pos--)
-                                prgm->text[pos + growth] = prgm->text[pos];
-                        }
-                        prgm->size += growth;
-                        oldpc -= growth;
-
-                        phloat p(d);
-                        b = (unsigned char *) &p;
-                        for (j = 0; j < (int) sizeof(phloat); j++)
-                            prgm->text[pc++] = *b++;
-                    #else
-                        fake_bcd dec;
-                        int j;
-                        unsigned char *b = (unsigned char *) &dec;
-                        for (j = 0; j < (int) sizeof(fake_bcd); j++)
-                            *b++ = prgm->text[pc++];
-                        double dbl = decimal2double(dec.data, true);
-
-                        pc -= sizeof(fake_bcd);
-                        b = (unsigned char *) &dbl;
-                        for (j = 0; j < (int) sizeof(double); j++)
-                            prgm->text[pc++] = *b++;
-
-                        int shrinkage = sizeof(fake_bcd) - sizeof(double);
-                        prgm->size -= shrinkage;
-                        for (int4 pos = pc; pos < prgm->size; pos++)
-                            prgm->text[pos] = prgm->text[pos + shrinkage];
-                        oldpc += shrinkage;
-                    #endif
-                    break;
-            }
-            oldpc += pc - prevpc;
-        }
-    }
-
-    current_prgm = saved_prgm;
-    pc = saved_pc;
-    success = true;
-    goto end;
-}
-
-#ifdef BCD_MATH
-static void update_decimal_in_programs() {
-    // This function is called after reading a decimal state file,
-    // if the number format in that state file doesn't match the current one.
-
-    int saved_prgm = current_prgm;
-    int4 saved_pc = pc;
-    int i, j;
-
-    for (i = 0; i < prgms_count; i++) {
-        current_prgm = i;
-        pc = 0;
-        prgm_struct *prgm = prgms + i;
-        while (true) {
-            int command = prgm->text[pc++];
-            int argtype = prgm->text[pc++];
-            // Note: not handling original number for CMD_NUMBER here, since
-            // that was introduced after we'd stopped writing the in-memory
-            // representations of programs to state files.
-            command |= (argtype & 240) << 4;
-            argtype &= 15;
-
-            if (command == CMD_END)
-                break;
-            if ((command == CMD_GTO || command == CMD_XEQ)
-                    && (argtype == ARGTYPE_NUM || argtype == ARGTYPE_STK
-                                               || argtype == ARGTYPE_LCLBL)) {
-                // Skip local label offsets
-                pc += 4;
-            }
-            switch (argtype) {
-                case ARGTYPE_NUM:
-                case ARGTYPE_NEG_NUM:
-                case ARGTYPE_IND_NUM: {
-                    while ((prgm->text[pc++] & 128) == 0);
-                    break;
-                }
-                case ARGTYPE_STK:
-                case ARGTYPE_IND_STK:
-                case ARGTYPE_COMMAND:
-                case ARGTYPE_LCLBL:
-                    pc++;
-                    break;
-                case ARGTYPE_STR:
-                case ARGTYPE_IND_STR: {
-                    pc += prgm->text[pc] + 1;
-                    break;
-                }
-                case ARGTYPE_DOUBLE:
-                    BID_UINT128 dec;
-                    char *p = (char *) &dec;
-                    for (j = 0; j < 16; j++)
-                        *p++ = prgm->text[pc++];
-                    update_decimal(&dec);
-                    p -= 16;
-                    pc -= 16;
-                    for (j = 0; j < 16; j++)
-                        prgm->text[pc++] = *p++;
-                    break;
-            }
-        }
-    }
-
-    current_prgm = saved_prgm;
-    pc = saved_pc;
-}
-#endif
 
 #ifdef IPHONE
 bool off_enabled() {

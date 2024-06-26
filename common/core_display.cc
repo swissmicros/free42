@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -652,123 +652,44 @@ bool persist_display() {
 }
 
 bool unpersist_display(int version) {
-    if (state_is_portable) {
-        for (int i = 0; i < 5; i++) {
-            if (!read_int(&catalogmenu_section[i])) return false;
-            if (!read_int(&catalogmenu_rows[i])) return false;
-            if (!read_int(&catalogmenu_row[i])) return false;
-            for (int j = 0; j < 6; j++)
-                if (!read_int(&catalogmenu_item[i][j])) return false;
+    for (int i = 0; i < 5; i++) {
+        if (!read_int(&catalogmenu_section[i])) return false;
+        if (!read_int(&catalogmenu_rows[i])) return false;
+        if (!read_int(&catalogmenu_row[i])) return false;
+        for (int j = 0; j < 6; j++)
+            if (!read_int(&catalogmenu_item[i][j])) return false;
+    }
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 6; j++) {
+            if (!read_int(&custommenu_length[i][j])) return false;
+            if (fread(custommenu_label[i][j], 1, 7, gfile) != 7) return false;
         }
-        for (int i = 0; i < 3; i++) {
-            for (int j = 0; j < 6; j++) {
-                if (!read_int(&custommenu_length[i][j])) return false;
-                if (fread(custommenu_label[i][j], 1, 7, gfile) != 7) return false;
-            }
-        }
-        for (int i = 0; i < 9; i++)
-            if (!read_arg(progmenu_arg + i, false))
-                return false;
-        if (version < 35) {
-            int temp;
-            for (int i = 0; i < 9; i++) {
-                if (!read_int(&temp)) return false;
-                progmenu_is_gto[i] = temp != 0;
-            }
-        } else {
-            for (int i = 0; i < 9; i++)
-                if (!read_bool(&progmenu_is_gto[i])) return false;
-        }
-        for (int i = 0; i < 6; i++) {
-            if (!read_int(&progmenu_length[i])) return false;
-            if (fread(progmenu_label[i], 1, 7, gfile) != 7) return false;
-        }
-        if (fread(display, 1, 272, gfile) != 272)
+    }
+    for (int i = 0; i < 9; i++)
+        if (!read_arg(progmenu_arg + i))
             return false;
-        if (!read_int(&appmenu_exitcallback)) return false;
-        if (version >= 44) {
-            if (fread(special_key, 1, 6, gfile) != 6)
-                return false;
-        } else
-            memset(special_key, 0, 6);
-    } else {
-        int custommenu_cmd[3][6];
-        is_dirty = false;
-        if (fread(catalogmenu_section, 1, 5 * sizeof(int), gfile)
-                != 5 * sizeof(int))
-            return false;
-        if (fread(catalogmenu_rows, 1, 5 * sizeof(int), gfile)
-                != 5 * sizeof(int))
-            return false;
-        if (fread(catalogmenu_row, 1, 5 * sizeof(int), gfile)
-                != 5 * sizeof(int))
-            return false;
-        if (fread(catalogmenu_item, 1, 30 * sizeof(int), gfile)
-                != 30 * sizeof(int))
-            return false;
-
-        if (version < 7) {
-            /* In version 7, I removed the special handling
-             * of FCN catalog assignments (after discovering how
-             * the real HP-42S does it and realizing that, for perfect
-             * compatibility, I had to do it the same way).
-             */
-            if (fread(custommenu_cmd, 1, 18 * sizeof(int), gfile)
-                    != 18 * sizeof(int))
-                return false;
-        }
-        if (fread(custommenu_length, 1, 18 * sizeof(int), gfile)
-                != 18 * sizeof(int))
-            return false;
-        if (fread(custommenu_label, 1, 126, gfile)
-                != 126)
-            return false;
-        if (version < 7) {
-            /* Starting with version 7, FCN catalog assignments are no longer
-             * handled specially; instead, commands with shortened key labels
-             * (e.g. ENTER/ENTR, ASSIGN/ASGN) are handled by using "meta"
-             * characters to indicate the disappearing positions. This is how
-             * the HP-42S does it, and since this can even affect programs
-             * (e.g. create the line STO "ENTER" by selecting ENTER from the
-             * function catalog, and the second E is encoded as meta-E in the
-             * program!), we have to do it the same way, for compatibility.
-             * I think my original approach was better, but such is life. :-)
-             */
-            int row, pos;
-            for (row = 0; row < 3; row++)
-                for (pos = 0; pos < 6; pos++) {
-                    int cmd = custommenu_cmd[row][pos];
-                    if (cmd != CMD_NONE) {
-                        const command_spec *cs = &cmd_array[cmd];
-                        string_copy(custommenu_label[row][pos],
-                                    &custommenu_length[row][pos],
-                                    cs->name, cs->name_length);
-                    }
-                }
-        }
-
-        for (int i = 0; i < 9; i++)
-            if (!read_arg(progmenu_arg + i, version < 9))
-                return false;
+    if (version < 35) {
+        int temp;
         for (int i = 0; i < 9; i++) {
-            int temp;
-            if (fread(&temp, 1, sizeof(int), gfile) != sizeof(int))
-                return false;
+            if (!read_int(&temp)) return false;
             progmenu_is_gto[i] = temp != 0;
         }
-        if (fread(progmenu_length, 1, 6 * sizeof(int), gfile)
-                != 6 * sizeof(int))
-            return false;
-        if (fread(progmenu_label, 1, 42, gfile)
-                != 42)
-            return false;
-        if (fread(display, 1, 272, gfile)
-                != 272)
-            return false;
-        if (fread(&appmenu_exitcallback, 1, sizeof(int), gfile)
-                != sizeof(int))
-            return false;
+    } else {
+        for (int i = 0; i < 9; i++)
+            if (!read_bool(&progmenu_is_gto[i])) return false;
     }
+    for (int i = 0; i < 6; i++) {
+        if (!read_int(&progmenu_length[i])) return false;
+        if (fread(progmenu_label[i], 1, 7, gfile) != 7) return false;
+    }
+    if (fread(display, 1, 272, gfile) != 272)
+        return false;
+    if (!read_int(&appmenu_exitcallback)) return false;
+    if (version >= 44) {
+        if (fread(special_key, 1, 6, gfile) != 6)
+            return false;
+    } else
+        memset(special_key, 0, 6);
     return true;
 }
 
@@ -911,27 +832,12 @@ void fly_goose() {
 
 void squeak() {
     if (flags.f.audio_enable)
-        shell_beeper(1835, 125);
+        shell_beeper(10);
 }
 
 void tone(int n) {
-    if (flags.f.audio_enable) {
-        int frequency;
-        switch (n) {
-            case 0: frequency = 164; break;
-            case 1: frequency = 220; break;
-            case 2: frequency = 243; break;
-            case 3: frequency = 275; break;
-            case 4: frequency = 293; break;
-            case 5: frequency = 324; break;
-            case 6: frequency = 366; break;
-            case 7: frequency = 418; break;
-            case 8: frequency = 438; break;
-            case 9: frequency = 550; break;
-            default: return;
-        }
-        shell_beeper(frequency, 250);
-    }
+    if (flags.f.audio_enable)
+        shell_beeper(n);
 }
 
 
@@ -1323,25 +1229,42 @@ void display_prgm_line(int row, int line_offset) {
     }
 }
 
+void xlabel2buf(char *buf, int buflen, int *bufptr) {
+    if (matedit_mode == 2 || matedit_mode == 3) {
+        for (int i = 0; i < matedit_stack_depth; i++) {
+            *bufptr += int2string(matedit_stack[i] + 1, buf + *bufptr, buflen - *bufptr);
+            char2buf(buf, buflen, bufptr, '.');
+        }
+        if (matedit_is_list) {
+            vartype *m;
+            int err = matedit_get(&m);
+            if (err != ERR_NONE || ((vartype_list *) m)->size == 0)
+                char2buf(buf, buflen, bufptr, 'E');
+            else
+                *bufptr += int2string(matedit_i + 1, buf + *bufptr, buflen - *bufptr);
+        } else {
+            *bufptr += int2string(matedit_i + 1, buf + *bufptr, buflen - *bufptr);
+            char2buf(buf, buflen, bufptr, ':');
+            *bufptr += int2string(matedit_j + 1, buf + *bufptr, buflen - *bufptr);
+        }
+        char2buf(buf, buflen, bufptr, '=');
+    } else if (input_length > 0) {
+        string2buf(buf, buflen, bufptr, input_name, input_length);
+        char2buf(buf, buflen, bufptr, '?');
+    } else if (flags.f.big_stack) {
+        string2buf(buf, buflen, bufptr, "1\200", 2);
+    } else {
+        string2buf(buf, buflen, bufptr, "x\200", 2);
+    }
+}
+
 void display_x(int row) {
     char buf[22];
     int bufptr = 0;
 
     clear_row(row);
+    xlabel2buf(buf, 22, &bufptr);
     vartype *x = sp >= 0 ? stack[sp] : NULL;
-    if (matedit_mode == 2 || matedit_mode == 3) {
-        bufptr += int2string(matedit_i + 1, buf + bufptr, 22 - bufptr);
-        char2buf(buf, 22, &bufptr, ':');
-        bufptr += int2string(matedit_j + 1, buf + bufptr, 22 - bufptr);
-        char2buf(buf, 22, &bufptr, '=');
-    } else if (input_length > 0) {
-        string2buf(buf, 22, &bufptr, input_name, input_length);
-        char2buf(buf, 22, &bufptr, '?');
-    } else if (flags.f.big_stack) {
-        string2buf(buf, 22, &bufptr, "1\200", 2);
-    } else {
-        string2buf(buf, 22, &bufptr, "x\200", 2);
-    }
     if (x != NULL)
         bufptr += vartype2string(x, buf + bufptr, 22 - bufptr);
     draw_string(0, row, buf, bufptr);
@@ -1685,20 +1608,20 @@ static int ext_xfcn_cat[] = {
 };
 
 static int ext_base_cat[] = {
-    CMD_BRESET, CMD_BSIGNED, CMD_BWRAP, CMD_WSIZE, CMD_WSIZE_T, CMD_NULL
+    CMD_BRESET, CMD_BSIGNED, CMD_BWRAP, CMD_WSIZE, CMD_WSIZE_T, CMD_A_THRU_F_2
 };
 
 static int ext_prgm_cat[] = {
-    CMD_CPXMAT_T, CMD_ERRMSG,  CMD_ERRNO,   CMD_FUNC,    CMD_GETKEY1, CMD_LSTO,
-    CMD_LASTO,    CMD_LCLV,    CMD_NOP,     CMD_PGMMENU, CMD_PGMVAR,  CMD_RTNERR,
-    CMD_RTNNO,    CMD_RTNYES,  CMD_SKIP,    CMD_SST_UP,  CMD_SST_RT,  CMD_TYPE_T,
-    CMD_VARMNU1,  -2 /* 0? */, -3 /* X? */, CMD_NULL,    CMD_NULL,    CMD_NULL
+    CMD_CPXMAT_T, CMD_CSLD_T,  CMD_ERRMSG,  CMD_ERRNO,   CMD_FUNC,    CMD_GETKEY1,
+    CMD_LSTO,     CMD_LASTO,   CMD_LCLV,    CMD_NOP,     CMD_PGMMENU, CMD_PGMVAR,
+    CMD_RTNERR,   CMD_RTNNO,   CMD_RTNYES,  CMD_SKIP,    CMD_SST_UP,  CMD_SST_RT,
+    CMD_TYPE_T,   CMD_VARMNU1, -2 /* 0? */, -3 /* X? */, CMD_NULL,    CMD_NULL
 };
 
 static int ext_str_cat[] = {
     CMD_APPEND,    CMD_C_TO_N, CMD_EXTEND, CMD_HEAD,    CMD_LENGTH, CMD_TO_LIST,
-    CMD_FROM_LIST, CMD_LIST_T, CMD_LXASTO, CMD_NEWLIST, CMD_NEWSTR, CMD_N_TO_C,
-    CMD_N_TO_S,    CMD_POS,    CMD_REV,    CMD_SUBSTR,  CMD_S_TO_N, CMD_XASTO,
+    CMD_FROM_LIST, CMD_LIST_T, CMD_LXASTO, CMD_NEWLIST, CMD_N_TO_C, CMD_N_TO_S,
+    CMD_NN_TO_S,   CMD_POS,    CMD_REV,    CMD_SUBSTR,  CMD_S_TO_N, CMD_XASTO,
     CMD_XSTR,      CMD_XVIEW,  CMD_NULL,   CMD_NULL,    CMD_NULL,   CMD_NULL
 };
 
@@ -1711,32 +1634,34 @@ static int ext_stk_cat[] = {
 #if defined(ANDROID) || defined(IPHONE)
 #ifdef FREE42_FPTEST
 static int ext_misc_cat[] = {
-    CMD_A2LINE,  CMD_A2PLINE, CMD_A_THRU_F_2, CMD_CAPS,   CMD_FMA,   CMD_MIXED,
-    CMD_PCOMPLX, CMD_RCOMPLX, CMD_STRACE,     CMD_X2LINE, CMD_ACCEL, CMD_LOCAT,
-    CMD_HEADING, CMD_FPTEST,  CMD_NULL,       CMD_NULL,   CMD_NULL,  CMD_NULL
+    CMD_A2LINE, CMD_A2PLINE, CMD_CAPS,    CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_FMA,
+    CMD_HEIGHT, CMD_MIXED,   CMD_PCOMPLX, CMD_PRREG,    CMD_RCOMPLX,     CMD_STRACE,
+    CMD_WIDTH,  CMD_X2LINE,  CMD_ACCEL,   CMD_LOCAT,    CMD_HEADING,     CMD_FPTEST
 };
 #define MISC_CAT_ROWS 3
 #else
 static int ext_misc_cat[] = {
-    CMD_A2LINE,  CMD_A2PLINE, CMD_A_THRU_F_2, CMD_CAPS,   CMD_FMA,   CMD_MIXED,
-    CMD_PCOMPLX, CMD_RCOMPLX, CMD_STRACE,     CMD_X2LINE, CMD_ACCEL, CMD_LOCAT,
-    CMD_HEADING, CMD_NULL,    CMD_NULL,       CMD_NULL,   CMD_NULL,  CMD_NULL
+    CMD_A2LINE, CMD_A2PLINE, CMD_CAPS,    CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_FMA,
+    CMD_HEIGHT, CMD_MIXED,   CMD_PCOMPLX, CMD_PRREG,    CMD_RCOMPLX,     CMD_STRACE,
+    CMD_WIDTH,  CMD_X2LINE,  CMD_ACCEL,   CMD_LOCAT,    CMD_HEADING,     CMD_NULL
 };
 #define MISC_CAT_ROWS 3
 #endif
 #else
 #ifdef FREE42_FPTEST
 static int ext_misc_cat[] = {
-    CMD_A2LINE,  CMD_A2PLINE, CMD_A_THRU_F_2, CMD_CAPS,   CMD_FMA,    CMD_MIXED,
-    CMD_PCOMPLX, CMD_RCOMPLX, CMD_STRACE,     CMD_X2LINE, CMD_FPTEST, CMD_NULL
+    CMD_A2LINE, CMD_A2PLINE, CMD_CAPS,    CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_FMA,
+    CMD_HEIGHT, CMD_MIXED,   CMD_PCOMPLX, CMD_PRREG,    CMD_RCOMPLX,     CMD_STRACE,
+    CMD_WIDTH,  CMD_X2LINE,  CMD_FPTEST,  CMD_NULL,     CMD_NULL,        CMD_NULL
 };
-#define MISC_CAT_ROWS 2
+#define MISC_CAT_ROWS 3
 #else
 static int ext_misc_cat[] = {
-    CMD_A2LINE,  CMD_A2PLINE, CMD_A_THRU_F_2, CMD_CAPS,   CMD_FMA,  CMD_MIXED,
-    CMD_PCOMPLX, CMD_RCOMPLX, CMD_STRACE,     CMD_X2LINE, CMD_NULL, CMD_NULL
+    CMD_A2LINE, CMD_A2PLINE, CMD_CAPS,    CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_FMA,
+    CMD_HEIGHT, CMD_MIXED,   CMD_PCOMPLX, CMD_PRREG,    CMD_RCOMPLX,     CMD_STRACE,
+    CMD_WIDTH,  CMD_X2LINE,  CMD_NULL,    CMD_NULL,     CMD_NULL,        CMD_NULL
 };
-#define MISC_CAT_ROWS 2
+#define MISC_CAT_ROWS 3
 #endif
 #endif
 
@@ -1873,6 +1798,7 @@ static void draw_catalog() {
         int vcount = 0;
         int i, j, k = -1;
         int show_real = 1;
+        int show_str = 1;
         int show_cpx = 1;
         int show_mat = 1;
         int show_list = 1;
@@ -1882,10 +1808,15 @@ static void draw_catalog() {
             case CATSECT_REAL_ONLY:
                 show_cpx = show_mat = show_list = 0; break;
             case CATSECT_CPX:
-                show_real = show_mat = show_list = 0; break;
+                show_real = show_str = show_mat = show_list = 0; break;
             case CATSECT_MAT:
             case CATSECT_MAT_ONLY:
-                show_real = show_cpx = show_list = 0; break;
+                show_real = show_str = show_cpx = show_list = 0; break;
+            case CATSECT_MAT_LIST:
+            case CATSECT_MAT_LIST_ONLY:
+                show_real = show_str = show_cpx = 0; break;
+            case CATSECT_LIST_STR_ONLY:
+                show_real = show_cpx = show_mat = 0; break;
         }
 
         for (i = 0; i < vars_count; i++) {
@@ -1894,8 +1825,10 @@ static void draw_catalog() {
                 continue;
             switch (type) {
                 case TYPE_REAL:
-                case TYPE_STRING:
                     if (show_real) vcount++;
+                    break;
+                case TYPE_STRING:
+                    if (show_str) vcount++;
                     break;
                 case TYPE_COMPLEX:
                     if (show_cpx) vcount++;
@@ -1936,8 +1869,9 @@ static void draw_catalog() {
             int type = vars[i].value->type;
             switch (type) {
                 case TYPE_REAL:
-                case TYPE_STRING:
                     if (show_real) break; else continue;
+                case TYPE_STRING:
+                    if (show_str) break; else continue;
                 case TYPE_COMPLEX:
                     if (show_cpx) break; else continue;
                 case TYPE_REALMATRIX:
@@ -2451,7 +2385,7 @@ void redisplay() {
                     if (pc == -1)
                         prgm_highlight_row = 0;
                     else {
-                        if (prgms[current_prgm].text[pc] == CMD_END)
+                        if (prgms[current_prgm].is_end(pc))
                             prgm_highlight_row = 1;
                     }
                     if (prgm_highlight_row == 0) {
@@ -2931,6 +2865,8 @@ void set_plainmenu(int menuid) {
 void set_catalog_menu(int section) {
     mode_commandmenu = MENU_CATALOG;
     move_cat_row(0);
+    if (section == CATSECT_VARS_ONLY && incomplete_command == CMD_HEAD)
+        section = CATSECT_LIST_STR_ONLY;
     set_cat_section(section);
     switch (section) {
         case CATSECT_TOP:
@@ -2961,6 +2897,15 @@ void set_catalog_menu(int section) {
         case CATSECT_MAT:
         case CATSECT_MAT_ONLY:
             if (!vars_exist(CATSECT_MAT))
+                mode_commandmenu = MENU_NONE;
+            return;
+        case CATSECT_MAT_LIST:
+        case CATSECT_MAT_LIST_ONLY:
+            if (!vars_exist(CATSECT_MAT_LIST))
+                mode_commandmenu = MENU_NONE;
+            return;
+        case CATSECT_LIST_STR_ONLY:
+            if (!vars_exist(CATSECT_LIST_STR_ONLY))
                 mode_commandmenu = MENU_NONE;
             return;
         case CATSECT_VARS_ONLY:
@@ -3088,6 +3033,10 @@ void update_catalog() {
             if (!vars_exist(CATSECT_MAT))
                 set_cat_section(CATSECT_TOP);
             break;
+        case CATSECT_MAT_LIST:
+            if (!vars_exist(CATSECT_MAT_LIST))
+                set_cat_section(CATSECT_TOP);
+            break;
         case CATSECT_REAL_ONLY:
             if (!vars_exist(CATSECT_REAL)) {
                 *the_menu = MENU_NONE;
@@ -3097,6 +3046,20 @@ void update_catalog() {
             break;
         case CATSECT_MAT_ONLY:
             if (!vars_exist(CATSECT_MAT)) {
+                *the_menu = MENU_NONE;
+                redisplay();
+                return;
+            }
+            break;
+        case CATSECT_MAT_LIST_ONLY:
+            if (!vars_exist(CATSECT_MAT_LIST)) {
+                *the_menu = MENU_NONE;
+                redisplay();
+                return;
+            }
+            break;
+        case CATSECT_LIST_STR_ONLY:
+            if (!vars_exist(CATSECT_LIST_STR_ONLY)) {
                 *the_menu = MENU_NONE;
                 redisplay();
                 return;
@@ -3205,6 +3168,7 @@ void do_prgm_menu_key(int keynum) {
             display_error(err, true);
             flush_display();
             return;
-        }
+        } else
+            save_csld();
     }
 }

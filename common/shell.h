@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -59,12 +59,11 @@ void shell_blitter(const char *bits, int bytesperline, int x, int y,
 /* shell_beeper()
  *
  * Callback invoked by the emulator core to play a sound.
- * The first parameter is the frequency in Hz; the second is the
- * duration in ms. The sound volume is up to the GUI to control.
+ * The parameter is the tone number, from 0 to 9, or 10 for the error beep.
  * Sound playback should be synchronous (the beeper function should
  * not return until the sound has finished), if possible.
  */
-void shell_beeper(int frequency, int duration);
+void shell_beeper(int tone);
 
 /* shell_annunciators()
  *

@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -57,7 +57,7 @@ static FILE *statefile = NULL;
 static int ckey = 0;
 static int skey;
 static unsigned char *macro;
-static bool macro_is_name;
+static int macro_type;
 static int mouse_key;
 static unsigned short active_keycode = -1;
 static bool just_pressed_shift = false;
@@ -122,7 +122,6 @@ static bool is_file(const char *name);
 @synthesize prefsLocalizedCopyPaste;
 @synthesize prefsPrintText;
 @synthesize prefsPrintTextFile;
-@synthesize prefsPrintTextRaw;
 @synthesize prefsPrintGIF;
 @synthesize prefsPrintGIFFile;
 @synthesize prefsPrintGIFMaxHeight;
@@ -324,10 +323,19 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
     long win_width, win_height;
     skin_load(&win_width, &win_height);
     NSSize sz;
-    sz.width = win_width;
-    sz.height = win_height;
+    if (state.mainWindowWidth == 0) {
+        sz.width = win_width;
+        sz.height = win_height;
+        state.mainWindowWidth = win_width;
+        state.mainWindowHeight = win_height;
+    } else {
+        sz.width = state.mainWindowWidth;
+        sz.height = state.mainWindowHeight;
+    }
     [mainWindow setContentSize:sz];
-    
+    [mainWindow setContentAspectRatio:NSMakeSize(sz.width / 16384, sz.height / 16384)];
+    [mainWindow setMinSize:NSMakeSize(160, 160)];
+
     if (state.mainWindowKnown) {
         NSPoint pt;
         pt.x = state.mainWindowX;
@@ -337,7 +345,9 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
     
     sz.width = 373;
     sz.height = state.printWindowKnown ? state.printWindowHeight : 600;
+    sz.height = 18 * floor(sz.height / 18);
     [printWindow setContentSize:sz];
+    [printWindow setResizeIncrements:NSMakeSize(1, 18)];
     [printView initialUpdate];
     
     if (state.printWindowKnown) {
@@ -488,7 +498,7 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
 - (IBAction) showAbout:(id)sender {
     const char *version = [Free42AppDelegate getVersion];
     [aboutVersion setStringValue:[NSString stringWithFormat:@"Free42 %s", version]];
-    [aboutCopyright setStringValue:@"© 2004-2022 Thomas Okken"];
+    [aboutCopyright setStringValue:@"© 2004-2024 Thomas Okken"];
     [NSApp runModalForWindow:aboutWindow];
 }
 
@@ -550,13 +560,13 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
 
 - (IBAction) browsePrintTextFile:(id)sender {
     FileSavePanel *saveDlg = [FileSavePanel panelWithTitle:@"Select Text File Name" types:@"Text;txt;All Files;*" path:[prefsPrintTextFile stringValue]];
-    if ([saveDlg runModal] == NSOKButton)
+    if ([saveDlg runModal] == NSModalResponseOK)
         [prefsPrintTextFile setStringValue:[saveDlg path]];
 }
 
 - (IBAction) browsePrintGIFFile:(id)sender {
     FileSavePanel *saveDlg = [FileSavePanel panelWithTitle:@"Select GIF File Name" types:@"GIF;gif;All Files;*" path:[prefsPrintGIFFile stringValue]];
-    if ([saveDlg runModal] == NSOKButton)
+    if ([saveDlg runModal] == NSModalResponseOK)
         [prefsPrintGIFFile setStringValue:[saveDlg path]];
 }
 
@@ -581,7 +591,7 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
 
 - (IBAction) importPrograms:(id)sender {
     FileOpenPanel *openDlg = [FileOpenPanel panelWithTitle:@"Import Programs" types:@"Program Files;raw;All Files;*"];
-    if ([openDlg runModal] == NSOKButton) {
+    if ([openDlg runModal] == NSModalResponseOK) {
         NSArray* paths = [openDlg paths];
         for (int i = 0; i < [paths count]; i++) {
             NSString* fileName = [paths objectAtIndex:i];
@@ -634,7 +644,7 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
         }
     }
     FileSavePanel *saveDlg = [FileSavePanel panelWithTitle:@"Export Programs" types:@"Program Files;raw;All Files;*" path:name];
-    if ([saveDlg runModal] == NSOKButton) {
+    if ([saveDlg runModal] == NSModalResponseOK) {
         NSString *fileName = [saveDlg path];
         char cFileName[1024];
         [fileName getCString:cFileName maxLength:1024 encoding:NSUTF8StringEncoding];
@@ -814,7 +824,8 @@ static void tbnonewliner() {
     if (!loadSkinsWindowMapped) {
         NSString *url = @"https://thomasokken.com/free42/skins/";
         [loadSkinsURL setStringValue:url];
-        [loadSkinsWebView setMainFrameURL:url];
+        NSURLRequest *req = [NSURLRequest requestWithURL:[NSURL URLWithString:url]];
+        [loadSkinsWebView loadRequest:req];
         loadSkinsWindowMapped = true;
     }
     [loadSkinsWindow makeKeyAndOrderFront:self];
@@ -823,7 +834,8 @@ static void tbnonewliner() {
 
 - (IBAction) loadSkinsGo:(id)sender {
     NSString *url = [loadSkinsURL stringValue];
-    [loadSkinsWebView setMainFrameURL:url];
+    NSURLRequest *req = [NSURLRequest requestWithURL:[NSURL URLWithString:url]];
+    [loadSkinsWebView loadRequest:req];
 }
 
 - (IBAction) loadSkinsBack:(id)sender {
@@ -834,13 +846,13 @@ static void tbnonewliner() {
     [loadSkinsWebView goForward];
 }
 
-- (void)webView:(WebView *)sender didStartProvisionalLoadForFrame:(WebFrame *)frame {
+- (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation {
     [loadSkinButton setEnabled:NO];
     [loadSkinButton setTitle:@"..."];
 }
 
-- (void)webView:(WebView *)sender didFinishLoadForFrame:(WebFrame *)frame {
-    NSString *url = [loadSkinsWebView mainFrameURL];
+- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
+    NSString *url = [[loadSkinsWebView URL] absoluteString];
     [loadSkinsURL setStringValue:url];
     [loadSkinButton setTitle:@"Load"];
     [loadSkinButton setEnabled:[Free42AppDelegate skinUrlPair:url] != nil];
@@ -880,11 +892,12 @@ static void tbnonewliner() {
         return;
     if (taskSuccess[0] && taskSuccess[1]) {
         char buf1[FILENAMELEN], buf2[FILENAMELEN];
+        const char *sname = [[skinName stringByRemovingPercentEncoding] UTF8String];
         snprintf(buf1, FILENAMELEN, "%s/_temp_gif_", free42dirname);
-        snprintf(buf2, FILENAMELEN, "%s/%s.gif", free42dirname, [skinName UTF8String]);
+        snprintf(buf2, FILENAMELEN, "%s/%s.gif", free42dirname, sname);
         rename(buf1, buf2);
         snprintf(buf1, FILENAMELEN, "%s/_temp_layout_", free42dirname);
-        snprintf(buf2, FILENAMELEN, "%s/%s.layout", free42dirname, [skinName UTF8String]);
+        snprintf(buf2, FILENAMELEN, "%s/%s.layout", free42dirname, sname);
         rename(buf1, buf2);
         if (loadSkinsWindowMapped)
             show_message("Message", "Skin Loaded");
@@ -991,7 +1004,7 @@ static char version[32] = "";
     [alert addButtonWithTitle:@"OK"];
     [alert setMessageText:title];
     [alert setInformativeText:message];
-    [alert setAlertStyle:NSCriticalAlertStyle];
+    [alert setAlertStyle:NSAlertStyleCritical];
     [alert runModal];
 }
 
@@ -1008,6 +1021,7 @@ static char version[32] = "";
     NSString *name = [item title];
     [name getCString:state.skinName maxLength:FILENAMELEN encoding:NSUTF8StringEncoding];
     long w, h;
+    [calcView scaleUnitSquareToSize:CGSizeMake(1, 1)];
     skin_load(&w, &h);
     core_repaint_display();
     NSSize sz;
@@ -1017,6 +1031,7 @@ static char version[32] = "";
     NSPoint p;
     p.x = frame.origin.x;
     p.y = frame.origin.y + frame.size.height;
+    [mainWindow setContentAspectRatio:NSMakeSize(sz.width / 16384, sz.height / 16384)];
     [mainWindow setContentSize:sz];
     [mainWindow setFrameTopLeftPoint:p];
     [calcView setNeedsDisplayInRect:CGRectMake(0, 0, w, h)];
@@ -1144,9 +1159,9 @@ static void shell_keydown() {
     // EventAvail is an annoying omission of the iPhone API.)
     
     if (macro != NULL) {
-        if (macro_is_name) {
+        if (macro_type != 0) {
             we_want_cpu = true;
-            keep_running = core_keydown_command((const char *) macro, &enqueued, &repeat);
+            keep_running = core_keydown_command((const char *) macro, macro_type == 2, &enqueued, &repeat);
             we_want_cpu = false;
         } else {
             if (*macro == 0) {
@@ -1232,7 +1247,7 @@ void calc_mousedown(int x, int y) {
     if (ckey == 0) {
         skin_find_key(x, y, ann_shift != 0, &skey, &ckey);
         if (ckey != 0) {
-            macro = skin_find_macro(ckey, &macro_is_name);
+            macro = skin_find_macro(ckey, &macro_type);
             shell_keydown();
             mouse_key = 1;
         }
@@ -1251,15 +1266,39 @@ void calc_keydown(NSString *characters, NSUInteger flags, unsigned short keycode
     int len = [characters length];
     if (len == 0)
         return;
-    unsigned short c = [characters characterAtIndex:0];
     
-    bool printable = len == 1 && c >= 32 && c <= 126;
-    just_pressed_shift = false;
-    
-    bool ctrl = (flags & NSControlKeyMask) != 0;
-    bool alt = (flags & NSAlternateKeyMask) != 0;
-    bool shift = (flags & NSShiftKeyMask) != 0;
+    bool ctrl = (flags & NSEventModifierFlagControl) != 0;
+    bool alt = (flags & NSEventModifierFlagOption) != 0;
+    bool numpad = (flags & NSEventModifierFlagNumericPad) != 0;
+    bool shift = (flags & NSEventModifierFlagShift) != 0;
     bool cshift = ann_shift != 0;
+    
+    unsigned short c = [characters characterAtIndex:0];
+    bool printable = !ctrl && len == 1 && c >= 33 && c <= 126;
+
+    // TODO: If requiring 10.15 compatibility is not a problem, we
+    // can use [NSEvent charactersByApplyingModifiers] to figure out
+    // exactly which key is being pressed, and we can start properly
+    // supporting mappings like Shift-2 where we don't have to know
+    // what the shifted character of the 2 key is, or * where we don't
+    // have to know whether the * character is in a shifted and
+    // unshifted position, etc. This will allow really clean keyboard
+    // maps.
+    // Whether the other OSes support this kind of thing as well
+    // remains to be seen. Last I checked, there was no
+    // charactersByApplyingModifiers in UIEvent, so we're off to a bad
+    // start on iOS...
+    // Until those mythical better days arrive, here's a hack to make
+    // Ctrl-Shift-2, Ctrl-Shift-6, and Ctrl-Shift-Minus work.
+    
+    if (ctrl && shift)
+        switch (c) {
+            case  0: c = '2'; break; // Ctrl-@
+            case 30: c = '6'; break; // Ctrl-^
+            case 31: c = '-'; break; // Ctrl-_
+        }
+
+    just_pressed_shift = false;
     
     if (ckey != 0) {
         shell_keyup();
@@ -1267,20 +1306,19 @@ void calc_keydown(NSString *characters, NSUInteger flags, unsigned short keycode
     }
     
     bool exact;
-    unsigned char *key_macro = skin_keymap_lookup(c, printable,
-                                                  ctrl, alt, shift, cshift, &exact);
+    unsigned char *key_macro = skin_keymap_lookup(c, printable, ctrl, alt, numpad, shift, cshift, &exact);
     if (key_macro == NULL || !exact) {
         for (int i = 0; i < keymap_length; i++) {
             keymap_entry *entry = keymap + i;
             if (ctrl == entry->ctrl
-                && alt == entry->alt
-                && (printable || shift == entry->shift)
-                && c == entry->keychar) {
-                if (cshift == entry->cshift) {
+                    && alt == entry->alt
+                    && (printable || shift == entry->shift)
+                    && c == entry->keychar) {
+                if ((!numpad || shift == entry->shift) && numpad == entry->numpad && cshift == entry->cshift) {
                     key_macro = entry->macro;
                     break;
                 } else {
-                    if (cshift && key_macro == NULL)
+                    if ((numpad || !entry->numpad) && (cshift || !entry->cshift) && key_macro == NULL)
                         key_macro = entry->macro;
                 }
             }
@@ -1293,7 +1331,7 @@ void calc_keydown(NSString *characters, NSUInteger flags, unsigned short keycode
         // effect for R/S will never be overridden by the special cases
         // for the ALPHA and A..F menus.
         if (!ctrl && !alt) {
-            if (printable && core_alpha_menu()) {
+            if ((printable || c == ' ') && core_alpha_menu()) {
                 if (c >= 'a' && c <= 'z')
                     c = c + 'A' - 'a';
                 else if (c >= 'A' && c <= 'Z')
@@ -1372,7 +1410,7 @@ void calc_keydown(NSString *characters, NSUInteger flags, unsigned short keycode
                 if (c <= 37)
                     macrobuf[p++] = c;
                 else {
-                    unsigned char *m = skin_find_macro(c, &macro_is_name);
+                    unsigned char *m = skin_find_macro(c, &macro_type);
                     if (m != NULL)
                         while (*m != 0 && p < 1023)
                             macrobuf[p++] = *m++;
@@ -1382,7 +1420,7 @@ void calc_keydown(NSString *characters, NSUInteger flags, unsigned short keycode
             macro = macrobuf;
         } else {
             macro = key_macro;
-            macro_is_name = false;
+            macro_type = 0;
         }
         shell_keydown();
         mouse_key = 0;
@@ -1401,7 +1439,7 @@ void calc_keyup(NSString *characters, NSUInteger flags, unsigned short keycode) 
 
 void calc_keymodifierschanged(NSUInteger flags) {
     static bool shift_was_down = false;
-    bool shift_is_down = (flags & NSShiftKeyMask) != 0;
+    bool shift_is_down = (flags & NSEventModifierFlagShift) != 0;
     if (shift_is_down == shift_was_down)
         return;
     shift_was_down = shift_is_down;
@@ -1442,17 +1480,9 @@ int8 shell_random_seed() {
     return tv.tv_sec * 1000LL + tv.tv_usec / 1000;
 }
 
-void shell_beeper(int frequency, int duration) {
-    const int cutoff_freqs[] = { 164, 220, 243, 275, 293, 324, 366, 418, 438, 550 };
-    for (int i = 0; i < 10; i++) {
-        if (frequency <= cutoff_freqs[i]) {
-            AudioServicesPlaySystemSound(soundIDs[i]);
-            shell_delay(250);
-            return;
-        }
-    }
-    AudioServicesPlaySystemSound(soundIDs[10]);
-    shell_delay(125);
+void shell_beeper(int tone) {
+    AudioServicesPlaySystemSound(soundIDs[tone]);
+    shell_delay(tone == 10 ? 125 : 250);
 }
 
 bool shell_low_battery() {
@@ -1819,7 +1849,11 @@ static void init_shell_state(int4 version) {
             core_settings.localized_copy_paste = true;
             /* fall through */
         case 5:
-            /* current version (SHELL_VERSION = 5),
+            state.mainWindowWidth = 0;
+            state.mainWindowHeight = 0;
+            /* fall through */
+        case 6:
+            /* current version (SHELL_VERSION = 6),
              * so nothing to do here since everything
              * was initialized from the state file.
              */

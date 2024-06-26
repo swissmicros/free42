@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -39,46 +39,6 @@ phloat NEG_TINY_PHLOAT;
 phloat NAN_PHLOAT;
 phloat NAN_1_PHLOAT;
 phloat NAN_2_PHLOAT;
-
-
-/* Note: this function does not handle infinities or NaN */
-static void bcdfloat2string(short *p, char *buf) {
-    short exp = p[7];
-    bool neg = (exp & 0x8000) != 0;
-    exp = ((short) (exp << 3)) >> 3;
-    if (neg)
-        *buf++ = '-';
-    for (int i = 0; i < 7; i++) {
-        short d = p[i];
-        sprintf(buf, "%04d", d);
-        if (i == 0) {
-            for (int j = 4; j >= 2; j--)
-                buf[j] = buf[j - 1];
-            buf[1] = '.';
-            buf += 5;
-        } else
-            buf += 4;
-    }
-    sprintf(buf, "e%d", exp * 4 - 1);
-}
-
-static void bcdfloat_old2new(void *bcd) {
-    // Convert old (<= 1.4.51) BCDFloat, where NaN is signalled by
-    // (exp & 0x7FFF) == 0x3000, and Infinity is signalled by
-    // (exp & 0x7FFF) == 0x3FFF, to the new (>= 1.4.52) BCDFloat, where NaN is
-    // signalled by (exp & 0x4000) != 0 and Infinity is signalled by
-    // (exp & 0x2000) != 0 (and the exponent field is 2 bits narrower).
-    short *p = (short *) bcd;
-    short uexp = p[7] & 0x7FFF;
-    if (uexp == 0x3000)
-        // NaN
-        p[7] = 0x4000;
-    else if (uexp == 0x3FFF)
-        // Infinity
-        p[7] = (p[7] & 0x8000) | 0x2000;
-    else
-        p[7] = p[7] & 0x9FFF;
-}
 
 
 #ifdef BCD_MATH
@@ -122,8 +82,7 @@ int string2phloat(const char *buf, int buflen, phloat *d) {
         return 0;
     }
 
-    // First, convert from HP-42S format to bcdfloat format:
-    // strip thousands separators, convert comma to dot if
+    // Strip thousands separators, convert comma to dot if
     // appropriate, and convert char(24) to 'E'.
     // Also, reject numbers with more than MAX_MANT_DIGITS digits in the mantissa.
     char buf2[100];
@@ -260,6 +219,20 @@ Phloat Phloat::operator=(double d) {
 Phloat Phloat::operator=(Phloat p) {
     val = p.val;
     return *this;
+}
+
+/* public */
+void Phloat::assign17digits(double d) {
+    if (isinf(d) || isnan(d)) {
+        binary64_to_bid128(&val, &d);
+    } else {
+        char buf[25];
+        snprintf(buf, 25, "%.15e", d);
+        double d2;
+        if (sscanf(buf, "%le", &d2) != 1 || d != d2)
+            snprintf(buf, 25, "%.16e", d);
+        bid128_from_string(&val, buf);
+    }
 }
 
 /* public */
@@ -428,6 +401,12 @@ int p_isinf(Phloat p) {
 int p_isnan(Phloat p) {
     int r;
     bid128_isNaN(&r, &p.val);
+    return r;
+}
+
+int p_isnormal(Phloat p) {
+    int r;
+    bid128_isNormal(&r, &p.val);
     return r;
 }
 
@@ -767,6 +746,24 @@ Phloat fma(Phloat x, Phloat y, Phloat z) {
     return Phloat(res);
 }
 
+int ilogb(Phloat x) {
+    int res;
+    bid128_ilogb(&res, &x.val);
+    return res;
+}
+
+Phloat scalbn(Phloat x, int y) {
+    BID_UINT128 res;
+    bid128_scalbn(&res, &x.val, &y);
+    return Phloat(res);
+}
+
+Phloat copysign(Phloat x, Phloat y) {
+    BID_UINT128 res;
+    bid128_copySign(&res, &x.val, &y.val);
+    return Phloat(res);
+}
+
 Phloat operator*(int x, Phloat y) {
     BID_UINT128 xx, res;
     bid128_from_int32(&xx, &x);
@@ -814,17 +811,6 @@ bool operator==(int4 x, Phloat y) {
 
 Phloat PI("3.141592653589793238462643383279503");
 
-void update_decimal(BID_UINT128 *val) {
-    if (state_file_number_format == NUMBER_FORMAT_BID128)
-        return;
-    short *p = (short *) val;
-    if (state_file_number_format == NUMBER_FORMAT_BCD20_OLD)
-        bcdfloat_old2new(p);
-    char decstr[35];
-    bcdfloat2string(p, decstr);
-    bid128_from_string(val, decstr);
-}
-
 
 #else // BCD_MATH
 
@@ -862,7 +848,7 @@ int string2phloat(const char *buf, int buflen, phloat *d) {
      * 4: negative underflow
      * 5: other error
      */
-    char mantissa[16] = "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0";
+    char mantissa[MAX_MANT_DIGITS];
     int mant_sign = 0;
     int skipping_zeroes = 1;
     int seen_dot = 0;
@@ -876,6 +862,8 @@ int string2phloat(const char *buf, int buflen, phloat *d) {
     char sep = flags.f.decimal_point ? ',' : '.';
     int is_zero = 1;
     double res;
+
+    memset(mantissa, 0, MAX_MANT_DIGITS);
 
     for (i = 0; i < buflen; i++) {
         char c = buf[i];
@@ -908,7 +896,7 @@ int string2phloat(const char *buf, int buflen, phloat *d) {
             }
             /* Once we get here, c should be a digit */
             if (++mant_digits > MAX_MANT_DIGITS)
-                /* Too many digits! We only allow the user to enter 16 (binary) or 34 (decimal). */
+                /* Too many digits! We only allow the user to enter 17 (binary) or 34 (decimal). */
                 return 5;
             if (c == '0' && skipping_zeroes)
                 continue;
@@ -952,15 +940,15 @@ int string2phloat(const char *buf, int buflen, phloat *d) {
      * and 'mant_sign' contains the mantissa's sign.
      */
     char decstr[35];
-    char *cp = decstr;
+    int pos = 0;
     if (mant_sign)
-        *cp++ = '-';
-    for (i = 0; i < 16; i++) {
-        *cp++ = mantissa[i] + '0';
+        decstr[pos++] = '-';
+    for (i = 0; i < MAX_MANT_DIGITS; i++) {
+        decstr[pos++] = mantissa[i] + '0';
         if (i == 0)
-            *cp++ = '.';
+            decstr[pos++] = '.';
     }
-    sprintf(cp, "e%d", exp);
+    snprintf(decstr + pos, 35 - pos, "e%d", exp);
     sscanf(decstr, "%le", &res);
     if (isinf(res))
         return mant_sign ? 2 : 1;
@@ -971,55 +959,22 @@ int string2phloat(const char *buf, int buflen, phloat *d) {
 }
 
 double decimal2double(void *data, bool pin_magnitude /* = false */) {
-    if (state_file_number_format == NUMBER_FORMAT_BID128) {
-        double res;
-        BID_UINT128 *b, b2;
-        if ((((size_t) data) & 15) != 0) {
-            //b2 = *((BID_UINT128 *) data);
-            memcpy(&b2, data, 16);
-            b = &b2;
-        } else
-            b = (BID_UINT128 *) data;
-        bid128_to_binary64(&res, b);
-        if (isnan(res) || !pin_magnitude)
-            return res;
-        int r;
-        if (res == 0 && !(bid128_isZero(&r, b), r))
-            return (bid128_isSigned(&r, b), r) ? NEG_TINY_PHLOAT : POS_TINY_PHLOAT;
-        int inf = isinf(res);
-        return inf == 0 ? res : inf < 0 ? NEG_HUGE_PHLOAT : POS_HUGE_PHLOAT;
-    }
-
-    // BCD20_OLD or BCD20_NEW
-    short *p = (short *) data;
-    if (state_file_number_format == NUMBER_FORMAT_BCD20_OLD)
-        bcdfloat_old2new(p);
-
-    short exp = p[7];
-    bool neg = (exp & 0x8000) != 0;
-    double zero = 0;
-
-    if ((exp & 0x4000) != 0) // NaN
-        return 0 / zero;
-    else if ((exp & 0x2000) != 0) // -Inf or Inf
-        if (pin_magnitude)
-            return neg ? NEG_HUGE_PHLOAT : POS_HUGE_PHLOAT;
-        else
-            return neg ? -1 / zero : 1 / zero;
-
-    if (p[0] == 0)
-        return 0;
-
-    char decstr[35];
-    bcdfloat2string(p, decstr);
     double res;
-    sscanf(decstr, "%le", &res);
+    BID_UINT128 *b, b2;
+    if ((((size_t) data) & 15) != 0) {
+        //b2 = *((BID_UINT128 *) data);
+        memcpy(&b2, data, 16);
+        b = &b2;
+    } else
+        b = (BID_UINT128 *) data;
+    bid128_to_binary64(&res, b);
     if (isnan(res) || !pin_magnitude)
         return res;
-    else if (res == 0)
-        return neg ? NEG_TINY_PHLOAT : POS_TINY_PHLOAT;
-    else
-        return res;
+    int r;
+    if (res == 0 && !(bid128_isZero(&r, b), r))
+        return (bid128_isSigned(&r, b), r) ? NEG_TINY_PHLOAT : POS_TINY_PHLOAT;
+    int inf = isinf(res);
+    return inf == 0 ? res : inf < 0 ? NEG_HUGE_PHLOAT : POS_HUGE_PHLOAT;
 }
 
 
@@ -1071,14 +1026,16 @@ int phloat2string(phloat pd, char *buf, int buflen, int base_mode, int digits,
 
     /* base_mode: 0=only decimal, 1=all bases, 2=SHOW */
     int base = get_base();
-    if (base_mode == 1 && base != 10 || base_mode == 2 && base <= 8) {
+    int wsize = effective_wsize();
+    if (base_mode == 1 && base != 10
+            || base_mode == 2 && (base == 2
+                               || base == 8 && wsize > 60)) {
         uint8 n;
         int inexact, shift;
         bool too_big = false;
         char binbuf[64];
         int binbufptr = 0;
 
-        int wsize = effective_wsize();
         phloat high, low;
         if (flags.f.base_signed) {
             high = pow(phloat(2), wsize - 1);
@@ -1172,15 +1129,16 @@ int phloat2string(phloat pd, char *buf, int buflen, int base_mode, int digits,
     char decstr[50];
 
 #ifndef BCD_MATH
-    //union { double d; unsigned char c[8]; } u;
-    //u.d = to_double(pd);
     double d = to_double(pd);
-    //sprintf(decstr, "%.15e", d); // Original code
+  #if 0 // Original code
+    snprintf(decstr, 50, "%.*e", MAX_MANT_DIGITS - 2, d);
+    double d2;
+    if (sscanf(decstr, "%le", &d2) != 1 || d != d2)
+        snprintf(decstr, 50, "%.*e", MAX_MANT_DIGITS - 1, d);
+  #endif
     BID_UINT128 dd;
     binary64_to_bid128(&dd, &d);
     bid128_to_string(decstr, &dd);
-    //printf("%s\n", decstr);
-    //for(int i=0; i<8; i++) printf("%02x", u.c[i]); printf("\n");
 #else
     bid128_to_string(decstr, &pd.val);
 #endif

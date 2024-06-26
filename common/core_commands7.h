@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -71,6 +71,7 @@ int docmd_mixed(arg_struct *arg);
 int docmd_skip(arg_struct *arg);
 int docmd_cpxmat_t(arg_struct *arg);
 int docmd_type_t(arg_struct *arg);
+int docmd_csld_t(arg_struct *arg);
 
 int docmd_4stk(arg_struct *arg);
 int docmd_l4stk(arg_struct *arg);
@@ -78,6 +79,7 @@ int docmd_nstk(arg_struct *arg);
 int docmd_lnstk(arg_struct *arg);
 int docmd_depth(arg_struct *arg);
 int docmd_drop(arg_struct *arg);
+int docmd_drop_cancl(arg_struct *arg);
 int docmd_dropn(arg_struct *arg);
 int docmd_dup(arg_struct *arg);
 int docmd_dupn(arg_struct *arg);
@@ -112,11 +114,11 @@ int docmd_rev(arg_struct *arg);
 int docmd_pos(arg_struct *arg);
 int docmd_s_to_n(arg_struct *arg);
 int docmd_n_to_s(arg_struct *arg);
+int docmd_nn_to_s(arg_struct *arg);
 int docmd_c_to_n(arg_struct *arg);
 int docmd_n_to_c(arg_struct *arg);
 int docmd_list_t(arg_struct *arg);
 int docmd_newlist(arg_struct *arg);
-int docmd_newstr(arg_struct *arg);
 int docmd_to_list(arg_struct *arg);
 int docmd_from_list(arg_struct *arg);
 

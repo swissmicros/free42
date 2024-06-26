@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -103,7 +103,7 @@ int resolve_ind_arg(arg_struct *arg, char *buf, int *buflen) {
                 v = lastx;
             } else {
                 if (idx > sp)
-                    return ERR_NONEXISTENT;
+                    return ERR_STACK_DEPTH_ERROR;
                 v = stack[sp - idx];
             }
             goto finish_resolve;
@@ -467,6 +467,8 @@ bool vartype_equals(const vartype *v1, const vartype *v2) {
         case TYPE_REALMATRIX: {
             const vartype_realmatrix *x = (const vartype_realmatrix *) v1;
             const vartype_realmatrix *y = (const vartype_realmatrix *) v2;
+            if (x->array == y->array)
+                return true;
             int4 sz, i;
             if (x->rows != y->rows || x->columns != y->columns)
                 return false;
@@ -493,6 +495,8 @@ bool vartype_equals(const vartype *v1, const vartype *v2) {
         case TYPE_COMPLEXMATRIX: {
             const vartype_complexmatrix *x = (const vartype_complexmatrix *) v1;
             const vartype_complexmatrix *y = (const vartype_complexmatrix *) v2;
+            if (x->array == y->array)
+                return true;
             int4 sz, i;
             if (x->rows != y->rows || x->columns != y->columns)
                 return false;
@@ -510,6 +514,8 @@ bool vartype_equals(const vartype *v1, const vartype *v2) {
         case TYPE_LIST: {
             const vartype_list *x = (const vartype_list *) v1;
             const vartype_list *y = (const vartype_list *) v2;
+            if (x->array == y->array)
+                return true;
             if (x->size != y->size)
                 return false;
             int4 sz = x->size;
@@ -528,7 +534,10 @@ bool vartype_equals(const vartype *v1, const vartype *v2) {
 
 int anum(const char *text, int len, phloat *res) {
     char buf[50];
+    int src_pos = 0;
+    retry:
     bool have_mant = false;
+    bool have_mant_digits = false;
     bool neg_mant = false;
     bool have_radix = false;
     bool have_exp = false;
@@ -536,7 +545,7 @@ int anum(const char *text, int len, phloat *res) {
     int exp_pos = 0;
     int buf_pos = 0;
     buf[buf_pos++] = '+';
-    for (int src_pos = 0; src_pos < len; src_pos++) {
+    for (; src_pos < len; src_pos++) {
         char c = text[src_pos];
         if (!flags.f.decimal_point)
             if (c == '.')
@@ -551,6 +560,7 @@ int anum(const char *text, int len, phloat *res) {
             } else if (c >= '0' && c <= '9') {
                 buf[buf_pos++] = c;
                 have_mant = true;
+                have_mant_digits = true;
             } else if (c == '.') {
                 buf[buf_pos++] = '0';
                 buf[buf_pos++] = '.';
@@ -564,12 +574,15 @@ int anum(const char *text, int len, phloat *res) {
                 neg_mant = !neg_mant;
             } else if (c >= '0' && c <= '9') {
                 buf[buf_pos++] = c;
+                have_mant_digits = true;
             } else if (c == '.') {
                 if (!have_radix) {
                     buf[buf_pos++] = c;
                     have_radix = true;
                 }
             } else if (c == 'E' || c == 'e' || c == 24) {
+                if (!have_mant_digits)
+                    goto retry;
                 buf[buf_pos++] = 'e';
                 exp_pos = buf_pos;
                 buf[buf_pos++] = '+';
@@ -577,6 +590,8 @@ int anum(const char *text, int len, phloat *res) {
             } else if (c == '.') {
                 /* ignore */
             } else {
+                if (!have_mant_digits)
+                    goto retry;
                 break;
             }
         } else {
@@ -591,7 +606,7 @@ int anum(const char *text, int len, phloat *res) {
             }
         }
     }
-    if (!have_mant)
+    if (!have_mant_digits)
         return false;
     if (neg_mant)
         buf[0] = '-';
@@ -765,6 +780,8 @@ int virtual_flag_handler(int flagop, int flagnum) {
 }
 
 int get_base() {
+    if (flags.f.prgm_mode)
+        return 10;
     int base = 0;
     if (flags.f.base_bit0) base += 1;
     if (flags.f.base_bit1) base += 2;
@@ -816,6 +833,8 @@ int base_range_check(int8 *n, bool force_wrap) {
                 *n &= (1ULL << wsize) - 1;
         }
     } else if (flags.f.base_signed) {
+        if (wsize == 64)
+            return ERR_NONE;
         int8 high = 1LL << (wsize - 1);
         int8 low = -high;
         high--;
@@ -1271,8 +1290,10 @@ phloat cos_grad(phloat x) {
 }
 
 int dimension_array(const char *name, int namelen, int4 rows, int4 columns, bool check_matedit) {
+    int idx = lookup_var(name, namelen);
     if (check_matedit
             && (matedit_mode == 1 || matedit_mode == 3)
+            && idx != -1 && vars[idx].level == matedit_level
             && string_equals(name, namelen, matedit_name, matedit_length)) {
         if (matedit_mode == 1)
             matedit_i = matedit_j = 0;
@@ -1280,13 +1301,14 @@ int dimension_array(const char *name, int namelen, int4 rows, int4 columns, bool
             return ERR_RESTRICTED_OPERATION;
     }
 
-    vartype *matrix = recall_var(name, namelen);
+    vartype *matrix = idx == -1 ? NULL : vars[idx].value;
     /* NOTE: 'size' will only ever be 0 when we're called from
      * docmd_size(); docmd_dim() does not allow 0-size matrices.
      */
     int4 size = rows * columns;
     if (matrix == NULL || (matrix->type != TYPE_REALMATRIX
-                        && matrix->type != TYPE_COMPLEXMATRIX)) {
+                        && matrix->type != TYPE_COMPLEXMATRIX
+                        && matrix->type != TYPE_LIST)) {
         vartype *newmatrix;
         if (size == 0)
             return ERR_NONE;
@@ -1416,7 +1438,7 @@ int dimension_array_ref(vartype *matrix, int4 rows, int4 columns) {
             oldmatrix->columns = columns;
             return ERR_NONE;
         }
-    } else /* matrix->type == TYPE_COMPLEXMATRIX */ {
+    } else if (matrix->type == TYPE_COMPLEXMATRIX) {
         vartype_complexmatrix *oldmatrix = (vartype_complexmatrix *) matrix;
         if (oldmatrix->rows == rows && oldmatrix->columns == columns)
             return ERR_NONE;
@@ -1465,6 +1487,81 @@ int dimension_array_ref(vartype *matrix, int4 rows, int4 columns) {
             oldmatrix->array = new_array;
             oldmatrix->rows = rows;
             oldmatrix->columns = columns;
+            return ERR_NONE;
+        }
+    } else /* matrix->type == TYPE_LIST */ {
+        if (columns != 1)
+            return ERR_DIMENSION_ERROR;
+        vartype_list *oldlist = (vartype_list *) matrix;
+        if (oldlist->size == size)
+            return ERR_NONE;
+        if (oldlist->array->refcount == 1) {
+            /* Since there are no shared references to this array,
+             * I can modify it in place using a realloc().
+             */
+            if (oldlist->size > size) {
+                for (int4 i = size; i < oldlist->size; i++) {
+                    free_vartype(oldlist->array->data[i]);
+                    oldlist->array->data[i] = NULL;
+                }
+                vartype **new_data = (vartype **) realloc(oldlist->array->data, size * sizeof(vartype *));
+                /* Note: If the realloc() fails to shrink the array, we just keep
+                 * using the existing one, basically pretending that it succeeded.
+                 */
+                if (new_data != NULL)
+                    oldlist->array->data = new_data;
+                oldlist->size = size;
+                return ERR_NONE;
+            } else {
+                vartype **new_data = (vartype **) realloc(oldlist->array->data, size * sizeof(vartype *));
+                if (new_data == NULL)
+                    return ERR_INSUFFICIENT_MEMORY;
+                for (int4 i = oldlist->size; i < size; i++) {
+                    new_data[i] = new_real(0);
+                    if (new_data[i] == NULL) {
+                        /* Argh. Roll back everything and give up. */
+                        for (int4 j = oldlist->size; j < i; j++) {
+                            free_vartype(new_data[j]);
+                            new_data[j] = NULL;
+                        }
+                        vartype **reverted_data = (vartype **) realloc(new_data, oldlist->size * sizeof(vartype *));
+                        oldlist->array->data = reverted_data == NULL ? new_data : reverted_data;
+                        return ERR_INSUFFICIENT_MEMORY;
+                    }
+                }
+                oldlist->array->data = new_data;
+                oldlist->size = size;
+                return ERR_NONE;
+            }
+        } else {
+            /* There are shared references to the list. This means I
+             * can't realloc() it; I'm going to allocate a brand-new instance,
+             * and copy the contents from the old instance. I don't use
+             * disentangle(); that's only useful if you want to eliminate
+             * shared references without resizing.
+             */
+            list_data *new_array = (list_data *) malloc(sizeof(list_data));
+            if (new_array == NULL)
+                return ERR_INSUFFICIENT_MEMORY;
+            new_array->data = (vartype **) malloc(size * sizeof(vartype *));
+            if (new_array->data == NULL) {
+                free(new_array);
+                return ERR_INSUFFICIENT_MEMORY;
+            }
+            for (int4 i = 0; i < size; i++) {
+                new_array->data[i] = i < oldlist->size ? dup_vartype(oldlist->array->data[i]) : new_real(0);
+                if (new_array->data[i] == NULL) {
+                    for (int4 j = 0; j < i; j++)
+                        free_vartype(new_array->data[j]);
+                    free(new_array->data);
+                    free(new_array);
+                    return ERR_INSUFFICIENT_MEMORY;
+                }
+            }
+            new_array->refcount = 1;
+            oldlist->array->refcount--;
+            oldlist->array = new_array;
+            oldlist->size = size;
             return ERR_NONE;
         }
     }
@@ -1846,4 +1943,79 @@ int ip2revstring(phloat d, char *buf, int buflen) {
     if (s == -1 && bufpos < buflen)
         buf[bufpos++] = '-';
     return bufpos;
+}
+
+int matedit_get(vartype **res) {
+    if (matedit_mode == 0)
+        return ERR_NONEXISTENT;
+
+    vartype *m = NULL;
+    if (matedit_mode == 2)
+        m = matedit_x;
+    else
+        for (int i = vars_count - 1; i >= 0; i--) {
+            var_struct *lv = vars + i;
+            if ((lv->flags & VAR_PRIVATE) != 0)
+                continue;
+            if (matedit_level != -1 && lv->level < matedit_level)
+                return ERR_NONEXISTENT;
+            if (lv->level == matedit_level && string_equals(matedit_name, matedit_length, lv->name, lv->length)) {
+                m = lv->value;
+                break;
+            }
+        }
+    int err = ERR_NONEXISTENT;
+    if (m == NULL) {
+        bad_matrix:
+        if (matedit_mode == 2 || matedit_mode == 3)
+            leave_matrix_editor();
+        return err;
+    }
+
+    for (int i = 0; i < matedit_stack_depth; i++) {
+        if (m->type != TYPE_LIST) {
+            err = i == 0 ? ERR_INVALID_TYPE : ERR_INVALID_DATA;
+            goto bad_matrix;
+        }
+        vartype_list *list = (vartype_list *) m;
+        if (matedit_stack[i] >= list->size) {
+            err = ERR_INVALID_DATA;
+            goto bad_matrix;
+        }
+        m = list->array->data[matedit_stack[i]];
+    }
+
+    if (m->type != TYPE_REALMATRIX && m->type != TYPE_COMPLEXMATRIX && m->type != TYPE_LIST) {
+        err = matedit_stack_depth == 0 ? ERR_INVALID_TYPE : ERR_INVALID_DATA;
+        goto bad_matrix;
+    }
+
+    // The following checks *should* be unnecessary, we're already preventing
+    // those scenarios. Or that's what we're trying, anyway...
+    if (m->type == TYPE_REALMATRIX) {
+        vartype_realmatrix *rm = (vartype_realmatrix *) m;
+        if (matedit_i >= rm->rows || matedit_j >= rm->columns)
+            matedit_i = matedit_j = 0;
+    } else if (m->type == TYPE_COMPLEXMATRIX) {
+        vartype_complexmatrix *cm = (vartype_complexmatrix *) m;
+        if (matedit_i >= cm->rows || matedit_j >= cm->columns)
+            matedit_i = matedit_j = 0;
+    } else { // m->type == TYPE_LIST
+        vartype_list *list = (vartype_list *) m;
+        if (matedit_i >= list->size)
+            matedit_i = 0;
+        matedit_j = 0;
+    }
+
+    *res = m;
+    return ERR_NONE;
+}
+
+void leave_matrix_editor() {
+    set_appmenu_exitcallback(0);
+    set_menu(MENULEVEL_APP, MENU_NONE);
+    matedit_mode = 0;
+    free(matedit_stack);
+    matedit_stack = NULL;
+    matedit_stack_depth = 0;
 }

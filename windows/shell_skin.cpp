@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -22,11 +22,13 @@
 #include <math.h>
 
 #include "shell_skin.h"
+#include "shell_main.h"
 #include "shell_loadimage.h"
 #include "core_main.h"
 
 #include <gdiplus.h>
 #include <gdiplusgraphics.h>
+#include <uxtheme.h>
 using namespace Gdiplus;
 
 
@@ -50,11 +52,14 @@ struct SkinKey {
 };
 
 #define SKIN_MAX_MACRO_LENGTH 63
+#define SKIN_MAX_HALF_MACRO_LENGTH ((SKIN_MAX_MACRO_LENGTH - 1) / 2)
 
 struct SkinMacro {
     int code;
     bool isName;
-    unsigned char macro[SKIN_MAX_MACRO_LENGTH + 1];
+    char secondType; // 0:none, 1:name, 2:text
+    unsigned char macro[SKIN_MAX_HALF_MACRO_LENGTH + 1];
+    unsigned char macro2[SKIN_MAX_HALF_MACRO_LENGTH + 1];
     SkinMacro *next;
 };
 
@@ -84,10 +89,10 @@ static int skin_width, skin_height;
 static int skin_ncolors;
 static const SkinColor *skin_colors = NULL;
 static int skin_y;
-static unsigned char *skin_bitmap = NULL;
+static unsigned char *skin_data = NULL;
 static int skin_bytesperline;
-static BITMAPV4HEADER *skin_header = NULL;
-static HBITMAP skin_dib = NULL;
+static BITMAPINFOHEADER *skin_header = NULL;
+static Gdiplus::Bitmap *skin_bitmap = NULL;
 static Gdiplus::Bitmap *disp_bitmap = NULL;
 static unsigned char *disp_bits = NULL;
 static int disp_bytesperline;
@@ -96,6 +101,9 @@ static keymap_entry *keymap = NULL;
 static int keymap_length = 0;
 
 static bool display_enabled = true;
+
+static HWND window;
+static int window_width, window_height;
 
 
 /**********************************************************/
@@ -135,6 +143,7 @@ keymap_entry *parse_keymap_entry(char *line, int lineno) {
         char *tok;
         bool ctrl = false;
         bool alt = false;
+        bool extended = false;
         bool shift = false;
         bool cshift = false;
         int keycode = 0;
@@ -154,6 +163,8 @@ keymap_entry *parse_keymap_entry(char *line, int lineno) {
                 ctrl = true;
             else if (_stricmp(tok, "alt") == 0)
                 alt = true;
+            else if (_stricmp(tok, "extended") == 0)
+                extended = true;
             else if (_stricmp(tok, "shift") == 0)
                 shift = true;
             else if (_stricmp(tok, "cshift") == 0)
@@ -194,6 +205,7 @@ keymap_entry *parse_keymap_entry(char *line, int lineno) {
 
         entry.ctrl = ctrl;
         entry.alt = alt;
+        entry.extended = extended;
         entry.shift = shift;
         entry.cshift = cshift;
         entry.keycode = keycode;
@@ -296,6 +308,15 @@ static int skin_gets(char *buf, int buflen) {
 static void skin_close() {
     if (external_file != NULL)
         fclose(external_file);
+}
+
+static void skin_invalidate(int left, int top, int right, int bottom) {
+    RECT r;
+    r.left = (int) (((double) left) * window_width / skin.width);
+    r.top = (int) (((double) top) * window_height / skin.height);
+    r.right = (int) ceil(((double) right) * window_width / skin.width);
+    r.bottom = (int) ceil(((double) bottom) * window_height / skin.height);
+    InvalidateRect(window, &r, FALSE);
 }
 
 void skin_load(wchar_t *skinname, const wchar_t *basedir, long *width, long *height) {
@@ -401,11 +422,11 @@ void skin_load(wchar_t *skinname, const wchar_t *basedir, long *width, long *hei
         } else if (_strnicmp(line, "macro:", 6) == 0) {
             char *quot1 = strchr(line + 6, '"');
             if (quot1 != NULL) {
-                char *quot2 = strrchr(line + 6, '"');
-                if (quot2 != quot1) {
+                char *quot2 = strchr(quot1 + 1, '"');
+                if (quot2 != NULL) {
                     long len = quot2 - quot1 - 1;
-                    if (len > SKIN_MAX_MACRO_LENGTH)
-                        len = SKIN_MAX_MACRO_LENGTH;
+                    if (len > SKIN_MAX_HALF_MACRO_LENGTH)
+                        len = SKIN_MAX_HALF_MACRO_LENGTH;
                     int n;
                     if (sscanf(line + 6, "%d", &n) == 1 && n >= 38 && n <= 255) {
                         SkinMacro *macro = (SkinMacro *) malloc(sizeof(SkinMacro));
@@ -414,6 +435,21 @@ void skin_load(wchar_t *skinname, const wchar_t *basedir, long *width, long *hei
                         macro->isName = true;
                         memcpy(macro->macro, quot1 + 1, len);
                         macro->macro[len] = 0;
+                        macro->secondType = 0;
+                        quot1 = strchr(quot2 + 1, '"');
+                        if (quot1 == NULL)
+                            quot1 = strchr(quot2 + 1, '\'');
+                        if (quot1 != NULL) {
+                            quot2 = strchr(quot1 + 1, *quot1);
+                            if (quot2 != NULL) {
+                                len = quot2 - quot1 - 1;
+                                if (len > SKIN_MAX_HALF_MACRO_LENGTH)
+                                    len = SKIN_MAX_HALF_MACRO_LENGTH;
+                                memcpy(macro->macro2, quot1 + 1, len);
+                                macro->macro2[len] = 0;
+                                macro->secondType = *quot1 == '"' ? 1 : 2;
+                            }
+                        }
                         macro->next = macrolist;
                         macrolist = macro;
                     }
@@ -517,12 +553,14 @@ void skin_load(wchar_t *skinname, const wchar_t *basedir, long *width, long *hei
     /****************************/
 
     if (disp_bits == NULL) {
-        // Allocating a bitmap with two pixels of extra room around the edges;
-        // this is to avoid sharp lines when blurriness bleeds across the edge.
-        disp_bytesperline = (((131 + 4) + 31) >> 3) & ~3;
-        size = disp_bytesperline * (16 + 4);
+        // Allocating a bitmap with 4x4 pixels for each calculator pixel, and
+        // margins of four pixels around the edges. The upscaling is done to
+        // reduce blurriness when scaling, and the margin is to avoid edge
+        // effects when blurring runs across the edge.
+        disp_bytesperline = (((131 * 4 + 8) + 31) >> 3) & ~3;
+        size = disp_bytesperline * (16 * 4 + 8);
         disp_bits = (unsigned char *) malloc(size);
-        disp_bitmap = new Gdiplus::Bitmap(131 + 4, 16 + 4, disp_bytesperline, PixelFormat1bppIndexed, disp_bits);
+        disp_bitmap = new Gdiplus::Bitmap(131 * 4 + 8, 16 * 4 + 8, disp_bytesperline, PixelFormat1bppIndexed, disp_bits);
         memset(disp_bits, 0, size);
     }
     struct {
@@ -539,12 +577,12 @@ void skin_load(wchar_t *skinname, const wchar_t *basedir, long *width, long *hei
 int skin_init_image(int type, int ncolors, const SkinColor *colors,
                     int width, int height) {
     if (skin_bitmap != NULL) {
-        free(skin_bitmap);
+        delete skin_bitmap;
         skin_bitmap = NULL;
     }
-    if (skin_dib != NULL) {
-        DeleteObject(skin_dib);
-        skin_dib = NULL;
+    if (skin_data != NULL) {
+        free(skin_data);
+        skin_data = NULL;
     }
     if (skin_header != NULL) {
         free(skin_header);
@@ -570,16 +608,16 @@ int skin_init_image(int type, int ncolors, const SkinColor *colors,
             return 0;
     }
 
-    skin_bitmap = (unsigned char *) malloc(skin_bytesperline * height);
+    skin_data = (unsigned char *) malloc(skin_bytesperline * height);
     // TODO - handle memory allocation failure
     skin_width = width;
     skin_height = height;
     skin_y = 0;
-    return skin_bitmap != NULL;
+    return skin_data != NULL;
 }
 
 void skin_put_pixels(unsigned const char *data) {
-    unsigned char *dst = skin_bitmap + skin_y * skin_bytesperline;
+    unsigned char *dst = skin_data + skin_y * skin_bytesperline;
     if (skin_type == IMGTYPE_MONO) {
         int i;
         for (i = 0; i < skin_bytesperline; i++) {
@@ -602,10 +640,10 @@ void skin_put_pixels(unsigned const char *data) {
 }
 
 void skin_finish_image() {
-    BITMAPV4HEADER *bh;
+    BITMAPINFOHEADER *bh;
     
     if (skin_type == IMGTYPE_MONO) {
-        skin_dib = CreateBitmap(skin_width, skin_height, 1, 1, skin_bitmap);
+        skin_bitmap = new Gdiplus::Bitmap(skin_width, skin_height, skin_bytesperline, PixelFormat1bppIndexed, skin_data);
         skin_header = NULL;
         return;
     }
@@ -613,7 +651,7 @@ void skin_finish_image() {
     if (skin_type == IMGTYPE_COLORMAPPED) {
         RGBQUAD *cmap;
         int i;
-        bh = (BITMAPV4HEADER *) malloc(sizeof(BITMAPV4HEADER) + skin_ncolors * sizeof(RGBQUAD));
+        bh = (BITMAPINFOHEADER *) malloc(sizeof(BITMAPINFOHEADER) + skin_ncolors * sizeof(RGBQUAD));
         // TODO - handle memory allocation failure
         cmap = (RGBQUAD *) (bh + 1);
         for (i = 0; i < skin_ncolors; i++) {
@@ -625,7 +663,7 @@ void skin_finish_image() {
     } else if (skin_type == IMGTYPE_GRAY) {
         RGBQUAD *cmap;
         int i;
-        bh = (BITMAPV4HEADER *) malloc(sizeof(BITMAPV4HEADER) + 256 * sizeof(RGBQUAD));
+        bh = (BITMAPINFOHEADER *) malloc(sizeof(BITMAPINFOHEADER) + 256 * sizeof(RGBQUAD));
         // TODO - handle memory allocation failure
         cmap = (RGBQUAD *) (bh + 1);
         for (i = 0; i < 256; i++) {
@@ -633,111 +671,144 @@ void skin_finish_image() {
             cmap[i].rgbReserved = 0;
         }
     } else
-        bh = (BITMAPV4HEADER *) malloc(sizeof(BITMAPV4HEADER));
+        bh = (BITMAPINFOHEADER *) malloc(sizeof(BITMAPINFOHEADER));
         // TODO - handle memory allocation failure
 
-    bh->bV4Size = sizeof(BITMAPV4HEADER);
-    bh->bV4Width = skin_width;
-    bh->bV4Height = -skin_height;
-    bh->bV4Planes = 1;
+    bh->biSize = sizeof(BITMAPINFOHEADER);
+    bh->biWidth = skin_width;
+    bh->biHeight = -skin_height;
+    bh->biPlanes = 1;
     switch (skin_type) {
         case IMGTYPE_MONO:
-            bh->bV4BitCount = 1;
-            bh->bV4ClrUsed = 0;
+            bh->biBitCount = 1;
             break;
         case IMGTYPE_GRAY:
-            bh->bV4BitCount = 8;
-            bh->bV4ClrUsed = 256;
+            bh->biBitCount = 8;
             break;
         case IMGTYPE_COLORMAPPED:
-            bh->bV4BitCount = 8;
-            bh->bV4ClrUsed = skin_ncolors;
+            bh->biBitCount = 8;
             break;
         case IMGTYPE_TRUECOLOR:
-            bh->bV4BitCount = 24;
-            bh->bV4ClrUsed = 0;
+            bh->biBitCount = 24;
             break;
     }
-    bh->bV4V4Compression = BI_RGB;
-    bh->bV4SizeImage = skin_bytesperline * skin_height;
-    bh->bV4XPelsPerMeter = 2835;
-    bh->bV4YPelsPerMeter = 2835;
-    bh->bV4ClrImportant = 0;
-    /* bh->bV4RedMask, bh->bV4GreenMask, bh->bV4BlueMask, bh->bV4AlphaMask: unused */
-    //bh->bV4CSType = LCS_WINDOWS_COLOR_SPACE;
-    bh->bV4CSType = LCS_CALIBRATED_RGB;
-    /* bh->bV4Endpoints, bh->bV4GammaRed, bh->bV4GammaGreen, bh->bV4GammaBlue: unused */
+    bh->biCompression = BI_RGB;
+    bh->biSizeImage = skin_bytesperline * skin_height;
+    bh->biXPelsPerMeter = 2835;
+    bh->biYPelsPerMeter = 2835;
+    bh->biClrUsed = 0;
+    bh->biClrImportant = 0;
     
     skin_header = bh;
+
+    skin_bitmap = new Gdiplus::Bitmap((BITMAPINFO *) bh, skin_data);
 }
 
-static int make_dib(HDC hdc) {
-    void *bits;
-    if (skin_type == IMGTYPE_MONO) {
-        /* Not using a DIB, but a regular monochrome bitmap;
-         * this bitmap was already created in skin_finish_image(),
-         * since, unlike a DIB, no DC is required to create it.
-         */
-        return 1;
-    }
-    if (skin_header == NULL)
-        return 0;
-    if (skin_dib == NULL) {
-        skin_dib = CreateDIBSection(hdc, (BITMAPINFO *) skin_header, DIB_RGB_COLORS, &bits, NULL, 0);
-        if (skin_dib == NULL)
-            return 0;
-        memcpy(bits, skin_bitmap, skin_bytesperline * skin_height);
-        free(skin_bitmap);
-        skin_bitmap = NULL;
-    }
-    return 1;
+static bool need_to_paint_only_display(RECT* r) {
+    int d_left = (int) (((double) display_loc.x) * window_width / skin.width);
+    int d_top = (int) (((double) display_loc.y) * window_height / skin.height);
+    int d_right = (int) ceil((display_loc.x + 131 * display_scale_x) * window_width / skin.width);
+    int d_bottom = (int) ceil((display_loc.y + 16 * display_scale_y) * window_height / skin.height);
+    return r->left >= d_left
+        && r->top >= d_top
+        && r->right <= d_right
+        && r->bottom <= d_bottom;
 }
 
-void skin_repaint(HDC hdc, HDC memdc) {
-    COLORREF old_bg, old_fg;
-    if (!make_dib(memdc))
-        return;
-    SelectObject(memdc, skin_dib);
-    if (skin_type == IMGTYPE_MONO) {
-        old_bg = SetBkColor(hdc, 0x00ffffff);
-        old_fg = SetTextColor(hdc, 0x00000000);
-    }
-    BitBlt(hdc, 0, 0, skin.width, skin.height, memdc, skin.x, skin.y, SRCCOPY);
-    if (skin_type == IMGTYPE_MONO) {
-        SetBkColor(hdc, old_bg);
-        SetTextColor(hdc, old_fg);
-    }
+static void skin_repaint_annunciator(Graphics *g, int which) {
+    SkinAnnunciator* ann = annunciators + (which - 1);
+    g->DrawImage(skin_bitmap, ann->disp_rect.x, ann->disp_rect.y, ann->src.x, ann->src.y, ann->disp_rect.width, ann->disp_rect.height, Gdiplus::UnitPixel);
 }
 
-void skin_repaint_annunciator(HDC hdc, HDC memdc, int which) {
+void skin_repaint() {
+    PAINTSTRUCT ps;
+    HDC hdc = BeginPaint(window, &ps);
+    RECT rc;
+    GetClientRect(window, &rc);
+    HDC memdc;
+    HPAINTBUFFER hbuf = BeginBufferedPaint(hdc, &rc, BPBF_COMPATIBLEBITMAP, NULL, &memdc);
+    Graphics g(memdc);
+    g.ScaleTransform((Gdiplus::REAL) (((double) window_width) / skin.width),
+                     (Gdiplus::REAL) (((double) window_height) / skin.height));
+
+    bool only_disp = need_to_paint_only_display(&ps.rcPaint);
+    if (!only_disp) {
+        g.SetInterpolationMode(InterpolationModeBilinear);
+        g.DrawImage(skin_bitmap, 0, 0, 0, 0, skin.width, skin.height, Gdiplus::UnitPixel);
+    }
+
+    Region oldClip;
+    g.GetClip(&oldClip);
+    g.SetClip(Rect(display_loc.x - 1, display_loc.y - 1, ((int) ceil(display_scale_x * 131)) + 2, ((int) ceil(display_scale_y * 16)) + 2));
+    Matrix oldTransform;
+    g.GetTransform(&oldTransform);
+    g.TranslateTransform((REAL) display_loc.x, (REAL) display_loc.y);
+    g.ScaleTransform((REAL) display_scale_x / 4, (REAL) display_scale_y / 4);
+    if (display_scale_int && skin.width == window_width && skin.height == window_height)
+        g.SetInterpolationMode(InterpolationModeNearestNeighbor);
+    else
+        g.SetInterpolationMode(InterpolationModeBilinear);
+    if (skey >= -7 && skey <= -2) {
+        int key = -1 - skey;
+        int vo = (16 - 7) + 1;
+        int ho = ((key - 1) * 22) + 1;
+        for (int i = 0; i < 2; i++) {
+            for (int v = 0; v < 7; v++)
+                for (int h = 0; h < 22 - 1; h++) {
+                    int baddr = (v + vo) * 4 * disp_bytesperline + ((h + ho) >> 1);
+                    int newb = disp_bits[baddr] ^= ((h + ho) & 1) == 0 ? 240 : 15;
+                    for (int i = 0; i < 4; i++) {
+                        disp_bits[baddr] = newb;
+                        baddr += disp_bytesperline;
+                    }
+                }
+            if (i == 0)
+                g.DrawImage(disp_bitmap, (REAL) -4.5, (REAL) -4.5);
+        }
+    } else {
+        g.DrawImage(disp_bitmap, (REAL) -4.5, (REAL) -4.5);
+    }
+    g.SetTransform(&oldTransform);
+    g.SetClip(&oldClip);
+
+
+    if (!only_disp) {
+        g.SetInterpolationMode(InterpolationModeBilinear);
+        if (ann_updown)
+            skin_repaint_annunciator(&g, 1);
+        if (ann_shift)
+            skin_repaint_annunciator(&g, 2);
+        if (ann_print)
+            skin_repaint_annunciator(&g, 3);
+        if (ann_run)
+            skin_repaint_annunciator(&g, 4);
+        if (ann_battery)
+            skin_repaint_annunciator(&g, 5);
+        if (ann_g)
+            skin_repaint_annunciator(&g, 6);
+        if (ann_rad)
+            skin_repaint_annunciator(&g, 7);
+        if (skey >= 0 && skey < nkeys) {
+            SkinKey* key = keylist + skey;
+            g.DrawImage(skin_bitmap, key->disp_rect.x, key->disp_rect.y, key->src.x, key->src.y,
+                        key->disp_rect.width, key->disp_rect.height, Gdiplus::UnitPixel);
+        }
+    }
+    EndBufferedPaint(hbuf, TRUE);
+    EndPaint(window, &ps);
+}
+
+void skin_invalidate_annunciator(int which) {
     if (!display_enabled)
         return;
     SkinAnnunciator *ann = annunciators + (which - 1);
-    COLORREF old_bg, old_fg;
-    if (!make_dib(memdc))
-        return;
-    SelectObject(memdc, skin_dib);
-    if (skin_type == IMGTYPE_MONO) {
-        old_bg = SetBkColor(hdc, 0x00ffffff);
-        old_fg = SetTextColor(hdc, 0x00000000);
-    }
-    BitBlt(hdc, ann->disp_rect.x, ann->disp_rect.y, ann->disp_rect.width, ann->disp_rect.height,
-           memdc, ann->src.x, ann->src.y, SRCCOPY);
-    if (skin_type == IMGTYPE_MONO) {
-        SetBkColor(hdc, old_bg);
-        SetTextColor(hdc, old_fg);
-    }
-}
-
-void skin_update_annunciator(HWND hWnd, int which) {
-    SkinAnnunciator *ann = annunciators + (which - 1);
-    RECT r;
-    SetRect(&r, ann->disp_rect.x, ann->disp_rect.y,
-                ann->disp_rect.x + ann->disp_rect.width, ann->disp_rect.y + ann->disp_rect.height);
-    InvalidateRect(hWnd, &r, FALSE);
+    skin_invalidate(ann->disp_rect.x, ann->disp_rect.y,
+        ann->disp_rect.x + ann->disp_rect.width, ann->disp_rect.y + ann->disp_rect.height);
 }
 
 void skin_find_key(int x, int y, bool cshift, int *skey, int *ckey) {
+    x = (int) (((double) x) * skin.width / window_width);
+    y = (int) (((double) y) * skin.height / window_height);
     int i;
     if (core_menu()
             && x >= display_loc.x
@@ -772,19 +843,24 @@ int skin_find_skey(int ckey) {
     return -1;
 }
 
-unsigned char *skin_find_macro(int ckey, bool *is_name) {
+unsigned char *skin_find_macro(int ckey, int *type) {
     SkinMacro *m = macrolist;
     while (m != NULL) {
         if (m->code == ckey) {
-            *is_name = m->isName;
-            return m->macro;
+            if (!m->isName || m->secondType == 0 || !core_alpha_menu()) {
+                *type = m->isName ? 1 : 0;
+                return m->macro;
+            } else {
+                *type = m->secondType;
+                return m->macro2;
+            }
         }
         m = m->next;
     }
     return NULL;
 }
 
-unsigned char *skin_keymap_lookup(int keycode, bool ctrl, bool alt, bool shift, bool cshift, bool *exact) {
+unsigned char *skin_keymap_lookup(int keycode, bool ctrl, bool alt, bool extended, bool shift, bool cshift, bool *exact) {
     int i;
     unsigned char *macro = NULL;
     for (i = 0; i < keymap_length; i++) {
@@ -793,11 +869,11 @@ unsigned char *skin_keymap_lookup(int keycode, bool ctrl, bool alt, bool shift, 
                 && ctrl == entry->ctrl
                 && alt == entry->alt
                 && shift == entry->shift) {
-            if (cshift == entry->cshift) {
+            if (extended == entry->extended && cshift == entry->cshift) {
                 *exact = true;
                 return entry->macro;
             }
-            if (cshift)
+            if ((extended || !entry->extended) && (cshift || !entry->cshift))
                 macro = entry->macro;
         }
     }
@@ -805,107 +881,74 @@ unsigned char *skin_keymap_lookup(int keycode, bool ctrl, bool alt, bool shift, 
     return macro;
 }
 
-void skin_repaint_key(HDC hdc, HDC memdc, int key, int state) {
-    SkinKey *k;
-    COLORREF old_bg, old_fg;
-
+void skin_invalidate_key(int key) {
     if (key >= -7 && key <= -2) {
         /* Soft key */
-        if (!display_enabled)
-            // Should never happen -- the display is only disabled during macro
-            // execution, and softkey events should be impossible to generate
-            // in that state. But, just staying on the safe side.
-            return;
         key = -1 - key;
-        int vo = 16 - 5;
-        int ho = (key - 1) * 22 + 2;
-        for (int i = 0; i < 2; i++) {
-            if (state) {
-                for (int v = 0; v < 7; v++)
-                    for (int h = 0; h < 22 - 1; h++)
-                        disp_bits[(v + vo) * disp_bytesperline + ((h + ho) >> 3)] ^= 128 >> ((h + ho) & 7);
-            }
-            if (i == 0)
-                skin_repaint_display(hdc);
-        }
+        double left = display_loc.x + ((key - 1) * 22 - 1) * display_scale_x;
+        double top = display_loc.y + (9 - 1) * display_scale_y;
+        double right = left + (21 + 2) * display_scale_x;
+        double bottom = top + (7 + 2) * display_scale_y;
+        skin_invalidate((int) left, (int) top, (int) ceil(right), (int) ceil(bottom));
+    } else if (key < 0 || key >= nkeys) {
         return;
-    }
-
-    if (key < 0 || key >= nkeys)
-        return;
-    if (!make_dib(memdc))
-        return;
-    SelectObject(memdc, skin_dib);
-    k = keylist + key;
-    if (skin_type == IMGTYPE_MONO) {
-        old_bg = SetBkColor(hdc, 0x00ffffff);
-        old_fg = SetTextColor(hdc, 0x00000000);
-    }
-    if (state)
-        BitBlt(hdc, k->disp_rect.x, k->disp_rect.y, k->disp_rect.width, k->disp_rect.height,
-               memdc, k->src.x, k->src.y, SRCCOPY);
-    else
-        BitBlt(hdc, k->disp_rect.x, k->disp_rect.y, k->disp_rect.width, k->disp_rect.height,
-               memdc, k->disp_rect.x, k->disp_rect.y, SRCCOPY);
-    if (skin_type == IMGTYPE_MONO) {
-        SetBkColor(hdc, old_bg);
-        SetTextColor(hdc, old_fg);
+    } else {
+        SkinRect* rect = &keylist[key].disp_rect;
+        skin_invalidate(rect->x, rect->y, rect->x + rect->width, rect->y + rect->height);
     }
 }
 
-void skin_display_blitter(HWND hWnd, const char *bits, int bytesperline, int x, int y,
-                                     int width, int height) {
-    int h, v;
-    double sx = display_scale_x;
-    double sy = display_scale_y;
-
-    for (v = y; v < y + height; v++)
-        for (h = x; h < x + width; h++) {
+void skin_display_blitter(const char *bits, int bytesperline, int x, int y, int width, int height) {
+    // Drawing calculator pixels as 4x4 pixel blocks in order to reduce blurriness when scaled
+    for (int v = y; v < y + height; v++)
+        for (int h = x; h < x + width; h++) {
             int pixel = (bits[v * bytesperline + (h >> 3)] & (1 << (h & 7))) != 0;
+            int baddr = (v * 4 + 4) * disp_bytesperline + ((h + 1) >> 1);
+            char newb;
             if (pixel)
-                disp_bits[(v + 2) * disp_bytesperline + ((h + 2) >> 3)] |= 128 >> ((h + 2) & 7);
+                newb = disp_bits[baddr] | ((h & 1) != 0 ? 240 : 15);
             else
-                disp_bits[(v + 2) * disp_bytesperline + ((h + 2) >> 3)] &= ~(128 >> ((h + 2) & 7));
+                newb = disp_bits[baddr] & ((h & 1) != 0 ? 15 : 240);
+            for (int i = 0; i < 4; i++) {
+                disp_bits[baddr] = newb;
+                baddr += disp_bytesperline;
+            }
         }
     
-    RECT r;
-    SetRect(&r, (int) (display_loc.x + (x - 1) * display_scale_x),
-                (int) (display_loc.y + (y - 1) * display_scale_y),
-                (int) ceil(display_loc.x + (x + width + 1) * display_scale_x),
-                (int) ceil(display_loc.y + (y + height + 1) * display_scale_y));
-    InvalidateRect(hWnd, &r, FALSE);
-}
-
-bool need_to_paint_only_display(RECT *r) {
-    return r->left >= (int) (display_loc.x - display_scale_x)
-        && r->top >= (int) (display_loc.y - display_scale_y)
-        && r->right <= (int) ceil(display_loc.x + 132 * display_scale_x)
-        && r->bottom <= (int) ceil(display_loc.y + 17 * display_scale_y);
-}
-
-void skin_repaint_display(HDC hdc) {
-    if (!display_enabled)
-        return;
-    Graphics g(hdc);
-    g.SetClip(Rect(display_loc.x - 1, display_loc.y - 1, ((int) ceil(display_scale_x * 131)) + 2, ((int) ceil(display_scale_y * 16)) + 2));
-    g.TranslateTransform((REAL) (display_loc.x + 1), (REAL) (display_loc.y + 1));
-    g.ScaleTransform((REAL) display_scale_x, (REAL) display_scale_y);
-    if (display_scale_int)
-        g.SetInterpolationMode(InterpolationModeNearestNeighbor);
-    else
-        g.SetInterpolationMode(InterpolationModeBicubic);
-    g.DrawImage(disp_bitmap, -2, -2, 131 + 4, 16 + 4);
+    skin_invalidate((int) (display_loc.x + (x - 1) * display_scale_x),
+                    (int) (display_loc.y + (y - 1) * display_scale_y),
+                    (int) ceil(display_loc.x + (x + width + 1) * display_scale_x),
+                    (int) ceil(display_loc.y + (y + height + 1) * display_scale_y));
 }
 
 void skin_display_set_enabled(bool enable) {
     display_enabled = enable;
 }
 
-void invalidate_display(HWND hWnd) {
-    RECT r;
-    SetRect(&r, (int) (display_loc.x - display_scale_x),
-                (int) (display_loc.y - display_scale_y),
-                (int) ceil(display_loc.x + 132 * display_scale_x),
-                (int) ceil(display_loc.y + 17 * display_scale_y));
-    InvalidateRect(hWnd, &r, FALSE);
+void invalidate_display() {
+    if (!display_enabled)
+        return;
+    skin_invalidate((int) (display_loc.x - display_scale_x),
+                    (int) (display_loc.y - display_scale_y),
+                    (int) ceil(display_loc.x + 132 * display_scale_x),
+                    (int) ceil(display_loc.y + 17 * display_scale_y));
+}
+
+void skin_get_size(int *width, int *height) {
+    *width = skin.width;
+    *height = skin.height;
+}
+
+void skin_set_window(HWND win) {
+    window = win;
+}
+
+void skin_set_window_size(int width, int height) {
+    window_width = width;
+    window_height = height;
+}
+
+void skin_get_window_size(int *width, int *height) {
+    *width = window_width;
+    *height = window_height;
 }

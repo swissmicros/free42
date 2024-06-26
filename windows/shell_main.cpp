@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -27,6 +27,7 @@
 #include <set>
 
 #include <gdiplus.h>
+#include <uxtheme.h>
 using namespace Gdiplus;
 
 #include "free42.h"
@@ -97,10 +98,10 @@ static int print_text_top;
 static int print_text_bottom;
 static int print_text_pixel_height;
 
-static int ckey = 0;
-static int skey;
+int ckey = 0;
+int skey = -1;
 static unsigned char *macro;
-static bool macro_is_name;
+static int macro_type;
 static int active_keycode = 0;
 static bool ctrl_down = false;
 static bool alt_down = false;
@@ -112,7 +113,7 @@ static int keymap_length = 0;
 static keymap_entry *keymap = NULL;
 
 
-#define SHELL_VERSION 13
+#define SHELL_VERSION 14
 
 state_type state;
 static int placement_saved = 0;
@@ -133,13 +134,13 @@ static int gif_lines;
 static int sel_prog_count;
 static int *sel_prog_list;
 
-static int ann_updown = 0;
-static int ann_shift = 0;
-static int ann_print = 0;
-static int ann_run = 0;
-static int ann_battery = 0;
-static int ann_g = 0;
-static int ann_rad = 0;
+int ann_updown = 0;
+int ann_shift = 0;
+int ann_print = 0;
+int ann_run = 0;
+int ann_battery = 0;
+int ann_g = 0;
+int ann_rad = 0;
 static UINT_PTR ann_print_timer = 0;
 
 
@@ -417,15 +418,21 @@ static BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     skin_load(state.skinName, free42dirname, &r.right, &r.bottom);
     r.top = 0;
     r.left = 0;
-    AdjustWindowRect(&r, WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX|WS_OVERLAPPED, 1);
+    if (state.mainWindowWidth != 0) {
+        r.right = state.mainWindowWidth;
+        r.bottom = state.mainWindowHeight;
+        skin_set_window_size(state.mainWindowWidth, state.mainWindowHeight);
+    }
+    AdjustWindowRect(&r, WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX|WS_SIZEBOX|WS_OVERLAPPED, 1);
 
     hMainWnd = CreateWindow(szMainWindowClass, szMainTitle,
-                            WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX|WS_OVERLAPPED,
+                            WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX|WS_SIZEBOX|WS_OVERLAPPED,
                             CW_USEDEFAULT, 0, r.right - r.left, r.bottom - r.top,
                             NULL, NULL, hInstance, NULL);
 
     if (hMainWnd == NULL)
         return FALSE;
+    skin_set_window(hMainWnd);
 
     char *csfn = wide2utf(core_state_file_name);
     core_init(init_mode, version, csfn, core_state_file_offset);
@@ -459,13 +466,9 @@ static BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
 static void shell_keydown() {
     if (ckey != 0) {
-        HDC hdc = GetDC(hMainWnd);
-        HDC memdc = CreateCompatibleDC(hdc);
         if (skey == -1)
             skey = skin_find_skey(ckey);
-        skin_repaint_key(hdc, memdc, skey, 1);
-        DeleteObject(memdc);
-        ReleaseDC(hMainWnd, hdc);
+        skin_invalidate_key(skey);
     }
     if (timer != 0) {
         KillTimer(NULL, timer);
@@ -478,8 +481,8 @@ static void shell_keydown() {
     }
     int repeat;
     if (macro != NULL) {
-        if (macro_is_name) {
-            running = core_keydown_command((const char *) macro, &enqueued, &repeat);
+        if (macro_type != 0) {
+            running = core_keydown_command((const char *) macro, macro_type == 2, &enqueued, &repeat);
         } else {
             if (*macro == 0) {
                 squeak();
@@ -503,7 +506,9 @@ static void shell_keydown() {
                         running = core_keydown(0, &enqueued, &repeat);
                 }
                 skin_display_set_enabled(true);
-                invalidate_display(hMainWnd);
+                invalidate_display();
+                for (int i = 1; i <= 7; i++)
+                    skin_invalidate_annunciator(i);
                 repeat = 0;
             }
         }
@@ -518,11 +523,7 @@ static void shell_keydown() {
 }
 
 static void shell_keyup() {
-    HDC hdc = GetDC(hMainWnd);
-    HDC memdc = CreateCompatibleDC(hdc);
-    skin_repaint_key(hdc, memdc, skey, 0);
-    DeleteObject(memdc);
-    ReleaseDC(hMainWnd, hdc);
+    skin_invalidate_key(skey);
     ckey = 0;
     skey = -1;
     if (timer != 0) {
@@ -555,6 +556,14 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT message, WPARAM wParam, LPAR
 #endif
 
     switch (message) {
+        case WM_CREATE: {
+            BufferedPaintInit();
+            return 0;
+        }
+        case WM_NCDESTROY: {
+            BufferedPaintUnInit();
+            return 0;
+        }
         case WM_COMMAND: {
             int wmId    = LOWORD(wParam); 
             int wmEvent = HIWORD(wParam); 
@@ -637,38 +646,87 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT message, WPARAM wParam, LPAR
             }
             break;
         }
-        case WM_PAINT: {
-            PAINTSTRUCT ps;
-            HDC hdc = BeginPaint(hWnd, &ps);
-            HDC memdc = CreateCompatibleDC(hdc);
-            bool only_disp = need_to_paint_only_display(&ps.rcPaint);
-            if (!only_disp)
-                skin_repaint(hdc, memdc);
-            if (ckey < -7 || ckey > -2)
-                skin_repaint_display(hdc);
-            if (!only_disp) {
-                if (ann_updown)
-                    skin_repaint_annunciator(hdc, memdc, 1);
-                if (ann_shift)
-                    skin_repaint_annunciator(hdc, memdc, 2);
-                if (ann_print)
-                    skin_repaint_annunciator(hdc, memdc, 3);
-                if (ann_run)
-                    skin_repaint_annunciator(hdc, memdc, 4);
-                if (ann_battery)
-                    skin_repaint_annunciator(hdc, memdc, 5);
-                if (ann_g)
-                    skin_repaint_annunciator(hdc, memdc, 6);
-                if (ann_rad)
-                    skin_repaint_annunciator(hdc, memdc, 7);
-                if (ckey != 0)
-                    skin_repaint_key(hdc, memdc, skey, 1);
-            } else {
-                if (ckey >= -7 && ckey <= -2)
-                    skin_repaint_key(hdc, memdc, skey, 1);
+        case WM_GETMINMAXINFO: {
+            RECT windowRect, clientRect;
+            GetWindowRect(hWnd, &windowRect);
+            GetClientRect(hWnd, &clientRect);
+            int vBorder = (windowRect.bottom - windowRect.top) - (clientRect.bottom - clientRect.top);
+            int hBorder = (windowRect.right - windowRect.left) - (clientRect.right - clientRect.left);
+
+            LPMINMAXINFO lpMMI = (LPMINMAXINFO) lParam;
+            lpMMI->ptMinTrackSize.x = 160 + hBorder;
+            lpMMI->ptMinTrackSize.y = 160 + vBorder;
+
+            return 0;
+        }
+        case WM_SIZING: {
+            // Enforce aspect ratio.
+
+            PRECT newRect = (PRECT) lParam;
+            RECT windowRect, clientRect;
+
+            GetWindowRect(hWnd, &windowRect);
+            GetClientRect(hWnd, &clientRect);
+            int vBorder = (windowRect.bottom - windowRect.top) - (clientRect.bottom - clientRect.top);
+            int hBorder = (windowRect.right - windowRect.left) - (clientRect.right - clientRect.left);
+
+            int skinWidth, skinHeight;
+            skin_get_size(&skinWidth, &skinHeight);
+            double vScale = ((double) (newRect->bottom - newRect->top - vBorder)) / skinHeight;
+            double hScale = ((double) (newRect->right - newRect->left - hBorder)) / skinWidth;
+
+            switch (wParam) {
+                case WMSZ_TOP:
+                case WMSZ_BOTTOM: {
+                    newRect->right += (int) ((vScale - hScale) * skinWidth + 0.5);
+                    break;
+                }
+                case WMSZ_LEFT:
+                case WMSZ_RIGHT: {
+                    newRect->bottom += (int) ((hScale - vScale) * skinHeight + 0.5);
+                    break;
+                }
+                case WMSZ_TOPRIGHT: {
+                    if (hScale > vScale)
+                        newRect->right -= (int) ((hScale - vScale) * skinWidth + 0.5);
+                    else if (vScale > hScale)
+                        newRect->top += (int) ((vScale - hScale) * skinHeight + 0.5);
+                    break;
+                }
+                case WMSZ_BOTTOMRIGHT: {
+                    if (hScale > vScale)
+                        newRect->right -= (int) ((hScale - vScale) * skinWidth + 0.5);
+                    else if (vScale > hScale)
+                        newRect->bottom -= (int) ((vScale - hScale) * skinHeight + 0.5);
+                    break;
+                }
+                case WMSZ_BOTTOMLEFT: {
+                    if (hScale > vScale)
+                        newRect->left += (int) ((hScale - vScale) * skinWidth + 0.5);
+                    else if (vScale > hScale)
+                        newRect->bottom -= (int) ((vScale - hScale) * skinHeight + 0.5);
+                    break;
+                }
+                case WMSZ_TOPLEFT:
+                {
+                    if (hScale > vScale)
+                        newRect->left += (int) ((hScale - vScale) * skinWidth + 0.5);
+                    else if (vScale > hScale)
+                        newRect->top += (int) ((vScale - hScale) * skinHeight + 0.5);
+                    break;
+                }
             }
-            DeleteDC(memdc);
-            EndPaint(hWnd, &ps);
+
+            return true;
+        }
+        case WM_SIZE: {
+            int w = LOWORD(lParam);
+            int h = HIWORD(lParam);
+            skin_set_window_size(w, h);
+            goto do_default;
+        }
+        case WM_PAINT: {
+            skin_repaint();
             break;
         }
         case WM_LBUTTONDOWN: {
@@ -677,7 +735,7 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT message, WPARAM wParam, LPAR
                 int y = HIWORD(lParam);  // vertical position of cursor
                 skin_find_key(x, y, ann_shift != 0, &skey, &ckey);
                 if (ckey != 0) {
-                    macro = skin_find_macro(ckey, &macro_is_name);
+                    macro = skin_find_macro(ckey, &macro_type);
                     shell_keydown();
                     mouse_key = true;
                 }
@@ -736,8 +794,9 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT message, WPARAM wParam, LPAR
                 }
 
                 bool exact;
+                bool extended = (lParam & (1 << 24)) != 0;
                 bool cshift_down = ann_shift != 0;
-                unsigned char *key_macro = skin_keymap_lookup(virtKey, ctrl_down, alt_down, shift_down, cshift_down, &exact);
+                unsigned char *key_macro = skin_keymap_lookup(virtKey, ctrl_down, alt_down, extended, shift_down, cshift_down, &exact);
                 if (key_macro == NULL || !exact) {
                     for (i = 0; i < keymap_length; i++) {
                         keymap_entry *entry = keymap + i;
@@ -745,11 +804,11 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT message, WPARAM wParam, LPAR
                                 && alt_down == entry->alt
                                 && shift_down == entry->shift
                                 && virtKey == entry->keycode) {
-                            if (cshift_down == entry->cshift) {
+                            if (extended == entry->extended && cshift_down == entry->cshift) {
                                 key_macro = entry->macro;
                                 break;
                             } else {
-                                if (cshift_down && key_macro == NULL)
+                                if ((extended || !entry->extended) && (cshift_down || !entry->cshift) && key_macro == NULL)
                                     key_macro = entry->macro;
                             }
                         }
@@ -839,7 +898,7 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT message, WPARAM wParam, LPAR
                             if (c <= 37)
                                 macrobuf[p++] = c;
                             else {
-                                unsigned char *m = skin_find_macro(c, &macro_is_name);
+                                unsigned char *m = skin_find_macro(c, &macro_type);
                                 if (m != NULL)
                                     while (*m != 0 && p < 1023)
                                         macrobuf[p++] = *m++;
@@ -849,7 +908,7 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT message, WPARAM wParam, LPAR
                         macro = macrobuf;
                     } else {
                         macro = key_macro;
-                        macro_is_name = false;
+                        macro_type = 0;
                     }
                     shell_keydown();
                     mouse_key = false;
@@ -1053,17 +1112,35 @@ static LRESULT CALLBACK PrintOutWndProc(HWND hWnd, UINT message, WPARAM wParam, 
             hPrintOutWnd = NULL;
             return 0;
         case WM_SIZING: {
+            RECT windowRect, clientRect;
+            GetWindowRect(hPrintOutWnd, &windowRect);
+            GetClientRect(hPrintOutWnd, &clientRect);
+            int vBorder = (windowRect.bottom - windowRect.top) - (clientRect.bottom - clientRect.top);
+
             LPRECT r = (LPRECT) lParam;
             switch (wParam) {
-                case WMSZ_BOTTOMLEFT:
                 case WMSZ_TOPLEFT:
                 case WMSZ_LEFT:
+                case WMSZ_BOTTOMLEFT:
                     r->left = r->right - printOutWidth;
                     break;
-                case WMSZ_BOTTOMRIGHT:
                 case WMSZ_TOPRIGHT:
                 case WMSZ_RIGHT:
+                case WMSZ_BOTTOMRIGHT:
                     r->right = r->left + printOutWidth;
+                    break;
+            }
+            switch (wParam) {
+                case WMSZ_TOPLEFT:
+                case WMSZ_TOP:
+                case WMSZ_TOPRIGHT:
+                    r->top += (r->bottom - r->top - vBorder) % 18;
+                    break;
+                case WMSZ_BOTTOMLEFT:
+                case WMSZ_BOTTOM:
+                case WMSZ_BOTTOMRIGHT:
+                    r->bottom -= (r->bottom - r->top - vBorder) % 18;
+                    break;
             }
             return 1;
         }
@@ -1122,6 +1199,9 @@ static LRESULT CALLBACK PrintOutWndProc(HWND hWnd, UINT message, WPARAM wParam, 
                     break;
                 case IDM_COPYPRINTASIMAGE:
                     copy_print_as_image();
+                    break;
+                case IDM_CLEARPRINTOUT:
+                    clear_printout();
                     break;
                 case IDM_EXIT:
                     DestroyWindow(hMainWnd);
@@ -1621,6 +1701,7 @@ static void Quit() {
                 state.printOutPlacementValid = 1;
             }
         }
+        skin_get_window_size(&state.mainWindowWidth, &state.mainWindowHeight);
         write_shell_state();
         fclose(statefile);
     }
@@ -2118,7 +2199,7 @@ static void printout_length_changed() {
 
 void shell_blitter(const char *bits, int bytesperline, int x, int y,
                    int width, int height) {
-    skin_display_blitter(hMainWnd, bits, bytesperline, x, y, width, height);
+    skin_display_blitter(bits, bytesperline, x, y, width, height);
 }
 
 const char *shell_platform() {
@@ -2128,20 +2209,11 @@ const char *shell_platform() {
     return p;
 }
 
-void shell_beeper(int frequency, int duration) {
-    const int cutoff_freqs[] = { 164, 220, 243, 275, 293, 324, 366, 418, 438, 550 };
+void shell_beeper(int tone) {
     const int sound_ids[] = { IDR_TONE0_WAVE, IDR_TONE1_WAVE, IDR_TONE2_WAVE,
          IDR_TONE3_WAVE, IDR_TONE4_WAVE, IDR_TONE5_WAVE, IDR_TONE6_WAVE,
-         IDR_TONE7_WAVE, IDR_TONE8_WAVE, IDR_TONE9_WAVE };
-    for (int i = 0; i < 10; i++) {
-        if (frequency <= cutoff_freqs[i]) {
-            PlaySound(MAKEINTRESOURCE(sound_ids[i]),
-                GetModuleHandle(NULL),
-                SND_RESOURCE);
-            return;
-        }
-    }
-    PlaySound(MAKEINTRESOURCE(IDR_SQUEAK_WAVE),
+         IDR_TONE7_WAVE, IDR_TONE8_WAVE, IDR_TONE9_WAVE, IDR_SQUEAK_WAVE };
+    PlaySound(MAKEINTRESOURCE(sound_ids[tone]),
         GetModuleHandle(NULL),
         SND_RESOURCE);
 }
@@ -2150,7 +2222,7 @@ static VOID CALLBACK ann_print_timeout(HWND hwnd, UINT uMsg, UINT_PTR idEvent, D
     KillTimer(NULL, ann_print_timer);
     ann_print_timer = 0;
     ann_print = 0;
-    skin_update_annunciator(hMainWnd, 3);
+    skin_invalidate_annunciator(3);
 }
 
 /* shell_annunciators()
@@ -2165,11 +2237,11 @@ static VOID CALLBACK ann_print_timeout(HWND hwnd, UINT uMsg, UINT_PTR idEvent, D
 void shell_annunciators(int updn, int shf, int prt, int run, int g, int rad) {
     if (updn != -1 && ann_updown != updn) {
         ann_updown = updn;
-        skin_update_annunciator(hMainWnd, 1);
+        skin_invalidate_annunciator(1);
     }
     if (shf != -1 && ann_shift != shf) {
         ann_shift = shf;
-        skin_update_annunciator(hMainWnd, 2);
+        skin_invalidate_annunciator(2);
     }
     if (prt != -1) {
         if (ann_print_timer != 0) {
@@ -2179,22 +2251,22 @@ void shell_annunciators(int updn, int shf, int prt, int run, int g, int rad) {
         if (ann_print != prt)
             if (prt) {
                 ann_print = 1;
-                skin_update_annunciator(hMainWnd, 3);
+                skin_invalidate_annunciator(3);
             } else {
                 ann_print_timer = SetTimer(NULL, 0, 1000, ann_print_timeout);
             }
     }
     if (run != -1 && ann_run != run) {
         ann_run = run;
-        skin_update_annunciator(hMainWnd, 4);
+        skin_invalidate_annunciator(4);
     }
     if (g != -1 && ann_g != g) {
         ann_g = g;
-        skin_update_annunciator(hMainWnd, 6);
+        skin_invalidate_annunciator(6);
     }
     if (rad != -1 && ann_rad != rad) {
         ann_rad = rad;
-        skin_update_annunciator(hMainWnd, 7);
+        skin_invalidate_annunciator(7);
     }
 }
 
@@ -2239,7 +2311,7 @@ bool shell_low_battery() {
                 && (powerstat.BatteryFlag & 6) != 0; // low or critical
     if (ann_battery != lowbat) {
         ann_battery = lowbat;
-        skin_update_annunciator(hMainWnd, 5);
+        skin_invalidate_annunciator(5);
     }
     return lowbat != 0;
 }
@@ -2596,7 +2668,11 @@ static void init_shell_state(int4 version) {
             core_settings.localized_copy_paste = true;
             // fall through
         case 13:
-            // current version (SHELL_VERSION = 13),
+            state.mainWindowWidth = 0;
+            state.mainWindowHeight = 0;
+            // fall through
+        case 14:
+            // current version (SHELL_VERSION = 14),
             // so nothing to do here since everything
             // was initialized from the state file.
             ;

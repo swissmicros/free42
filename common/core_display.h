@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2022  Thomas Okken
+ * Copyright (C) 2004-2024  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -40,6 +40,7 @@ int special_menu_key(int which);
 void clear_row(int row);
 
 void display_prgm_line(int row, int line_offset);
+void xlabel2buf(char *buf, int buflen, int *bufptr);
 void display_x(int row);
 void display_y(int row);
 void display_incomplete_command(int row);

@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Free42 -- an HP-42S calculator simulator
-// Copyright (C) 2004-2022  Thomas Okken
+// Copyright (C) 2004-2024  Thomas Okken
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License, version 2,
@@ -92,7 +92,7 @@ _ptr_snd_strerror _dl_snd_strerror;
 
 static unsigned int audio_sample_rate = 22050;
 static snd_pcm_format_t audio_format = SND_PCM_FORMAT_S16;
-static const char *audio_device = "plughw:0,0";
+static const char *audio_device = "default";
 static int audio_channels = 1;
 
 static snd_pcm_t *playback_handle = NULL;
