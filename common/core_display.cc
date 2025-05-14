@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -45,7 +45,7 @@
 #include <stdio.h>
 
 
-static const unsigned char bigchars[130][5] =
+static const unsigned char bigchars[138][5] =
     {
         { 0x08, 0x08, 0x2a, 0x08, 0x08 },
         { 0x22, 0x14, 0x08, 0x14, 0x22 },
@@ -77,7 +77,7 @@ static const unsigned char bigchars[130][5] =
         { 0x1f, 0x15, 0x71, 0x50, 0x50 },
         { 0x3c, 0x43, 0x42, 0x43, 0x3c },
         { 0x3c, 0x41, 0x40, 0x41, 0x3c },
-        { 0x55, 0x2a, 0x55, 0x2a, 0x55 },
+        { 0x04, 0x02, 0x01, 0x02, 0x04 },
         { 0x3c, 0x3c, 0x3c, 0x3c, 0x3c },
         { 0x00, 0x00, 0x00, 0x00, 0x00 },
         { 0x00, 0x00, 0x5f, 0x00, 0x00 },
@@ -176,10 +176,18 @@ static const unsigned char bigchars[130][5] =
         { 0x08, 0x04, 0x08, 0x10, 0x08 },
         { 0x7f, 0x08, 0x08, 0x08, 0x08 },
         { 0x28, 0x00, 0x00, 0x00, 0x00 },
-        { 0x04, 0x08, 0x70, 0x08, 0x04 }
+        { 0x04, 0x08, 0x70, 0x08, 0x04 },
+        { 0x5e, 0x61, 0x01, 0x61, 0x5e },
+        { 0x04, 0x04, 0x7c, 0x04, 0x04 },
+        { 0x7c, 0x40, 0x40, 0x40, 0x40 },
+        { 0x78, 0x14, 0x14, 0x14, 0x78 },
+        { 0x7f, 0x41, 0x22, 0x14, 0x08 },
+        { 0x2a, 0x55, 0x2a, 0x14, 0x08 },
+        { 0x08, 0x14, 0x2a, 0x14, 0x22 },
+        { 0x22, 0x14, 0x2a, 0x14, 0x08 },
     };
 
-static const char smallchars[416] =
+static const char smallchars[454] =
     {
         0x00, 0x00, 0x00,
         0x5c,
@@ -305,11 +313,21 @@ static const char smallchars[416] =
         0x48, 0x30, 0x48,
         0x98, 0xa0, 0x78,
         0x68, 0x58, 0x58,
+        0x08, 0x04, 0x08,
+        0x18, 0x60, 0x18,
+        0x58, 0x64, 0x04, 0x64, 0x58,
+        0x7c, 0x44, 0x28, 0x10,
+        0x08, 0x78, 0x08,
         0x20, 0x70, 0x20, 0x3c,
         0x7c, 0x54, 0x00, 0x78, 0x48,
+        0x78, 0x40, 0x40,
+        0x70, 0x28, 0x70,
+        0x28, 0x54, 0x28, 0x10,
+        0x10, 0x28, 0x54, 0x28, 0x44,
+        0x44, 0x28, 0x54, 0x28, 0x10,
     };
 
-static short smallchars_offset[127] =
+static short smallchars_offset[137] =
     {
           0,
           3,
@@ -436,11 +454,21 @@ static short smallchars_offset[127] =
         401,
         404,
         407,
-        411,
-        416,
+        410,
+        413,
+        418,
+        422,
+        425,
+        429,
+        434,
+        437,
+        440,
+        444,
+        449,
+        454,
     };
 
-static char smallchars_map[128] =
+static char smallchars_map[138] =
     {
         /*   0 */  70,
         /*   1 */  71,
@@ -455,7 +483,7 @@ static char smallchars_map[128] =
         /*  10 */  77,
         /*  11 */  78,
         /*  12 */  79,
-        /*  13 */ 124,
+        /*  13 */ 129,
         /*  14 */  80,
         /*  15 */  81,
         /*  16 */  82,
@@ -469,10 +497,10 @@ static char smallchars_map[128] =
         /*  24 */  37,
         /*  25 */  94,
         /*  26 */  86,
-        /*  27 */ 125,
+        /*  27 */ 130,
         /*  28 */  89,
         /*  29 */  90,
-        /*  30 */  69,
+        /*  30 */ 124,
         /*  31 */  95,
         /*  32 */   0,
         /*  33 */   1,
@@ -569,7 +597,17 @@ static char smallchars_map[128] =
         /* 124 */  66,
         /* 125 */  67,
         /* 126 */  68,
-        /* 127 */  85
+        /* 127 */  85,
+        /* 128 */  26,
+        /* 129 */ 125,
+        /* 130 */ 126,
+        /* 131 */ 128,
+        /* 132 */ 131,
+        /* 133 */ 132,
+        /* 134 */ 127,
+        /* 135 */ 133,
+        /* 136 */ 134,
+        /* 137 */ 135,
     };
 
 #if defined(WINDOWS) && !defined(__GNUC__)
@@ -868,7 +906,7 @@ void draw_char(int x, int y, char c) {
     unsigned char uc = (unsigned char) c;
     if (x < 0 || x >= 22 || y < 0 || y >= 2)
         return;
-    if (uc >= 130)
+    if (undefined_char(uc) || uc == 138)
         uc -= 128;
     X = x * 6;
     Y = y * 8;
@@ -888,7 +926,7 @@ void draw_char(int x, int y, char c) {
 
 const unsigned char *get_char(char c) {
     unsigned char uc = (unsigned char) c;
-    if (uc >= 130)
+    if (undefined_char(uc) || uc == 138)
         uc -= 128;
     return bigchars[uc];
 }
@@ -937,10 +975,11 @@ static void draw_key(int n, int highlight, int hide_meta,
     while (len < length) {
         int c, m, cw;
         c = (unsigned char) s[len++];
-        if (hide_meta && c >= 128)
-            continue;
-
-        c &= 127;
+        if (undefined_char(c) || c == 138)
+            if (hide_meta)
+                continue;
+            else
+                c &= 127;
         if (mode_menu_caps && c >= 'a' && c <= 'z')
             c -= 32;
         m = smallchars_map[c];
@@ -963,9 +1002,11 @@ static void draw_key(int n, int highlight, int hide_meta,
             c = fatdot;
         else
             c = (unsigned char) s[i];
-        if (hide_meta && c >= 128)
-            continue;
-        c &= 127;
+        if (undefined_char(c) || c == 138)
+            if (hide_meta)
+                continue;
+            else
+                c &= 127;
         if (mode_menu_caps && c >= 'a' && c <= 'z')
             c -= 32;
         m = smallchars_map[c];
@@ -1032,10 +1073,8 @@ int prgmline2buf(char *buf, int len, int4 line, int highlight,
         if (line < 10)
             char2buf(buf, len, &bufptr, '0');
         bufptr += int2string(line, buf + bufptr, len - bufptr);
-        if (highlight)
-            char2buf(buf, len, &bufptr, 6);
-        else
-            char2buf(buf, len, &bufptr, ' ');
+        char h = highlight == 0 ? ' ' : highlight == 2 && prgms[current_prgm].locked ? 135 : 6;
+        char2buf(buf, len, &bufptr, h);
     }
 
     if (line == 0) {
@@ -1142,7 +1181,7 @@ void tb_write_null(textbuf *tb) {
 void tb_print_current_program(textbuf *tb) {
     int4 pc = 0;
     int line = 0;
-    int cmd;
+    int cmd = CMD_NONE;
     arg_struct arg;
     bool end = false;
     char buf[100];
@@ -1213,7 +1252,7 @@ void display_prgm_line(int row, int line_offset) {
         /* Should not get offset == -1 when at line 0! */
     }
 
-    bufptr = prgmline2buf(buf, len, tmpline, line_offset == 0, cmd, &arg, orig_num, row == -1);
+    bufptr = prgmline2buf(buf, len, tmpline, line_offset == 0 ? 2 : 0, cmd, &arg, orig_num, row == -1);
 
     if (row == -1) {
         clear_display();
@@ -1299,7 +1338,7 @@ void display_incomplete_command(int row) {
         if (line < 10)
             char2buf(buf, 40, &bufptr, '0');
         bufptr += int2string(line, buf + bufptr, 40 - bufptr);
-        char2buf(buf, 40, &bufptr, 6);
+        char2buf(buf, 40, &bufptr, prgms[current_prgm].locked ? 135 : 6);
     }
 
     if (incomplete_command == CMD_ASSIGNb) {
@@ -1354,7 +1393,7 @@ void display_incomplete_command(int row) {
     }
 }
 
-void display_error(int error, bool print) {
+void display_error(int error) {
     clear_row(0);
     int err_len;
     const char *err_text;
@@ -1368,8 +1407,7 @@ void display_error(int error, bool print) {
     draw_string(0, 0, err_text, err_len);
     flags.f.message = 1;
     flags.f.two_line_message = 0;
-    if (print && (flags.f.trace_print || flags.f.normal_print)
-            && flags.f.printer_exists)
+    if (!flags.f.prgm_mode && (flags.f.trace_print || flags.f.normal_print) && flags.f.printer_exists)
         print_text(err_text, err_len, true);
 }
 
@@ -1612,10 +1650,10 @@ static int ext_base_cat[] = {
 };
 
 static int ext_prgm_cat[] = {
-    CMD_CPXMAT_T, CMD_CSLD_T,  CMD_ERRMSG,  CMD_ERRNO,   CMD_FUNC,    CMD_GETKEY1,
-    CMD_LSTO,     CMD_LASTO,   CMD_LCLV,    CMD_NOP,     CMD_PGMMENU, CMD_PGMVAR,
-    CMD_RTNERR,   CMD_RTNNO,   CMD_RTNYES,  CMD_SKIP,    CMD_SST_UP,  CMD_SST_RT,
-    CMD_TYPE_T,   CMD_VARMNU1, -2 /* 0? */, -3 /* X? */, CMD_NULL,    CMD_NULL
+    CMD_CPXMAT_T, CMD_CSLD_T, CMD_ERRMSG,  CMD_ERRNO,   CMD_FUNC,    CMD_GETKEY1,
+    CMD_GETKEYA,  CMD_LSTO,   CMD_LASTO,   CMD_LCLV,    CMD_NOP,     CMD_PGMMENU,
+    CMD_PGMVAR,   CMD_RTNERR, CMD_RTNNO,   CMD_RTNYES,  CMD_SKIP,    CMD_SST_UP,
+    CMD_SST_RT,   CMD_TYPE_T, CMD_VARMNU1, -2 /* 0? */, -3 /* X? */, CMD_NULL
 };
 
 static int ext_str_cat[] = {
@@ -1634,34 +1672,39 @@ static int ext_stk_cat[] = {
 #if defined(ANDROID) || defined(IPHONE)
 #ifdef FREE42_FPTEST
 static int ext_misc_cat[] = {
-    CMD_A2LINE, CMD_A2PLINE, CMD_CAPS,    CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_FMA,
-    CMD_HEIGHT, CMD_MIXED,   CMD_PCOMPLX, CMD_PRREG,    CMD_RCOMPLX,     CMD_STRACE,
-    CMD_WIDTH,  CMD_X2LINE,  CMD_ACCEL,   CMD_LOCAT,    CMD_HEADING,     CMD_FPTEST
+    CMD_A2LINE,  CMD_A2PLINE, CMD_CAPS,   CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_FMA,
+    CMD_GETLI,   CMD_GETMI,   CMD_HEIGHT, CMD_IDENT,    CMD_LOCK,        CMD_MIXED,
+    CMD_PCOMPLX, CMD_PRREG,   CMD_PUTLI,  CMD_PUTMI,    CMD_RCOMPLX,     CMD_STRACE,
+    CMD_UNLOCK,  CMD_WIDTH,   CMD_X2LINE, CMD_ACCEL,    CMD_LOCAT,       CMD_HEADING,
+    CMD_FPTEST,  CMD_NULL,    CMD_NULL,   CMD_NULL,     CMD_NULL,        CMD_NULL
 };
-#define MISC_CAT_ROWS 3
+#define MISC_CAT_ROWS 5
 #else
 static int ext_misc_cat[] = {
-    CMD_A2LINE, CMD_A2PLINE, CMD_CAPS,    CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_FMA,
-    CMD_HEIGHT, CMD_MIXED,   CMD_PCOMPLX, CMD_PRREG,    CMD_RCOMPLX,     CMD_STRACE,
-    CMD_WIDTH,  CMD_X2LINE,  CMD_ACCEL,   CMD_LOCAT,    CMD_HEADING,     CMD_NULL
+    CMD_A2LINE,  CMD_A2PLINE, CMD_CAPS,   CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_FMA,
+    CMD_GETLI,   CMD_GETMI,   CMD_HEIGHT, CMD_IDENT,    CMD_LOCK,        CMD_MIXED,
+    CMD_PCOMPLX, CMD_PRREG,   CMD_PUTLI,  CMD_PUTMI,    CMD_RCOMPLX,     CMD_STRACE,
+    CMD_UNLOCK,  CMD_WIDTH,   CMD_X2LINE, CMD_ACCEL,    CMD_LOCAT,       CMD_HEADING
 };
-#define MISC_CAT_ROWS 3
+#define MISC_CAT_ROWS 4
 #endif
 #else
 #ifdef FREE42_FPTEST
 static int ext_misc_cat[] = {
-    CMD_A2LINE, CMD_A2PLINE, CMD_CAPS,    CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_FMA,
-    CMD_HEIGHT, CMD_MIXED,   CMD_PCOMPLX, CMD_PRREG,    CMD_RCOMPLX,     CMD_STRACE,
-    CMD_WIDTH,  CMD_X2LINE,  CMD_FPTEST,  CMD_NULL,     CMD_NULL,        CMD_NULL
+    CMD_A2LINE,  CMD_A2PLINE, CMD_CAPS,   CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_FMA,
+    CMD_GETLI,   CMD_GETMI,   CMD_HEIGHT, CMD_IDENT,    CMD_LOCK,        CMD_MIXED,
+    CMD_PCOMPLX, CMD_PRREG,   CMD_PUTLI,  CMD_PUTMI,    CMD_RCOMPLX,     CMD_STRACE,
+    CMD_UNLOCK,  CMD_WIDTH,   CMD_X2LINE, CMD_FPTEST,   CMD_NULL,        CMD_NULL
 };
-#define MISC_CAT_ROWS 3
+#define MISC_CAT_ROWS 4
 #else
 static int ext_misc_cat[] = {
-    CMD_A2LINE, CMD_A2PLINE, CMD_CAPS,    CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_FMA,
-    CMD_HEIGHT, CMD_MIXED,   CMD_PCOMPLX, CMD_PRREG,    CMD_RCOMPLX,     CMD_STRACE,
-    CMD_WIDTH,  CMD_X2LINE,  CMD_NULL,    CMD_NULL,     CMD_NULL,        CMD_NULL
+    CMD_A2LINE,  CMD_A2PLINE, CMD_CAPS,   CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_FMA,
+    CMD_GETLI,   CMD_GETMI,   CMD_HEIGHT, CMD_IDENT,    CMD_LOCK,        CMD_MIXED,
+    CMD_PCOMPLX, CMD_PRREG,   CMD_PUTLI,  CMD_PUTMI,    CMD_RCOMPLX,     CMD_STRACE,
+    CMD_UNLOCK,  CMD_WIDTH,   CMD_X2LINE, CMD_NULL,     CMD_NULL,        CMD_NULL
 };
-#define MISC_CAT_ROWS 3
+#define MISC_CAT_ROWS 4
 #endif
 #endif
 
@@ -1817,6 +1860,9 @@ static void draw_catalog() {
                 show_real = show_str = show_cpx = 0; break;
             case CATSECT_LIST_STR_ONLY:
                 show_real = show_cpx = show_mat = 0; break;
+            case CATSECT_LIST:
+            case CATSECT_LIST_ONLY:
+                show_real = show_str = show_cpx = show_mat = 0; break;
         }
 
         for (i = 0; i < vars_count; i++) {
@@ -2097,6 +2143,16 @@ void redisplay() {
     int menu_id;
     int avail_rows = 2;
     int i;
+
+#if defined(ANDROID) || defined(IPHONE)
+    static bool popup_keyboard_visible;
+    bool popup_kb = core_alpha_menu();
+    if (mode_popup_unknown || popup_keyboard_visible != popup_kb) {
+        mode_popup_unknown = false;
+        popup_keyboard_visible = popup_kb;
+        shell_show_alpha_keyboard(popup_kb);
+    }
+#endif
 
     if (mode_clall) {
         clear_display();
@@ -2631,7 +2687,7 @@ int command2buf(char *buf, int len, int cmd, const arg_struct *arg) {
 #else
         for (int i = 0; i < cmdspec->name_length; i++) {
             int c = (unsigned char) cmdspec->name[i];
-            if (c >= 130 && c != 138)
+            if (undefined_char(c))
                 c &= 127;
             char2buf(buf, len, &bufptr, c);
         }
@@ -2639,7 +2695,7 @@ int command2buf(char *buf, int len, int cmd, const arg_struct *arg) {
     }
 
     if (cmd == CMD_XROM) {
-        int n = xrom_arg & 0x7FF;
+        int n = xrom_arg & 0x7ff;
         int rom = n >> 6;
         int instr = n & 63;
         char2buf(buf, len, &bufptr, ' ');
@@ -2736,7 +2792,7 @@ static int get_cat_index() {
 void set_menu(int level, int menuid) {
     int err = set_menu_return_err(level, menuid, false);
     if (err != ERR_NONE) {
-        display_error(err, true);
+        display_error(err);
         flush_display();
     }
 }
@@ -2804,7 +2860,10 @@ void set_appmenu_exitcallback(int callback_id) {
     appmenu_exitcallback = callback_id;
 }
 
-void set_plainmenu(int menuid) {
+void set_plainmenu(int menuid, const char *name, int length) {
+    if (name != NULL)
+        print_menu_trace(name, length);
+
     mode_commandmenu = MENU_NONE;
     mode_alphamenu = MENU_NONE;
     mode_transientmenu = MENU_NONE;
@@ -2906,6 +2965,11 @@ void set_catalog_menu(int section) {
             return;
         case CATSECT_LIST_STR_ONLY:
             if (!vars_exist(CATSECT_LIST_STR_ONLY))
+                mode_commandmenu = MENU_NONE;
+            return;
+        case CATSECT_LIST:
+        case CATSECT_LIST_ONLY:
+            if (!vars_exist(CATSECT_LIST))
                 mode_commandmenu = MENU_NONE;
             return;
         case CATSECT_VARS_ONLY:
@@ -3037,6 +3101,10 @@ void update_catalog() {
             if (!vars_exist(CATSECT_MAT_LIST))
                 set_cat_section(CATSECT_TOP);
             break;
+        case CATSECT_LIST:
+            if (!vars_exist(CATSECT_LIST))
+                set_cat_section(CATSECT_TOP);
+            break;
         case CATSECT_REAL_ONLY:
             if (!vars_exist(CATSECT_REAL)) {
                 *the_menu = MENU_NONE;
@@ -3065,6 +3133,13 @@ void update_catalog() {
                 return;
             }
             break;
+        case CATSECT_LIST_ONLY:
+            if (!vars_exist(CATSECT_LIST)) {
+                *the_menu = MENU_NONE;
+                redisplay();
+                return;
+            }
+            break;
         case CATSECT_VARS_ONLY:
             if (!vars_exist(-1)) {
                 *the_menu = MENU_NONE;
@@ -3077,7 +3152,7 @@ void update_catalog() {
         case CATSECT_PGM_MENU:
             if (!mvar_prgms_exist()) {
                 *the_menu = MENU_NONE;
-                display_error(ERR_NO_MENU_VARIABLES, false);
+                display_error(ERR_NO_MENU_VARIABLES);
                 redisplay();
                 return;
             }
@@ -3155,7 +3230,7 @@ void do_prgm_menu_key(int keynum) {
     err = docmd_gto(&progmenu_arg[keynum]);
     if (err != ERR_NONE) {
         set_running(false);
-        display_error(err, true);
+        display_error(err);
         flush_display();
         return;
     }
@@ -3165,7 +3240,7 @@ void do_prgm_menu_key(int keynum) {
             current_prgm = oldprgm;
             pc = oldpc;
             set_running(false);
-            display_error(err, true);
+            display_error(err);
             flush_display();
             return;
         } else

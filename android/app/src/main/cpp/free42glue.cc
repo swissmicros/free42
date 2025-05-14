@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -317,6 +317,29 @@ Java_com_thomasokken_free42_Free42Activity_core_1paste(JNIEnv *env, jobject thiz
     env->ReleaseStringUTFChars(s, buf);
 }
 
+extern "C" jbyteArray
+Java_com_thomasokken_free42_AlphaKeyboardView_core_1get_1char_1pixels(JNIEnv *env, jobject thiz, jchar c) {
+    Tracer T("core_get_char_pixels");
+    char ubuf[5], cbuf[5];
+    int n = 0;
+    if (c < 128) {
+        ubuf[n++] = c;
+    } else if (c < 2048) {
+        ubuf[n++] = (c >> 6) | 0xc0;
+        ubuf[n++] = (c & 63) | 0x80;
+    } else {
+        ubuf[n++] = (c >> 12) | 0xe0;
+        ubuf[n++] = ((c >> 6) & 63) | 0x80;
+        ubuf[n++] = (c & 63) | 0x80;
+    }
+    ubuf[n] = 0;
+    core_get_char_pixels(ubuf, cbuf);
+
+    jbyteArray pixels = env->NewByteArray(5);
+    env->SetByteArrayRegion(pixels, 0, 5, (const jbyte *) cbuf);
+    return pixels;
+}
+
 extern "C" void
 Java_com_thomasokken_free42_Free42Activity_getCoreSettings(JNIEnv *env, jobject thiz, jobject settings) {
     Tracer T("getCoreSettings");
@@ -596,6 +619,16 @@ void shell_print(const char *text, int length,
     if (text2 != NULL)
         env->DeleteLocalRef(text2);
     env->DeleteLocalRef(bits2);
+}
+
+void shell_show_alpha_keyboard(bool show) {
+    Tracer T("shell_show_alpha_keyboard");
+    JNIEnv *env = getJniEnv();
+    jclass klass = env->GetObjectClass(g_activity);
+    jmethodID mid = env->GetMethodID(klass, "shell_show_alpha_keyboard", "(Z)V");
+    env->CallVoidMethod(g_activity, mid, show);
+    // Delete local references
+    env->DeleteLocalRef(klass);
 }
 
 bool shell_get_acceleration(double *x, double *y, double *z) {

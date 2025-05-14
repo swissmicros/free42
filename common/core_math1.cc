@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -552,7 +552,7 @@ static int finish_solve(int message) {
     string_copy(arg.val.text, &dummy, solve.var_name, solve.var_length);
     arg.length = solve.var_length;
 
-    print = flags.f.trace_print && flags.f.printer_exists;
+    print = (flags.f.trace_print || flags.f.normal_print) && flags.f.printer_exists;
 
     if (!solve.keep_running) {
         view_helper(&arg, print);
@@ -1174,14 +1174,14 @@ static int finish_integ() {
     if (!integ.keep_running) {
         char buf[22];
         int bufptr = 0;
-        string2buf(buf, 22, &bufptr, "\003=", 2);
+        string2buf(buf, 22, &bufptr, "\3=", 2);
         bufptr += vartype2string(x, buf + bufptr, 22 - bufptr);
         clear_row(0);
         draw_string(0, 0, buf, bufptr);
         flush_display();
         flags.f.message = 1;
         flags.f.two_line_message = 0;
-        if (flags.f.trace_print && flags.f.printer_exists)
+        if ((flags.f.trace_print || flags.f.normal_print) && flags.f.printer_exists)
             print_wide(buf, 2, buf + 2, bufptr - 2);
         return ERR_STOP;
     } else

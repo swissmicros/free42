@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -380,97 +380,105 @@
 #define CMD_BWRAP       338
 #define CMD_BRESET      339
 #define CMD_GETKEY1     340
-#define CMD_LASTO       341
-#define CMD_LCLV        342
+#define CMD_GETKEYA     341
+#define CMD_LASTO       342
+#define CMD_LCLV        343
 /* Useful X-Fcn functions missing from the 42S */
-#define CMD_ANUM        343
-#define CMD_X_SWAP_F    344
-#define CMD_RCLFLAG     345
-#define CMD_STOFLAG     346
+#define CMD_ANUM        344
+#define CMD_X_SWAP_F    345
+#define CMD_RCLFLAG     346
+#define CMD_STOFLAG     347
 /* User-defined functions */
-#define CMD_FUNC        347
-#define CMD_ERRMSG      348
-#define CMD_ERRNO       349
-#define CMD_RTNYES      350
-#define CMD_RTNNO       351
-#define CMD_RTNERR      352
-#define CMD_STRACE      353
+#define CMD_FUNC        348
+#define CMD_ERRMSG      349
+#define CMD_ERRNO       350
+#define CMD_RTNYES      351
+#define CMD_RTNNO       352
+#define CMD_RTNERR      353
+#define CMD_STRACE      354
 /* Big Stack */
-#define CMD_4STK        354
-#define CMD_L4STK       355
-#define CMD_NSTK        356
-#define CMD_LNSTK       357
-#define CMD_DEPTH       358
-#define CMD_DROP        359
-#define CMD_DROPN       360
-#define CMD_DUP         361
-#define CMD_DUPN        362
-#define CMD_PICK        363
-#define CMD_UNPICK      364
-#define CMD_RDNN        365
-#define CMD_RUPN        366
+#define CMD_4STK        355
+#define CMD_L4STK       356
+#define CMD_NSTK        357
+#define CMD_LNSTK       358
+#define CMD_DEPTH       359
+#define CMD_DROP        360
+#define CMD_DROPN       361
+#define CMD_DUP         362
+#define CMD_DUPN        363
+#define CMD_PICK        364
+#define CMD_UNPICK      365
+#define CMD_RDNN        366
+#define CMD_RUPN        367
 /* Miscellaneous */
-#define CMD_NOP         367
-#define CMD_FMA         368
-#define CMD_PGMMENU     369
-#define CMD_PMEXEC      370
-#define CMD_PGMVAR      371
-#define CMD_VARMNU1     372
-#define CMD_X2LINE      373
-#define CMD_A2LINE      374
-#define CMD_A2PLINE     375
-#define CMD_RCOMPLX     376
-#define CMD_PCOMPLX     377
-#define CMD_CAPS        378
-#define CMD_MIXED       379
-#define CMD_SKIP        380
-#define CMD_CPXMAT_T    381
-#define CMD_TYPE_T      382
-#define CMD_A_THRU_F_2  383
-#define CMD_DROP_CANCL  384
-#define CMD_PRREG       385
-#define CMD_CSLD_T      386
-#define CMD_C_LN_1_X    387
-#define CMD_C_E_POW_X_1 388
+#define CMD_NOP         368
+#define CMD_FMA         369
+#define CMD_PGMMENU     370
+#define CMD_PMEXEC      371
+#define CMD_PGMVAR      372
+#define CMD_VARMNU1     373
+#define CMD_X2LINE      374
+#define CMD_A2LINE      375
+#define CMD_A2PLINE     376
+#define CMD_RCOMPLX     377
+#define CMD_PCOMPLX     378
+#define CMD_CAPS        379
+#define CMD_MIXED       380
+#define CMD_SKIP        381
+#define CMD_CPXMAT_T    382
+#define CMD_TYPE_T      383
+#define CMD_A_THRU_F_2  384
+#define CMD_DROP_CANCL  385
+#define CMD_PRREG       386
+#define CMD_CSLD_T      387
+#define CMD_C_LN_1_X    388
+#define CMD_C_E_POW_X_1 389
+#define CMD_GETMI       390
+#define CMD_PUTMI       391
+#define CMD_GETLI       392
+#define CMD_PUTLI       393
+#define CMD_LOCK        394
+#define CMD_UNLOCK      395
+#define CMD_IDENT       396
 /* String & List Functions */
-#define CMD_XSTR        389
-#define CMD_XASTO       390
-#define CMD_LXASTO      391
-#define CMD_XVIEW       392
-#define CMD_APPEND      393
-#define CMD_EXTEND      394
-#define CMD_SUBSTR      395
-#define CMD_LENGTH      396
-#define CMD_HEAD        397
-#define CMD_REV         398
-#define CMD_POS         399
-#define CMD_S_TO_N      400
-#define CMD_N_TO_S      401
-#define CMD_NN_TO_S     402
-#define CMD_C_TO_N      403
-#define CMD_N_TO_C      404
-#define CMD_LIST_T      405
-#define CMD_NEWLIST     406
-#define CMD_TO_LIST     407
-#define CMD_FROM_LIST   408
+#define CMD_XSTR        397
+#define CMD_XASTO       398
+#define CMD_LXASTO      399
+#define CMD_XVIEW       400
+#define CMD_APPEND      401
+#define CMD_EXTEND      402
+#define CMD_SUBSTR      403
+#define CMD_LENGTH      404
+#define CMD_HEAD        405
+#define CMD_REV         406
+#define CMD_POS         407
+#define CMD_S_TO_N      408
+#define CMD_N_TO_S      409
+#define CMD_NN_TO_S     410
+#define CMD_C_TO_N      411
+#define CMD_N_TO_C      412
+#define CMD_LIST_T      413
+#define CMD_NEWLIST     414
+#define CMD_TO_LIST     415
+#define CMD_FROM_LIST   416
 /* Generalized Comparisons */
-#define CMD_X_EQ_NN     409
-#define CMD_X_NE_NN     410
-#define CMD_X_LT_NN     411
-#define CMD_X_GT_NN     412
-#define CMD_X_LE_NN     413
-#define CMD_X_GE_NN     414
-#define CMD_0_EQ_NN     415
-#define CMD_0_NE_NN     416
-#define CMD_0_LT_NN     417
-#define CMD_0_GT_NN     418
-#define CMD_0_LE_NN     419
-#define CMD_0_GE_NN     420
+#define CMD_X_EQ_NN     417
+#define CMD_X_NE_NN     418
+#define CMD_X_LT_NN     419
+#define CMD_X_GT_NN     420
+#define CMD_X_LE_NN     421
+#define CMD_X_GE_NN     422
+#define CMD_0_EQ_NN     423
+#define CMD_0_NE_NN     424
+#define CMD_0_LT_NN     425
+#define CMD_0_GT_NN     426
+#define CMD_0_LE_NN     427
+#define CMD_0_GE_NN     428
 /* For Plus42 compatibility */
-#define CMD_WIDTH       421
-#define CMD_HEIGHT      422
+#define CMD_WIDTH       429
+#define CMD_HEIGHT      430
 
-#define CMD_SENTINEL    423
+#define CMD_SENTINEL    431
 
 
 /* command_spec.argtype */
@@ -490,8 +498,10 @@
 #define ARG_PRGM     12 /* Alpha label (CATSECT_PGM) */
 #define ARG_RVAR     13 /* Variable (real only) (MVAR, INTEG, SOLVE) */
 #define ARG_MAT      14 /* Variable (matrix only) (EDITN, INDEX) */
-#define ARG_XSTR     15 /* Long string (XSTR) */
-#define ARG_OTHER    16 /* Weirdos */
+#define ARG_M_STK    15 /* Matrix variable or stack (GETMI, PUTMI) */
+#define ARG_L_STK    16 /* List variable or stack (GETLI, PUTLI) */
+#define ARG_XSTR     17 /* Long string (XSTR) */
+#define ARG_OTHER    18 /* Weirdos */
 
 
 /* command_spec.flags */

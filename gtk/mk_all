@@ -5,6 +5,25 @@ make -j16
 
 make clean
 BCD_MATH=1 make -j16
+ok=$?
 
 make clean
+
+if [ $ok != 0 ]; then
+  echo "FAIL"
+  exit 7
+fi
+
+if [ ! -f VERSION ]; then
+  echo "ERROR: Missing VERSION file"
+  exit 7
+fi
+
+echo "---"
+ver=`cat VERSION`
+for b in free42dec; do # free42bin
+  g=$b.$ver
+  echo "Movint $g to bin/"
+  mv $b ~/bin/$g
+done
 

@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -44,7 +44,7 @@ void xlabel2buf(char *buf, int buflen, int *bufptr);
 void display_x(int row);
 void display_y(int row);
 void display_incomplete_command(int row);
-void display_error(int error, bool print);
+void display_error(int error);
 void display_command(int row);
 void draw_varmenu();
 void display_mem();
@@ -83,7 +83,7 @@ int appmenu_exitcallback_5(int menuid, bool exitall);
 void set_menu(int level, int menuid);
 int set_menu_return_err(int level, int menuid, bool exitall);
 void set_appmenu_exitcallback(int callback_id);
-void set_plainmenu(int menuid);
+void set_plainmenu(int menuid, const char *name, int length);
 void set_catalog_menu(int direction);
 int get_front_menu();
 void set_cat_section(int section);

@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -35,14 +35,23 @@
     self.contentMode = UIViewContentModeRedraw;
 }
 
+- (void) traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+    [super traitCollectionDidChange:previousTraitCollection];
+    [self setNeedsDisplay];
+}
+
 - (void)drawRect:(CGRect)rect
 {
+    bool dark = UIScreen.mainScreen.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
+
     //NSLog(@"tile.drawRect: %f %f %f %f", rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
     CGFloat scale = [PrintView scale];
     CGContextRef myContext = UIGraphicsGetCurrentContext();
-    CGContextSetRGBFillColor(myContext, 1.0, 1.0, 1.0, 1.0);
-    //CGContextFillRect(myContext, rect);
-    CGContextSetRGBFillColor(myContext, 0.0, 0.0, 0.0, 1.0);
+    double bg = dark ? 0.071 : 1.0;
+    double fg = dark ? 0.859 : 0.0;
+    CGContextSetRGBFillColor(myContext, bg, bg, bg, 1.0);
+    CGContextFillRect(myContext, rect);
+    CGContextSetRGBFillColor(myContext, fg, fg, fg, 1.0);
     int xmin = floor(rect.origin.x / scale);
     if (xmin < 18)
         xmin = 18;

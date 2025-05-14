@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -760,6 +760,8 @@ int docmd_clrg(arg_struct *arg) {
 int docmd_del(arg_struct *arg) {
     if (arg->type != ARGTYPE_NUM)
         return ERR_INVALID_TYPE;
+    if (prgms[current_prgm].locked)
+        return ERR_PROGRAM_LOCKED;
     clear_prgm_lines(arg->val.num);
     return ERR_NONE;
 }

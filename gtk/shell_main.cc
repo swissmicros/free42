@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Free42 -- an HP-42S calculator simulator
-// Copyright (C) 2004-2024  Thomas Okken
+// Copyright (C) 2004-2025  Thomas Okken
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License, version 2,
@@ -135,6 +135,14 @@ int ann_g = 0;
 int ann_rad = 0;
 static guint ann_print_timeout_id = 0;
 
+void get_keymap(keymap_entry **map, int *length) {
+    *map = keymap;
+    *length = keymap_length;
+}
+
+static bool keyboardShortcutsShowing = false;
+static GtkCheckMenuItem *keyboardShortcutsMenuItem;
+
 
 /* Private functions */
 
@@ -167,6 +175,10 @@ static void preferencesCB();
 static void appendSuffix(char *path, char *suffix);
 static void copyCB();
 static void pasteCB();
+static void documentationCB();
+static void websiteCB();
+static void otherWebsiteCB();
+static void keyboardShortcutsCB();
 static void aboutCB();
 static gboolean delete_cb(GtkWidget *w, GdkEventAny *ev);
 static gboolean delete_print_cb(GtkWidget *w, GdkEventAny *ev);
@@ -182,7 +194,7 @@ static gboolean timeout1(gpointer cd);
 static gboolean timeout2(gpointer cd);
 static gboolean timeout3(gpointer cd);
 static gboolean battery_checker(gpointer cd);
-static void repaint_printout(cairo_t *cr);
+static void repaint_printout(cairo_t *cr, bool dark);
 static gboolean reminder(gpointer cd);
 static void txt_writer(const char *text, int length);
 static void txt_newliner();
@@ -326,6 +338,31 @@ static const char *mainWindowXml =
                 "<property name='label'>Help</property>"
                 "<child type='submenu'>"
                   "<object class='GtkMenu' id='help_menu'>"
+                    "<child>"
+                      "<object class='GtkMenuItem' id='documentation_item'>"
+                        "<property name='label'>Documentation</property>"
+                      "</object>"
+                    "</child>"
+                    "<child>"
+                      "<object class='GtkMenuItem' id='website_item'>"
+                        "<property name='label'>Web Site</property>"
+                      "</object>"
+                    "</child>"
+                    "<child>"
+                      "<object class='GtkMenuItem' id='other_website_item'>"
+                        "<property name='label'>Plus42 Web Site</property>"
+                      "</object>"
+                    "</child>"
+                    "<child>"
+                      "<object class='GtkCheckMenuItem' id='keyboard_shortcuts_item'>"
+                        "<property name='label'>Keyboard Shortcuts</property>"
+                        "<accelerator key='K' signal='activate' modifiers='GDK_CONTROL_MASK'/>"
+                      "</object>"
+                    "</child>"
+                    "<child>"
+                      "<object class='GtkSeparatorMenuItem' id='sep_6'>"
+                      "</object>"
+                    "</child>"
                     "<child>"
                       "<object class='GtkMenuItem' id='about_item'>"
                         "<property name='label'>About Free42...</property>"
@@ -656,6 +693,14 @@ static void activate(GtkApplication *theApp, gpointer userData) {
     g_signal_connect(G_OBJECT(item), "activate", G_CALLBACK(copyPrintAsImageCB), NULL);
     item = GTK_MENU_ITEM(gtk_builder_get_object(builder, "clear_printout_item"));
     g_signal_connect(G_OBJECT(item), "activate", G_CALLBACK(clearPrintOutCB), NULL);
+    item = GTK_MENU_ITEM(gtk_builder_get_object(builder, "documentation_item"));
+    g_signal_connect(G_OBJECT(item), "activate", G_CALLBACK(documentationCB), NULL);
+    item = GTK_MENU_ITEM(gtk_builder_get_object(builder, "website_item"));
+    g_signal_connect(G_OBJECT(item), "activate", G_CALLBACK(websiteCB), NULL);
+    item = GTK_MENU_ITEM(gtk_builder_get_object(builder, "other_website_item"));
+    g_signal_connect(G_OBJECT(item), "activate", G_CALLBACK(otherWebsiteCB), NULL);
+    keyboardShortcutsMenuItem = GTK_CHECK_MENU_ITEM(gtk_builder_get_object(builder, "keyboard_shortcuts_item"));
+    g_signal_connect(G_OBJECT(keyboardShortcutsMenuItem), "activate", G_CALLBACK(keyboardShortcutsCB), NULL);
     item = GTK_MENU_ITEM(gtk_builder_get_object(builder, "about_item"));
     g_signal_connect(G_OBJECT(item), "activate", G_CALLBACK(aboutCB), NULL);
 
@@ -1367,7 +1412,7 @@ static void states_changed_cb(GtkWidget *w, gpointer p) {
 
 static GtkWidget *dlg;
 
-static char *get_state_name(const char *prompt) {
+static char *get_state_name(const char *prompt, const char *initialName) {
     static GtkWidget *state_name_dialog = NULL;
     static GtkWidget *promptLabel;
     static GtkWidget *name;
@@ -1397,10 +1442,13 @@ static char *get_state_name(const char *prompt) {
 
     gtk_window_set_role(GTK_WINDOW(state_name_dialog), "Free42 Dialog");
     gtk_label_set_text(GTK_LABEL(promptLabel), prompt);
+    gtk_entry_set_text(GTK_ENTRY(name), initialName);
+    gtk_editable_select_region(GTK_EDITABLE(name), 0, -1);
 
     char *result = NULL;
     while (true) {
         gtk_window_set_focus(GTK_WINDOW(state_name_dialog), name);
+        gtk_widget_grab_focus(GTK_WIDGET(name));
         int response = gtk_dialog_run(GTK_DIALOG(state_name_dialog));
         if (response == GTK_RESPONSE_ACCEPT) {
             const char *tmp = gtk_entry_get_text(GTK_ENTRY(name));
@@ -1454,7 +1502,7 @@ static bool switchTo(const char *selectedStateName) {
 }
 
 static void states_menu_new() {
-    char *name = get_state_name("New state name:");
+    char *name = get_state_name("New state name:", "");
     if (name == NULL)
         return;
     char path[FILENAMELEN];
@@ -1565,7 +1613,7 @@ static void states_menu_rename() {
         return;
     char prompt[FILENAMELEN];
     snprintf(prompt, FILENAMELEN, "Rename \"%s\" to:", state_names[selectedStateIndex]);
-    char *newname = get_state_name(prompt);
+    char *newname = get_state_name(prompt, state_names[selectedStateIndex]);
     if (newname == NULL)
         return;
     char oldpath[FILENAMELEN];
@@ -2502,6 +2550,37 @@ static bool focus_ok_button(GtkWindow *window, GtkWidget *container) {
     return false;
 }
 
+static void documentationCB() {
+#if GTK_MINOR_VERSION >= 22
+    gtk_show_uri_on_window(GTK_WINDOW(mainwindow), "https://thomasokken.com/free42/#doc", GDK_CURRENT_TIME, NULL);
+#else
+    gtk_show_uri(gtk_widget_get_screen(mainwindow), "https://thomasokken.com/free42/#doc", GDK_CURRENT_TIME, NULL);
+#endif
+}
+
+static void websiteCB() {
+#if GTK_MINOR_VERSION >= 22
+    gtk_show_uri_on_window(GTK_WINDOW(mainwindow), "https://thomasokken.com/free42/", GDK_CURRENT_TIME, NULL);
+#else
+    gtk_show_uri(gtk_widget_get_screen(mainwindow), "https://thomasokken.com/free42/", GDK_CURRENT_TIME, NULL);
+#endif
+}
+
+static void otherWebsiteCB() {
+#if GTK_MINOR_VERSION >= 22
+    gtk_show_uri_on_window(GTK_WINDOW(mainwindow), "https://thomasokken.com/plus42/", GDK_CURRENT_TIME, NULL);
+#else
+    gtk_show_uri(gtk_widget_get_screen(mainwindow), "https://thomasokken.com/plus42/", GDK_CURRENT_TIME, NULL);
+#endif
+}
+
+static void keyboardShortcutsCB() {
+    keyboardShortcutsShowing = !keyboardShortcutsShowing;
+    gtk_check_menu_item_set_active(keyboardShortcutsMenuItem, keyboardShortcutsShowing);
+    GdkWindow *win = gtk_widget_get_window(calc_widget);
+    gdk_window_invalidate_rect(win, NULL, FALSE);
+}
+
 static void aboutCB() {
     static GtkWidget *about = NULL;
 
@@ -2524,7 +2603,7 @@ static void aboutCB() {
         GtkWidget *version = gtk_label_new("Free42 " VERSION);
         gtk_misc_set_alignment(GTK_MISC(version), 0, 0);
         gtk_box_pack_start(GTK_BOX(box2), version, FALSE, FALSE, 10);
-        GtkWidget *author = gtk_label_new("\302\251 2004-2024 Thomas Okken");
+        GtkWidget *author = gtk_label_new("\302\251 2004-2025 Thomas Okken");
         gtk_misc_set_alignment(GTK_MISC(author), 0, 0);
         gtk_box_pack_start(GTK_BOX(box2), author, FALSE, FALSE, 0);
         GtkWidget *websitelink = gtk_link_button_new("https://thomasokken.com/free42/");
@@ -2571,6 +2650,12 @@ static gboolean delete_print_cb(GtkWidget *w, GdkEventAny *ev) {
     return TRUE;
 }
 
+static bool is_dark(GtkWidget *w) {
+    GtkStyle *style = gtk_widget_get_style(w);
+    GdkColor c = style->bg[GTK_STATE_NORMAL];
+    return 0.299 * c.red + 0.587 * c.green + 0.114 * c.blue < 32768;
+}
+
 static gboolean draw_cb(GtkWidget *w, cairo_t *cr, gpointer cd) {
     cairo_save(cr);
     int win_width, win_height, skin_width, skin_height;
@@ -2605,12 +2690,17 @@ static gboolean draw_cb(GtkWidget *w, cairo_t *cr, gpointer cd) {
             skin_repaint_key(cr, skey, 1);
     }
 
+    if (keyboardShortcutsShowing)
+        skin_draw_keyboard_shortcuts(cr);
+    if (is_dark(w))
+        skin_make_darker(cr);
+
     cairo_restore(cr);
     return TRUE;
 }
 
 static gboolean print_draw_cb(GtkWidget *w, cairo_t *cr, gpointer cd) {
-    repaint_printout(cr);
+    repaint_printout(cr, is_dark(w));
     return TRUE;
 }
 
@@ -2686,7 +2776,6 @@ static void shell_keydown() {
                 }
             } else {
                 bool waitForProgram = !program_running();
-                skin_display_set_enabled(false);
                 while (*macro != 0) {
                     keep_running = core_keydown(*macro++, &enqueued, &repeat);
                     if (*macro != 0 && !enqueued)
@@ -2694,10 +2783,6 @@ static void shell_keydown() {
                     while (waitForProgram && keep_running)
                         keep_running = core_keydown(0, &enqueued, &repeat);
                 }
-                skin_display_set_enabled(true);
-                skin_invalidate_display(win);
-                for (int i = 1; i <= 7; i++)
-                    skin_invalidate_annunciator(win, i);
                 repeat = 0;
             }
         }
@@ -2987,7 +3072,7 @@ static gboolean battery_checker(gpointer cd) {
     return TRUE;
 }
 
-static void repaint_printout(cairo_t *cr) {
+static void repaint_printout(cairo_t *cr, bool dark) {
     GdkRectangle clip;
     if (!gdk_cairo_get_clip_rectangle(cr, &clip))
         gtk_widget_get_allocation(print_widget, &clip);
@@ -3009,13 +3094,13 @@ static void repaint_printout(cairo_t *cr) {
         for (int h = clip.x; h < clip.x + clip.width; h++) {
             unsigned char c;
             if (v >= length)
-                c = 127;
+                c = dark ? 64 : 192;
             else if (h < 36 || h >= 322)
-                c = 255;
+                c = dark ? 18 : 255;
             else if ((print_bitmap[v3 + ((h - 36) >> 3)] & (1 << ((h - 36) & 7))) == 0)
-                c = 255;
+                c = dark ? 18 : 255;
             else
-                c = 0;
+                c = dark ? 219 : 0;
             *dst++ = c;
             *dst++ = c;
             *dst++ = c;

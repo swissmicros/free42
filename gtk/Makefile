@@ -1,6 +1,6 @@
 ###############################################################################
 # Free42 -- an HP-42S calculator simulator
-# Copyright (C) 2004-2024  Thomas Okken
+# Copyright (C) 2004-2025  Thomas Okken
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License, version 2,
@@ -29,6 +29,7 @@ CFLAGS += -MMD \
 	 -Wno-format-truncation \
 	 -Wno-class-memaccess \
 	 -Wno-unknown-warning-option \
+	 -Wno-unknown-pragmas \
 	 -g \
 	 $(shell $(PKG_CONFIG) --cflags gtk+-3.0) \
 	 -DGDK_DISABLE_DEPRECATION_WARNINGS -DGTK_DISABLE_SINGLE_INCLUDES -DGSEAL_ENABLE \

@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -18,6 +18,7 @@
 #import <AudioToolbox/AudioServices.h>
 
 #import "CalcView.h"
+#import "AlphaKeyboardView.h"
 #import "PrintView.h"
 #import "HTTPServerView.h"
 #import "SelectSkinView.h"
@@ -42,6 +43,7 @@ static RootViewController *instance;
 @synthesize window;
 
 @synthesize calcView;
+@synthesize alphaKeyboardView;
 @synthesize printView;
 @synthesize httpServerView;
 @synthesize selectSkinView;
@@ -83,6 +85,7 @@ static RootViewController *instance;
     [self.view addSubview:aboutView];
     [self.view addSubview:selectFileView];
     [self.view addSubview:statesView];
+    [self.view addSubview:alphaKeyboardView];
     [self.view addSubview:calcView];
     [self layoutSubViews];
     
@@ -111,6 +114,13 @@ static RootViewController *instance;
         return UIStatusBarStyleLightContent;
 }
 
+- (UIRectEdge) preferredScreenEdgesDeferringSystemGestures {
+    // In AlphaKeyboardView, I was getting annoying delays on the
+    // P and Q keys, i.e. the keys near the edges of the screen.
+    // Adding this fixed those delays.
+    return UIRectEdgeLeft | UIRectEdgeRight;
+}
+
 - (UIInterfaceOrientationMask) supportedInterfaceOrientations {
     if (state.orientationMode == 0)
         return UIInterfaceOrientationMaskAll;
@@ -118,10 +128,6 @@ static RootViewController *instance;
         return UIInterfaceOrientationMaskPortrait | UIInterfaceOrientationMaskPortraitUpsideDown;
     else // state.orientationMode == 2
         return UIInterfaceOrientationMaskLandscape;
-}
-
-- (BOOL) prefersHomeIndicatorAutoHidden {
-    return YES;
 }
 
 - (void) layoutSubViews {
@@ -149,6 +155,7 @@ static RootViewController *instance;
     aboutView.frame = r;
     selectFileView.frame = r;
     statesView.frame = r;
+    alphaKeyboardView.frame = r;
     calcView.frame = r;
 }
 
@@ -168,6 +175,21 @@ static BOOL battery_is_low = NO;
 static BOOL battery_is_low_ann = NO;
 
 - (void) batteryLevelChanged {
+    // I noticed that when the battery on my iPhone 13 mini is low and
+    // I plug in the charger, when the rising battery level reaches 21%,
+    // the battery in the status bar changes color from red to white,
+    // but it can take several minutes before the low-battery annunciator
+    // in the app goes away. This lag wasn't always there; it used to be
+    // that the app annunciator would track the system's low battery
+    // indication instantly.
+    // I don't know when this changed, whether the relevant change between
+    // then and now is newer iPhone hardware, or some change in iOS. But
+    // for what it's worth, it looks like on my iPhone 13 mini, running
+    // iOS 18, the battery level is reported with a resolution of 5%,
+    // so we don't get a notification when the percentage goes from 20%
+    // to 21%, which is the level where the battery in the status bar
+    // stops being red; instead, we get a notification when the level
+    // reaches 25%. Boo.
     BOOL low = [[UIDevice currentDevice] batteryLevel] < 0.205;
     if (low != battery_is_low) {
         battery_is_low = low;
@@ -199,6 +221,10 @@ bool shell_low_battery() {
     [instance presentViewController:ctrl animated:a completion:completion];
 }
 
++ (int) getBottomMargin {
+    return instance.window.safeAreaInsets.bottom;
+}
+
 void shell_message(const char *message) {
     [RootViewController showMessage:[NSString stringWithUTF8String:message]];
 }
@@ -214,6 +240,24 @@ void shell_message(const char *message) {
 
 + (void) showMain {
     [instance showMain2];
+}
+
+- (void) showAlphaKeyboard2 {
+    NSArray *views = [self.view subviews];
+    for (int i = [views count] - 1; i >= 0; i--) {
+        UIView *view = [views objectAtIndex:i];
+        if (view == alphaKeyboardView)
+            // ALPHA keyboard is already in front; nothing to do
+            return;
+        else if (view == calcView)
+            break;
+    }
+    [alphaKeyboardView raised];
+    [self.view bringSubviewToFront:alphaKeyboardView];
+}
+
++ (void) showAlphaKeyboard {
+    [instance showAlphaKeyboard2];
 }
 
 - (void) showPrintOut2 {

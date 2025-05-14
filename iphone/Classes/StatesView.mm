@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -189,7 +189,7 @@
     return [stateNames objectAtIndex:idx];
 }
 
-- (void) getNewStateNameWithPrompt:(NSString *)prompt completion:(SEL)sel {
+- (void) getNewStateNameWithPrompt:(NSString *)prompt initialName:(NSString *)name completion:(SEL)sel {
     UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"State Name"
                message:prompt
                preferredStyle:UIAlertControllerStyleAlert];
@@ -199,13 +199,16 @@
         [self performSelector:sel withObject:s];
     }];
     [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {}];
+    alert.textFields.firstObject.text = name;
     [alert addAction:cancelAction];
     [alert addAction:okAction];
-    [self.window.rootViewController presentViewController:alert animated:YES completion:nil];
+    [self.window.rootViewController presentViewController:alert animated:YES completion:^(void) {
+        [alert.textFields.firstObject selectAll:nil];
+    }];
 }
 
 - (void) doNew {
-    [self getNewStateNameWithPrompt:@"Enter new state name:" completion:@selector(doNew2:)];
+    [self getNewStateNameWithPrompt:@"Enter new state name:" initialName:@"" completion:@selector(doNew2:)];
 }
 
 - (void) doNew2:(NSString *)name {
@@ -324,7 +327,7 @@
     if (oldName == nil)
         return;
     NSString *prompt = [NSString stringWithFormat:@"Rename \"%@\" to:", oldName];
-    [self getNewStateNameWithPrompt:prompt completion:@selector(doRename2:)];
+    [self getNewStateNameWithPrompt:prompt initialName:oldName completion:@selector(doRename2:)];
 }
 
 - (void) doRename2:(NSString* )newName {

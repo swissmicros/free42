@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -692,6 +692,14 @@ int docmd_getkey1(arg_struct *arg) {
     return ERR_NONE;
 }
 
+int docmd_getkeya(arg_struct *arg) {
+    int key = dequeue_key();
+    vartype *v = new_real(key);
+    if (v == NULL)
+        return ERR_INSUFFICIENT_MEMORY;
+    return recall_result(v);
+}
+
 ////////////////////////////////////////////////////////////////
 ///// Intel Decimal Floating-Point Math Library: self-test /////
 ////////////////////////////////////////////////////////////////
@@ -881,7 +889,10 @@ int docmd_fma(arg_struct *arg) {
 }
 
 int docmd_func(arg_struct *arg) {
-    return push_func_state(arg->val.num);
+    int err = push_func_state(arg->val.num);
+    if (err == ERR_NONE)
+        print_stack_trace();
+    return err;
 }
 
 int docmd_errmsg(arg_struct *arg) {
@@ -988,6 +999,36 @@ int docmd_a2pline(arg_struct *arg) {
     return a2line(true);
 }
 
+int docmd_lock(arg_struct *arg) {
+    return prgm_lock(true);
+}
+
+int docmd_unlock(arg_struct *arg) {
+    return prgm_lock(false);
+}
+
+int docmd_ident(arg_struct *arg) {
+    const char *platform = shell_platform();
+    int len = 0;
+    while (platform[len] != 0 && platform[len] != ' ')
+        len++;
+
+    char vbuf[16];
+    memcpy(vbuf, platform, len);
+    vbuf[len] = 0;
+    int vcomp[4] = { 0, 0, 0, 0 };
+    sscanf(vbuf, "%d.%d.%d", &vcomp[0], &vcomp[1], &vcomp[2]);
+    char c = vbuf[len - 1];
+    if (c >= 'a')
+        vcomp[3] = c - 'a' + 1;
+    int ver = ((vcomp[0] * 100 + vcomp[1]) * 100 + vcomp[2]) * 100 + vcomp[3];
+
+    vartype *v = new_real(ver);
+    if (v == NULL)
+        return ERR_INSUFFICIENT_MEMORY;
+    return recall_result(v);
+}
+
 int docmd_rcomplx(arg_struct *arg) {
     bool p = flags.f.polar;
     flags.f.polar = 0;
@@ -1032,6 +1073,212 @@ int docmd_type_t(arg_struct *arg) {
 
 int docmd_csld_t(arg_struct *arg) {
     return is_csld() ? ERR_YES : ERR_NO;
+}
+
+static int get_mat_or_list(arg_struct *arg, bool matrix, vartype **res, int4 *rows, int4 *cols) {
+    if (arg->type == ARGTYPE_IND_NUM
+            || arg->type == ARGTYPE_IND_STK
+            || arg->type == ARGTYPE_IND_STR) {
+        int err = resolve_ind_arg(arg);
+        if (err != ERR_NONE)
+            return err;
+    }
+    if (arg->type == ARGTYPE_STK) {
+        int idx;
+        switch (arg->val.stk) {
+            case 'X': idx = 0; break;
+            case 'Y': idx = 1; break;
+            case 'Z': idx = 2; break;
+            case 'T': idx = 3; break;
+            case 'L': *res = lastx; goto skip;
+        }
+        if (idx > sp)
+            return ERR_STACK_DEPTH_ERROR;
+        *res = stack[sp - idx];
+        skip:;
+    } else if (arg->type == ARGTYPE_STR) {
+        *res = recall_var(arg->val.text, arg->length);
+        if (*res == NULL)
+            return ERR_NONEXISTENT;
+    } else {
+        return ERR_INTERNAL_ERROR;
+    }
+    int type = (*res)->type;
+    if (matrix) {
+        if (type == TYPE_REALMATRIX) {
+            vartype_realmatrix *rm = (vartype_realmatrix *) *res;
+            *rows = rm->rows;
+            *cols = rm->columns;
+        } else if (type == TYPE_COMPLEXMATRIX) {
+            vartype_complexmatrix *cm = (vartype_complexmatrix *) *res;
+            *rows = cm->rows;
+            *cols = cm->columns;
+        } else {
+            return ERR_INVALID_TYPE;
+        }
+    } else {
+        if (type == TYPE_LIST) {
+            vartype_list *list = (vartype_list *) *res;
+            *rows = list->size;
+        } else {
+            return ERR_INVALID_TYPE;
+        }
+    }
+    return ERR_NONE;
+}
+
+int docmd_getmi(arg_struct *arg) {
+    vartype *v;
+    int4 rows, cols;
+    int err = get_mat_or_list(arg, true, &v, &rows, &cols);
+    if (err != ERR_NONE)
+        return err;
+    int4 row, col;
+    if (!dim_to_int4(stack[sp - 1], &row) || row >= rows)
+        return ERR_DIMENSION_ERROR;
+    if (!dim_to_int4(stack[sp], &col) || col >= cols)
+        return ERR_DIMENSION_ERROR;
+
+    int4 n = row * cols + col;
+    if (v->type == TYPE_REALMATRIX) {
+        vartype_realmatrix *rm = (vartype_realmatrix *) v;
+        if (rm->array->is_string[n] != 0) {
+            char *text;
+            int4 length;
+            get_matrix_string(rm, n, &text, &length);
+            v = new_string(text, length);
+        } else {
+            v = new_real(rm->array->data[n]);
+        }
+    } else {
+        vartype_complexmatrix *cm = (vartype_complexmatrix *) v;
+        v = new_complex(cm->array->data[2 * n],
+                        cm->array->data[2 * n + 1]);
+    }
+
+    if (v == NULL)
+        return ERR_INSUFFICIENT_MEMORY;
+    return recall_result(v);
+}
+
+int docmd_putmi(arg_struct *arg) {
+    if (stack[sp - 2]->type == TYPE_STRING)
+        return ERR_ALPHA_DATA_IS_INVALID;
+    else if (stack[sp - 2]->type != TYPE_REAL)
+        return ERR_INVALID_TYPE;
+    if (stack[sp - 1]->type == TYPE_STRING)
+        return ERR_ALPHA_DATA_IS_INVALID;
+    else if (stack[sp - 1]->type != TYPE_REAL)
+        return ERR_INVALID_TYPE;
+
+    vartype *v;
+    int4 rows, cols;
+    int err = get_mat_or_list(arg, true, &v, &rows, &cols);
+    if (err != ERR_NONE)
+        return err;
+    int4 row, col;
+    if (!dim_to_int4(stack[sp - 2], &row) || row >= rows)
+        return ERR_DIMENSION_ERROR;
+    if (!dim_to_int4(stack[sp - 1], &col) || col >= cols)
+        return ERR_DIMENSION_ERROR;
+
+    int4 n = row * cols + col;
+    if (v->type == TYPE_REALMATRIX) {
+        vartype_realmatrix *rm = (vartype_realmatrix *) v;
+        if (stack[sp]->type == TYPE_REAL) {
+            if (rm->array->is_string[n] == 2)
+                free(*(void **) &rm->array->data[n]);
+            rm->array->is_string[n] = 0;
+            rm->array->data[n] = ((vartype_real *) stack[sp])->x;
+        } else if (stack[sp]->type == TYPE_STRING) {
+            vartype_string *s = (vartype_string *) stack[sp];
+            if (!put_matrix_string(rm, n, s->txt(), s->length))
+                return ERR_INSUFFICIENT_MEMORY;
+        } else
+            return ERR_INVALID_TYPE;
+    } else {
+        vartype_complexmatrix *cm = (vartype_complexmatrix *) v;
+        if (stack[sp]->type == TYPE_REAL) {
+            cm->array->data[2 * n] = ((vartype_real *) stack[sp])->x;
+            cm->array->data[2 * n + 1] = 0;
+        } else if (stack[sp]->type == TYPE_COMPLEX) {
+            cm->array->data[2 * n] = ((vartype_complex *) stack[sp])->re;
+            cm->array->data[2 * n + 1] = ((vartype_complex *) stack[sp])->im;
+        } else if (stack[sp]->type == TYPE_STRING)
+            return ERR_ALPHA_DATA_IS_INVALID;
+        else
+            return ERR_INVALID_TYPE;
+    }
+
+    return ERR_NONE;
+}
+
+int docmd_getli(arg_struct *arg) {
+    vartype *v;
+    int4 size;
+    int err = get_mat_or_list(arg, false, &v, &size, NULL);
+    if (err != ERR_NONE)
+        return err;
+    int4 item;
+    if (!dim_to_int4(stack[sp], &item) || item >= size)
+        return ERR_DIMENSION_ERROR;
+
+    vartype_list *list = (vartype_list *) v;
+    v = dup_vartype(list->array->data[item]);
+
+    if (v == NULL)
+        return ERR_INSUFFICIENT_MEMORY;
+    return recall_result(v);
+}
+
+int docmd_putli(arg_struct *arg) {
+    if (stack[sp - 1]->type == TYPE_STRING)
+        return ERR_ALPHA_DATA_IS_INVALID;
+    else if (stack[sp - 1]->type != TYPE_REAL)
+        return ERR_INVALID_TYPE;
+
+    vartype *v;
+    int4 size;
+    int err = get_mat_or_list(arg, false, &v, &size, NULL);
+    if (err != ERR_NONE)
+        return err;
+    int4 item;
+    if (!dim_to_int4(stack[sp - 1], &item))
+        return ERR_DIMENSION_ERROR;
+
+    vartype_list *list = (vartype_list *) v;
+    v = dup_vartype(stack[sp]);
+    if (v == NULL)
+        return ERR_INSUFFICIENT_MEMORY;
+    if (!disentangle((vartype *) list)) {
+        fail:
+        free_vartype(v);
+        return ERR_INSUFFICIENT_MEMORY;
+    }
+    if (item < size) {
+        free_vartype(list->array->data[item]);
+        list->array->data[item] = v;
+    } else {
+        vartype **new_data = (vartype **) realloc(list->array->data, (item + 1) * sizeof(vartype *));
+        if (new_data == NULL)
+            goto fail;
+        for (int i = list->size; i < item; i++) {
+            new_data[i] = new_real(0);
+            if (new_data[i] == NULL) {
+                while (--i >= list->size)
+                    free_vartype(new_data[i]);
+                new_data = (vartype **) realloc(new_data, list->size * sizeof(vartype *));
+                if (new_data != NULL || list->size == 0)
+                    list->array->data = new_data;
+                goto fail;
+            }
+        }
+        new_data[item] = v;
+        list->array->data = new_data;
+        list->size = item + 1;
+    }
+
+    return ERR_NONE;
 }
 
 /////////////////////
@@ -1497,7 +1744,10 @@ static int concat(bool extend) {
             arg_struct arg;
             arg.type = ARGTYPE_STK;
             arg.val.stk = 'X';
+            char saved_trace = flags.f.trace_print;
+            flags.f.trace_print = 0;
             docmd_arcl(&arg);
+            flags.f.trace_print = saved_trace;
             text = reg_alpha;
             len = reg_alpha_length;
         }

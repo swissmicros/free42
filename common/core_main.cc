@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -138,6 +138,9 @@ void core_init(int read_saved_state, int4 version, const char *state_file_name, 
 #endif
 
     repaint_display();
+    #if defined(ANDROID) || defined(IPHONE)
+    mode_popup_unknown = true;
+    #endif
     shell_annunciators(mode_updown,
                        mode_shift,
                        0 /*print*/,
@@ -225,6 +228,45 @@ int core_special_menu_key(int which) {
     return special_menu_key(which);
 }
 
+static bool core_keydown_2(int key, bool *enqueued, int *repeat);
+
+bool core_keydown(int key, bool *enqueued, int *repeat) {
+    if (key >= 1024 && key != 1034) {
+        int code = key - 1024;
+        char ubuf[5];
+        int n = 0;
+        if (code < 128) {
+            ubuf[n++] = code;
+        } else if (code < 2048) {
+            ubuf[n++] = (code >> 6) | 0xc0;
+            ubuf[n++] = (code & 63) | 0x80;
+        } else if (code < 65536) {
+            ubuf[n++] = (code >> 12) | 0xe0;
+            ubuf[n++] = ((code >> 6) & 63) | 0x80;
+            ubuf[n++] = (code & 63) | 0x80;
+        } else if (code < 1114112) {
+            ubuf[n++] = (code >> 18) | 0xf0;
+            ubuf[n++] = ((code >> 12) & 63) | 0x80;
+            ubuf[n++] = ((code >> 6) & 63) | 0x80;
+            ubuf[n++] = (code & 63) | 0x80;
+        } else {
+            fail:
+            set_shift(false);
+            squeak();
+            return core_keydown_2(0, enqueued, repeat);
+        }
+        ubuf[n] = 0;
+        char hpbuf[5];
+        int len = ascii2hp(hpbuf, 1, ubuf);
+        if (len == 0)
+            goto fail;
+        if (hpbuf[0] == 30)
+            hpbuf[0] = 94;
+        key = 1024 + (hpbuf[0] & 255);
+    }
+    return core_keydown_2(key, enqueued, repeat);
+}
+
 bool core_keydown_command(const char *name, bool is_text, bool *enqueued, int *repeat) {
     char hpname[70];
     int len = ascii2hp(hpname, 63, name);
@@ -235,18 +277,18 @@ bool core_keydown_command(const char *name, bool is_text, bool *enqueued, int *r
             set_shift(false);
             squeak();
         }
-        return core_keydown(ch == 0 ? 0 : ch + 1024, enqueued, repeat);
+        return core_keydown_2(ch == 0 ? 0 : ch + 1024, enqueued, repeat);
     } else {
         int cmd = find_builtin(hpname, len);
         if (cmd == CMD_NONE) {
             set_shift(false);
             squeak();
         }
-        return core_keydown(cmd == CMD_NONE ? 0 : cmd + 2048, enqueued, repeat);
+        return core_keydown_2(cmd == CMD_NONE ? 0 : cmd + 2048, enqueued, repeat);
     }
 }
 
-bool core_keydown(int key, bool *enqueued, int *repeat) {
+static bool core_keydown_2(int key, bool *enqueued, int *repeat) {
 
     *enqueued = 0;
     *repeat = 0;
@@ -260,6 +302,8 @@ bool core_keydown(int key, bool *enqueued, int *repeat) {
     }
 
     if (mode_pause) {
+        if (key == 0)
+            return 0;
         mode_pause = false;
         set_running(false);
         if (!mode_shift && (key == KEY_RUN || key == KEY_EXIT)) {
@@ -418,6 +462,24 @@ bool core_keydown(int key, bool *enqueued, int *repeat) {
     return 0;
 }
 
+int dequeue_key() {
+    if (keybuf_tail == keybuf_head)
+        return 0;
+    int key = keybuf[keybuf_tail];
+    keybuf_tail = (keybuf_tail + 1) & 15;
+    bool shift = key < 0;
+    if (shift)
+        key = -key;
+    if (key > 2048) {
+        key = find_cmd_getkey_mapping(key - 2048);
+        if (key == 0)
+            squeak();
+    }
+    else if (shift)
+        key += 37;
+    return key;
+}
+
 int core_repeat() {
     keydown(repeating_shift, repeating_key);
     int rpt = repeating;
@@ -565,7 +627,7 @@ bool core_keyup() {
             input_length = 0;
             if (err != ERR_NONE) {
                 pending_command = CMD_NONE;
-                display_error(err, true);
+                display_error(err);
                 redisplay();
                 return mode_running || keybuf_head != keybuf_tail;
             }
@@ -675,7 +737,7 @@ bool core_powercycle() {
             flags.f.stack_lift_disable = 0;
         } else {
             nomem:
-            display_error(ERR_INSUFFICIENT_MEMORY, true);
+            display_error(ERR_INSUFFICIENT_MEMORY);
             flags.f.auto_exec = 0;
         }
         if (!flags.f.auto_exec)
@@ -907,24 +969,24 @@ static void export_hp42s(int index) {
                     char byte2;
                     if (arg.type != ARGTYPE_NUM || arg.val.num <= 9)
                         goto normal;
-                    cmdbuf[cmdlen++] = (char) 0xF1;
+                    cmdbuf[cmdlen++] = (char) 0xf1;
                     if (arg.val.num == 10) {
                         switch (cmd) {
-                            case CMD_FIX: byte2 = (char) 0xD5; break;
-                            case CMD_SCI: byte2 = (char) 0xD6; break;
-                            case CMD_ENG: byte2 = (char) 0xD7; break;
+                            case CMD_FIX: byte2 = (char) 0xd5; break;
+                            case CMD_SCI: byte2 = (char) 0xd6; break;
+                            case CMD_ENG: byte2 = (char) 0xd7; break;
                         }
                     } else {
                         switch (cmd) {
-                            case CMD_FIX: byte2 = (char) 0xE5; break;
-                            case CMD_SCI: byte2 = (char) 0xE6; break;
-                            case CMD_ENG: byte2 = (char) 0xE7; break;
+                            case CMD_FIX: byte2 = (char) 0xe5; break;
+                            case CMD_SCI: byte2 = (char) 0xe6; break;
+                            case CMD_ENG: byte2 = (char) 0xe7; break;
                         }
                     }
                     cmdbuf[cmdlen++] = byte2;
                 } else if (cmd == CMD_SIZE) {
-                    cmdbuf[cmdlen++] = (char) 0xF3;
-                    cmdbuf[cmdlen++] = (char) 0xF7;
+                    cmdbuf[cmdlen++] = (char) 0xf3;
+                    cmdbuf[cmdlen++] = (char) 0xf7;
                     cmdbuf[cmdlen++] = arg.val.num >> 8;
                     cmdbuf[cmdlen++] = arg.val.num;
                 } else if (cmd == CMD_LBL) {
@@ -934,9 +996,9 @@ static void export_hp42s(int index) {
                         else
                             goto normal;
                     } else if (arg.type == ARGTYPE_STR) {
-                        cmdbuf[cmdlen++] = (char) 0xC0;
+                        cmdbuf[cmdlen++] = (char) 0xc0;
                         cmdbuf[cmdlen++] = 0x00;
-                        cmdbuf[cmdlen++] = 0xF1 + arg.length;
+                        cmdbuf[cmdlen++] = 0xf1 + arg.length;
                         cmdbuf[cmdlen++] = 0x00;
                         for (i = 0; i < arg.length; i++)
                             cmdbuf[cmdlen++] = arg.val.text[i];
@@ -945,50 +1007,50 @@ static void export_hp42s(int index) {
                 } else if (cmd == CMD_INPUT) {
                     if (arg.type == ARGTYPE_IND_NUM
                             || arg.type == ARGTYPE_IND_STK)
-                        code_std_2 = 0xEE;
+                        code_std_2 = 0xee;
                     goto normal;
                 } else if (cmd == CMD_XEQ) {
                     if (arg.type == ARGTYPE_NUM || arg.type == ARGTYPE_STK
                                                 || arg.type == ARGTYPE_LCLBL) {
-                        code_std_1 = 0xE0;
+                        code_std_1 = 0xe0;
                         code_std_2 = 0x00;
                         goto normal;
                     } else if (arg.type == ARGTYPE_STR) {
-                        cmdbuf[cmdlen++] = 0x1E;
-                        cmdbuf[cmdlen++] = 0xF0 + arg.length;
+                        cmdbuf[cmdlen++] = 0x1e;
+                        cmdbuf[cmdlen++] = 0xf0 + arg.length;
                         for (i = 0; i < arg.length; i++)
                             cmdbuf[cmdlen++] = arg.val.text[i];
                     } else
                         goto normal;
                 } else if (cmd == CMD_GTO) {
                     if (arg.type == ARGTYPE_NUM && arg.val.num <= 14) {
-                        cmdbuf[cmdlen++] = 0xB1 + arg.val.num;
+                        cmdbuf[cmdlen++] = 0xb1 + arg.val.num;
                         cmdbuf[cmdlen++] = 0x00;
                     } else if (arg.type == ARGTYPE_NUM
                                         || arg.type == ARGTYPE_STK
                                         || arg.type == ARGTYPE_LCLBL) {
-                        code_std_1 = 0xD0;
+                        code_std_1 = 0xd0;
                         code_std_2 = 0x00;
                         goto normal;
                     } else if (arg.type == ARGTYPE_IND_NUM
                                         || arg.type == ARGTYPE_IND_STK) {
-                        cmdbuf[cmdlen++] = (char) 0xAE;
+                        cmdbuf[cmdlen++] = (char) 0xae;
                         if (arg.type == ARGTYPE_IND_NUM)
                             arg.type = ARGTYPE_NUM;
                         else
                             arg.type = ARGTYPE_STK;
                         goto non_string_suffix;
                     } else if (arg.type == ARGTYPE_STR) {
-                        cmdbuf[cmdlen++] = 0x1D;
-                        cmdbuf[cmdlen++] = 0xF0 + arg.length;
+                        cmdbuf[cmdlen++] = 0x1d;
+                        cmdbuf[cmdlen++] = 0xf0 + arg.length;
                         for (i = 0; i < arg.length; i++)
                             cmdbuf[cmdlen++] = arg.val.text[i];
                     } else
                         goto normal;
                 } else if (cmd == CMD_END) {
-                    cmdbuf[cmdlen++] = (char) 0xC0;
+                    cmdbuf[cmdlen++] = (char) 0xc0;
                     cmdbuf[cmdlen++] = 0x00;
-                    cmdbuf[cmdlen++] = 0x0D;
+                    cmdbuf[cmdlen++] = 0x0d;
                 } else if (cmd == CMD_NUMBER) {
                     const char *p;
                     if (orig_num != NULL)
@@ -1000,24 +1062,24 @@ static void export_hp42s(int index) {
                         if (c >= '0' && c <= '9')
                             cmdbuf[cmdlen++] = 0x10 + c - '0';
                         else if (c == '.' || c == ',')
-                            cmdbuf[cmdlen++] = 0x1A;
+                            cmdbuf[cmdlen++] = 0x1a;
                         else if (c == 24)
-                            cmdbuf[cmdlen++] = 0x1B;
+                            cmdbuf[cmdlen++] = 0x1b;
                         else if (c == '-')
-                            cmdbuf[cmdlen++] = 0x1C;
+                            cmdbuf[cmdlen++] = 0x1c;
                         else
                             /* Should not happen */
                             continue;
                     }
                     cmdbuf[cmdlen++] = 0x00;
                 } else if (cmd == CMD_STRING) {
-                    cmdbuf[cmdlen++] = 0xF0 + arg.length;
+                    cmdbuf[cmdlen++] = 0xf0 + arg.length;
                     for (i = 0; i < arg.length; i++)
                         cmdbuf[cmdlen++] = arg.val.text[i];
                 } else if (cmd >= CMD_ASGN01 && cmd <= CMD_ASGN18) {
                     if (arg.type == ARGTYPE_STR) {
-                        cmdbuf[cmdlen++] = 0xF2 + arg.length;
-                        cmdbuf[cmdlen++] = (char) 0xC0;
+                        cmdbuf[cmdlen++] = 0xf2 + arg.length;
+                        cmdbuf[cmdlen++] = (char) 0xc0;
                         for (i = 0; i < arg.length; i++)
                             cmdbuf[cmdlen++] = arg.val.text[i];
                     } else {
@@ -1027,8 +1089,8 @@ static void export_hp42s(int index) {
                          * anyway.
                          */
                         const command_spec *cs = &cmd_array[arg.val.cmd];
-                        cmdbuf[cmdlen++] = 0xF2 + cs->name_length;
-                        cmdbuf[cmdlen++] = (char) 0xC0;
+                        cmdbuf[cmdlen++] = 0xf2 + cs->name_length;
+                        cmdbuf[cmdlen++] = (char) 0xc0;
                         for (i = 0; i < cs->name_length; i++)
                             cmdbuf[cmdlen++] = cs->name[i];
                     }
@@ -1038,33 +1100,33 @@ static void export_hp42s(int index) {
                     int keyg = cmd <= CMD_KEY9G;
                     int keynum = cmd - (keyg ? CMD_KEY1G : CMD_KEY1X) + 1;
                     if (arg.type == ARGTYPE_STR || arg.type == ARGTYPE_IND_STR){
-                        cmdbuf[cmdlen++] = 0xF2 + arg.length;
-                        cmdbuf[cmdlen++] = keyg ? 0xC3 : 0xC2;
+                        cmdbuf[cmdlen++] = 0xf2 + arg.length;
+                        cmdbuf[cmdlen++] = keyg ? 0xc3 : 0xc2;
                         if (arg.type == ARGTYPE_IND_STR)
                             cmdbuf[cmdlen - 1] += 8;
                         cmdbuf[cmdlen++] = keynum;
                         for (i = 0; i < arg.length; i++)
                             cmdbuf[cmdlen++] = arg.val.text[i];
                     } else {
-                        cmdbuf[cmdlen++] = (char) 0xF3;
-                        cmdbuf[cmdlen++] = keyg ? 0xE3 : 0xE2;
+                        cmdbuf[cmdlen++] = (char) 0xf3;
+                        cmdbuf[cmdlen++] = keyg ? 0xe3 : 0xe2;
                         cmdbuf[cmdlen++] = keynum;
                         goto non_string_suffix;
                     }
                 } else if (cmd == CMD_XROM) {
                     if (arg.type == ARGTYPE_NUM) {
-                        cmdbuf[cmdlen++] = (char) (0xA0 + ((arg.val.num >> 8) & 7));
+                        cmdbuf[cmdlen++] = (char) (0xa0 + ((arg.val.num >> 8) & 7));
                         cmdbuf[cmdlen++] = (char) arg.val.num;
                     } else {
-                        cmdbuf[cmdlen++] = (char) (0xF0 + arg.length);
+                        cmdbuf[cmdlen++] = (char) (0xf0 + arg.length);
                         for (int i = 0; i < arg.length; i++)
                             cmdbuf[cmdlen++] = arg.val.text[i];
                     }
                 } else if (cmd == CMD_XSTR) {
                     int len = arg.length;
                     if (len == 0) {
-                        cmdbuf[cmdlen++] = (char) 0xF2;
-                        cmdbuf[cmdlen++] = (char) 0xA7;
+                        cmdbuf[cmdlen++] = (char) 0xf2;
+                        cmdbuf[cmdlen++] = (char) 0xa7;
                         cmdbuf[cmdlen++] = (char) 0x41;
                     } else {
                         /* Writing directly to 'buf' here, not using 'cmdbuf', */
@@ -1078,8 +1140,8 @@ static void export_hp42s(int index) {
                                 buflen = 0;
                             }
                             int slen = len <= 13 ? len : 13;
-                            buf[buflen++] = (char) (0xF2 + slen);
-                            buf[buflen++] = (char) 0xA7;
+                            buf[buflen++] = (char) (0xf2 + slen);
+                            buf[buflen++] = (char) 0xa7;
                             buf[buflen++] = (char) (slen < len ? 0x49 : 0x41);
                             memcpy(buf + buflen, ptr, slen);
                             buflen += slen;
@@ -1147,7 +1209,7 @@ static void export_hp42s(int index) {
                                 suffix = arg.val.lclbl - 'A' + 0x66;
                             else if (arg.val.lclbl >= 'a' &&
                                                         arg.val.lclbl <= 'e')
-                                suffix = arg.val.lclbl - 'a' + 0x7B;
+                                suffix = arg.val.lclbl - 'a' + 0x7b;
                             else
                                 /* Shouldn't happen */
                                 continue;
@@ -1779,40 +1841,40 @@ static int hp42ext[] = {
     CMD_NULL | 0x4000,
 
     /* 60-6F */
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_LCLV | 0x2000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
+    CMD_NULL  | 0x4000,
+    CMD_NULL  | 0x4000,
+    CMD_NULL  | 0x4000,
+    CMD_NULL  | 0x4000,
+    CMD_LCLV  | 0x2000,
+    CMD_GETMI | 0x2000,
+    CMD_PUTMI | 0x2000,
+    CMD_GETLI | 0x2000,
+    CMD_PUTLI | 0x2000,
+    CMD_NULL  | 0x4000,
+    CMD_NULL  | 0x4000,
+    CMD_NULL  | 0x4000,
+    CMD_NULL  | 0x4000,
+    CMD_NULL  | 0x4000,
+    CMD_NULL  | 0x4000,
+    CMD_NULL  | 0x4000,
 
     /* 70-7F */
-    CMD_NULL | 0x4000,
-    CMD_LCLV | 0x0000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_LCLV | 0x1000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
-    CMD_NULL | 0x4000,
+    CMD_NULL  | 0x4000,
+    CMD_LCLV  | 0x0000,
+    CMD_GETMI | 0x0000,
+    CMD_PUTMI | 0x0000,
+    CMD_GETLI | 0x0000,
+    CMD_PUTLI | 0x0000,
+    CMD_NULL  | 0x4000,
+    CMD_NULL  | 0x4000,
+    CMD_NULL  | 0x4000,
+    CMD_LCLV  | 0x1000,
+    CMD_GETMI | 0x1000,
+    CMD_PUTMI | 0x1000,
+    CMD_GETLI | 0x1000,
+    CMD_PUTLI | 0x1000,
+    CMD_NULL  | 0x4000,
+    CMD_NULL  | 0x4000,
 
     /* 80-8F */
     CMD_VIEW    | 0x0000,
@@ -1971,8 +2033,7 @@ static bool looks_like_zero(const char *buf) {
     return true;
 }
 
-static phloat parse_number_line(char *buf) {
-    phloat res;
+static bool parse_number_line(char *buf, phloat *res) {
     if (buf[0] == 'E' || buf[0] == '-' && buf[1] == 'E') {
         char *buf2 = (char *) malloc(strlen(buf) + 2);
         strcpy(buf2 + 1, buf);
@@ -1985,32 +2046,277 @@ static phloat parse_number_line(char *buf) {
         int len2 = (int) strlen(buf2);
         if (buf2[len2 - 1] == 'E')
             buf2[len2 - 1] = 0;
-        res = parse_number_line(buf2);
+        bool success = parse_number_line(buf2, res);
         free(buf2);
-        return res;
+        return success;
     }
+
+    /* This isn't very thorough, but the aim is simply to prevent things
+     * that start with a valid number character but are clearly not valid
+     * numbers from being accepted as number lines. Things like the Plus42
+     * EQNSLV command, for instance, or numbers with attached text like
+     * 10_ft or 20five.
+     */
+    bool seen_e = false;
+    for (char *cp = buf; *cp != 0; cp++) {
+        char c = *cp;
+        if (seen_e && (c == 'E' || c == '.'))
+            return false;
+        if (c == 'E')
+            seen_e = true;
+        else if ((c < '0' || c > '9') && c != '.' && c != '+' && c != '-')
+            return false;
+    }
+
 #ifdef BCD_MATH
-    res = Phloat(buf);
+    *res = Phloat(buf);
 #else
     BID_UINT128 d;
     bid128_from_string(&d, buf);
-    bid128_to_binary64(&res, &d);
+    bid128_to_binary64(res, &d);
 #endif
-    if (p_isinf(res) != 0)
-        res = NAN_1_PHLOAT;
-    else if (res == 0 && !looks_like_zero(buf))
-        res = NAN_2_PHLOAT;
-    return res;
+    if (p_isinf(*res) != 0)
+        *res = NAN_1_PHLOAT;
+    else if (*res == 0 && !looks_like_zero(buf))
+        *res = NAN_2_PHLOAT;
+    return true;
+}
+
+static void decode_xrom(int byte1, int byte2, int *cmd, arg_struct *arg) {
+    /* XROM & parameterless HP-42S extensions.
+     * I don't want to build a reverse look-up table
+     * for these, so instead I just do a linear search
+     * on the cmd_array table.
+     */
+    uint4 code = (((unsigned int) byte1) << 8) | byte2;
+    if (code >= 0x0a679 && code <= 0x0a67e) {
+        /* HP-41CX: X=NN? etc. */
+        switch (code & 0xf) {
+            case 0x9: *cmd = CMD_X_EQ_NN; break;
+            case 0xa: *cmd = CMD_X_NE_NN; break;
+            case 0xb: *cmd = CMD_X_LT_NN; break;
+            case 0xc: *cmd = CMD_X_LE_NN; break;
+            case 0xd: *cmd = CMD_X_GT_NN; break;
+            case 0xe: *cmd = CMD_X_GE_NN; break;
+        }
+        arg->type = ARGTYPE_IND_STK;
+        arg->val.stk = 'Y';
+        return;
+    }
+    for (int i = 0; i < CMD_SENTINEL; i++)
+        if (cmd_array[i].code1 == byte1 && cmd_array[i].code2 == byte2) {
+            if ((cmd_array[i].flags & FLAG_HIDDEN) != 0)
+                break;
+            *cmd = i;
+            arg->type = ARGTYPE_NONE;
+            return;
+        }
+    /* Not found; insert XROM instruction */
+    *cmd = CMD_XROM;
+    arg->type = ARGTYPE_NUM;
+    arg->val.num = code & 0x07ff;
+}
+
+static void decode_suffix(int cmd, int suffix, arg_struct *arg) {
+    bool ind = (suffix & 0x80) != 0;
+    suffix &= 0x7f;
+    if (!ind && (cmd == CMD_LBL || cmd == CMD_GTO || cmd == CMD_XEQ
+                || cmd >= CMD_KEY1G && cmd <= CMD_KEY9X)
+            && suffix >= 102 && suffix <= 111) {
+        arg->type = ARGTYPE_LCLBL;
+        arg->val.lclbl = 'A' + (suffix - 102);
+    } else if (!ind && (cmd == CMD_LBL || cmd == CMD_GTO || cmd == CMD_XEQ
+                || cmd >= CMD_KEY1G && cmd <= CMD_KEY9X)
+            && suffix >= 123) {
+        arg->type = ARGTYPE_LCLBL;
+        arg->val.lclbl = 'a' + (suffix - 123);
+    } else if (suffix >= 112 && suffix <= 116) {
+        arg->type = ind ? ARGTYPE_IND_STK : ARGTYPE_STK;
+        switch (suffix) {
+            case 112: arg->val.stk = 'T'; break;
+            case 113: arg->val.stk = 'Z'; break;
+            case 114: arg->val.stk = 'Y'; break;
+            case 115: arg->val.stk = 'X'; break;
+            case 116: arg->val.stk = 'L'; break;
+        }
+    } else {
+        arg->type = ind ? ARGTYPE_IND_NUM : ARGTYPE_NUM;
+        arg->val.num = suffix;
+    }
+}
+
+static void decode_string(unsigned char *buf, int *cmd, arg_struct *arg, char **xstr_buf, int *xstr_len) {
+    int pos = 0;
+    int byte1 = buf[pos++];
+    int byte2 = buf[pos++];
+    int str_len;
+    bool extra_extension = false;
+    bool assign = false;
+    
+    if ((byte2 & 0x80) == 0) {
+        /* String */
+        int i;
+        *cmd = CMD_STRING;
+        goto string_2;
+        xrom_string:
+        *cmd = CMD_XROM;
+        string_2:
+        str_len = byte1 - 0xf0;
+        pos--;
+        arg->type = ARGTYPE_STR;
+        do_string:
+        for (i = 0; i < str_len; i++)
+            arg->val.text[i] = buf[pos++];
+        if (extra_extension) {
+            memmove(arg->val.text + 1, arg->val.text, str_len);
+            arg->val.text[0] = 0xa7;
+            str_len++;
+        }
+        arg->length = str_len;
+        if (assign) {
+            assign = false;
+            int key = buf[pos++];
+            if (key > 17) {
+                /* Bad assign... Fix the command to the string
+                 * it would have been if I had known this
+                 * earlier.
+                 */
+                for (i = arg->length; i > 0; i--)
+                    arg->val.text[i] = arg->val.text[i - 1];
+                arg->val.text[0] = (char) 0xc0;
+                arg->val.text[arg->length + 1] = key;
+                arg->length += 2;
+            } else {
+                *cmd += key;
+            }
+        }
+        if (*cmd == CMD_XSTR) {
+            // XSTR is stored as a sequence of instructions, since
+            // it may encode a string of up to 65535 characters, while
+            // instructions are limited to 16 bytes, giving a payload
+            // of up to 13 characters per instruction.
+            char *newbuf = (char *) realloc(*xstr_buf, *xstr_len + arg->length);
+            if (newbuf == NULL && *xstr_len + arg->length != 0) {
+                *cmd = CMD_CANCELLED;
+                return;
+            }
+            *xstr_buf = newbuf;
+            memcpy(*xstr_buf + *xstr_len, arg->val.text, arg->length);
+            *xstr_len += arg->length;
+            if (arg->type == ARGTYPE_IND_STR) {
+                *cmd = CMD_NONE;
+                return;
+            }
+            arg->type = ARGTYPE_XSTR;
+            arg->length = *xstr_len;
+            arg->val.xstr = *xstr_buf;
+        }
+    } else {
+        /* Parameterized HP-42S extension */
+        if (byte1 == 0xf1) {
+            switch (byte2) {
+                case 0xd5: *cmd = CMD_FIX; arg->val.num = 10; break;
+                case 0xd6: *cmd = CMD_SCI; arg->val.num = 10; break;
+                case 0xd7: *cmd = CMD_ENG; arg->val.num = 10; break;
+                case 0xe5: *cmd = CMD_FIX; arg->val.num = 11; break;
+                case 0xe6: *cmd = CMD_SCI; arg->val.num = 11; break;
+                case 0xe7: *cmd = CMD_ENG; arg->val.num = 11; break;
+                default: goto xrom_string;
+            }
+            arg->type = ARGTYPE_NUM;
+            return;
+        }
+        if (byte2 == 0xa7) {
+            byte2 = buf[pos++];
+            byte1--;
+            extra_extension = true;
+        }
+        *cmd = hp42ext[byte2];
+        int flag = *cmd >> 12;
+        *cmd &= 0x0fff;
+        if (flag == 0 || flag == 1) {
+            arg->type = flag == 0 ? ARGTYPE_STR
+                                    : ARGTYPE_IND_STR;
+            str_len = byte1 - 0xf1;
+            extra_extension = false;
+            goto do_string;
+        } else if (flag == 2) {
+            if (byte1 != 0xf2)
+                goto xrom_string;
+            int suffix = buf[pos++];
+            decode_suffix(*cmd, suffix, arg);
+        } else if (flag == 3) {
+            if (byte2 == 0xc0) {
+                /* ASSIGN */
+                str_len = byte1 - 0xf2;
+                assign = 1;
+                *cmd = CMD_ASGN01;
+                arg->type = ARGTYPE_STR;
+                goto do_string;
+            } else if (byte2 == 0xc2 || byte2 == 0xc3
+                    || byte2 == 0xca || byte2 == 0xcb) {
+                /* KEYG/KEYX name, KEYG/KEYX IND name */
+                str_len = byte1 - 0xf2;
+                if (str_len == 0)
+                    goto xrom_string;
+                *cmd = byte2 == 0xc2 || byte2 == 0xca
+                        ? CMD_KEY1X : CMD_KEY1G;
+                int key;
+                key = buf[pos++];
+                if (key < 1 || key > 9) {
+                    /* Treat as plain string. Alas, it is
+                     * not safe to back up 2 positions, so
+                     * I do the whole thing here.
+                     */
+                    int i;
+                    bad_keyg_keyx:
+                    *cmd = CMD_STRING;
+                    arg->type = ARGTYPE_STR;
+                    arg->length = str_len + 2;
+                    arg->val.text[0] = byte2;
+                    arg->val.text[1] = key;
+                    for (i = 2; i < arg->length; i++)
+                        arg->val.text[i] = buf[pos++];
+                    return;
+                }
+                *cmd += key - 1;
+                arg->type = byte2 == 0xc2 || byte2 == 0xc3
+                            ? ARGTYPE_STR : ARGTYPE_IND_STR;
+                goto do_string;
+            } else if (byte2 == 0xe2 || byte2 == 0xe3) {
+                /* KEYG/KEYX suffix */
+                if (byte1 != 0xf3)
+                    goto xrom_string;
+                int key = buf[pos++];
+                if (key < 1 || key > 9)
+                    goto bad_keyg_keyx;
+                *cmd = byte2 == 0xe2 ? CMD_KEY1X : CMD_KEY1G;
+                *cmd += key - 1;
+                int suffix = buf[pos++];
+                decode_suffix(*cmd, suffix, arg);
+            } else /* byte2 == 0xf7 */ {
+                /* SIZE */
+                if (byte1 != 0xf3)
+                    goto xrom_string;
+                int hi = buf[pos++];
+                int lo = buf[pos++];
+                int sz = (hi << 8) | lo;
+                *cmd = CMD_SIZE;
+                arg->type = ARGTYPE_NUM;
+                arg->val.num = sz;
+            }
+        } else /* flag == 4 */ {
+            /* Unknown value; store as string XROM */
+            goto xrom_string;
+        }
+    }
 }
 
 void core_import_programs(int num_progs, const char *raw_file_name) {
-    int i;
-
     int byte1, byte2, suffix;
     int cmd, flag, str_len = 0;
     int done_flag = 0;
     arg_struct arg;
-    int assign = 0;
     bool pending_end;
 
     if (raw_file_name != NULL) {
@@ -2068,111 +2374,75 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
             goto done;
         cmd = hp42tofree42[byte1];
         flag = cmd >> 12;
-        cmd &= 0x0FFF;
-        bool extra_extension = false;
+        cmd &= 0x0fff;
         if (flag == 0) {
             arg.type = ARGTYPE_NONE;
-            goto store;
         } else if (flag == 1) {
             arg.type = ARGTYPE_NUM;
             arg.val.num = byte1 & 15;
             if (cmd == CMD_LBL)
                 arg.val.num--;
-            goto store;
         } else if (flag == 2) {
             suffix = fgetc(gfile);
             if (suffix == EOF)
                 goto done;
-            goto do_suffix;
+            decode_suffix(cmd, suffix, &arg);
         } else /* flag == 3 */ {
             if (byte1 == 0x00)
                 /* NULL */
                 goto skip;
-            else if (byte1 >= 0x10 && byte1 <= 0x1C) {
+            else if (byte1 >= 0x10 && byte1 <= 0x1c) {
                 /* Number */
                 int numlen = 0;
                 do {
-                    if (byte1 == 0x1A)
+                    if (byte1 == 0x1a)
                         byte1 = '.';
-                    else if (byte1 == 0x1B)
+                    else if (byte1 == 0x1b)
                         byte1 = 'E';
-                    else if (byte1 == 0x1C)
+                    else if (byte1 == 0x1c)
                         byte1 = '-';
                     else
                         byte1 += '0' - 0x10;
                     numbuf[numlen++] = byte1;
                     byte1 = fgetc(gfile);
-                } while (byte1 >= 0x10 && byte1 <= 0x1C);
+                } while (byte1 >= 0x10 && byte1 <= 0x1c);
                 if (byte1 == EOF)
                     done_flag = 1;
                 else if (byte1 != 0x00)
                     ungetc(byte1, gfile);
                 numbuf[numlen++] = 0;
-                arg.val_d = parse_number_line(numbuf);
+                parse_number_line(numbuf, &arg.val_d);
                 cmd = CMD_NUMBER;
                 arg.type = ARGTYPE_DOUBLE;
-            } else if (byte1 == 0x1D || byte1 == 0x1E) {
-                cmd = byte1 == 0x1D ? CMD_GTO : CMD_XEQ;
+            } else if (byte1 == 0x1d || byte1 == 0x1e) {
+                cmd = byte1 == 0x1d ? CMD_GTO : CMD_XEQ;
                 str_len = fgetc(gfile);
                 if (str_len == EOF)
                     goto done;
-                else if (str_len < 0x0F1) {
+                else if (str_len < 0xf1) {
                     ungetc(str_len, gfile);
                     goto skip;
                 } else
-                    str_len -= 0x0F0;
+                    str_len -= 0xf0;
                 arg.type = ARGTYPE_STR;
-                goto do_string;
-            } else if (byte1 == 0x1F) {
+                do_string:
+                for (int i = 0; i < str_len; i++) {
+                    suffix = fgetc(gfile);
+                    if (suffix == EOF)
+                        goto done;
+                    arg.val.text[i] = suffix;
+                }
+                arg.length = str_len;
+            } else if (byte1 == 0x1f) {
                 /* "W" function (see HP-41C instruction table */
                 goto skip;
-            } else if (byte1 >= 0x0A0 && byte1 <= 0x0A7) {
-                /* XROM & parameterless HP-42S extensions.
-                 * I don't want to build a reverse look-up table
-                 * for these, so instead I just do a linear search
-                 * on the cmd_array table.
-                 */
-                uint4 code;
+            } else if (byte1 >= 0xa0 && byte1 <= 0xa7) {
+                /* XROM mm,nn */
                 byte2 = fgetc(gfile);
                 if (byte2 == EOF)
                     goto done;
-                code = (((unsigned int) byte1) << 8) | byte2;
-                if (code >= 0x0a679 && code <= 0x0a67e) {
-                    /* HP-41CX: X=NN? etc. */
-                    switch (code & 0xf) {
-                        case 0x9: cmd = CMD_X_EQ_NN; break;
-                        case 0xa: cmd = CMD_X_NE_NN; break;
-                        case 0xb: cmd = CMD_X_LT_NN; break;
-                        case 0xc: cmd = CMD_X_LE_NN; break;
-                        case 0xd: cmd = CMD_X_GT_NN; break;
-                        case 0xe: cmd = CMD_X_GE_NN; break;
-                    }
-                    arg.type = ARGTYPE_IND_STK;
-                    arg.val.stk = 'Y';
-                    goto store;
-                }
-                if (code == 0x0a7f5) {
-                    /* NEWSTR; deprecated, replace with XSTR "" */
-                    cmd = CMD_XSTR;
-                    arg.type = ARGTYPE_XSTR;
-                    arg.length = 0;
-                    arg.val.xstr = NULL;
-                    goto store;
-                }
-                for (i = 0; i < CMD_SENTINEL; i++)
-                    if (cmd_array[i].code1 == byte1 && cmd_array[i].code2 == byte2) {
-                        if ((cmd_array[i].flags & FLAG_HIDDEN) != 0)
-                            break;
-                        cmd = i;
-                        arg.type = ARGTYPE_NONE;
-                        goto store;
-                    }
-                /* Not found; insert XROM instruction */
-                cmd = CMD_XROM;
-                arg.type = ARGTYPE_NUM;
-                arg.val.num = code & 0x07FF;
-                goto store;
-            } else if (byte1 == 0x0AE) {
+                decode_xrom(byte1, byte2, &cmd, &arg);
+            } else if (byte1 == 0xae) {
                 /* GTO/XEQ IND */
                 suffix = fgetc(gfile);
                 if (suffix == EOF)
@@ -2181,13 +2451,13 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
                     cmd = CMD_XEQ;
                 else {
                     cmd = CMD_GTO;
-                    suffix |= 0x080;
+                    suffix |= 0x80;
                 }
-                goto do_suffix;
-            } else if (byte1 == 0x0AF || byte1 == 0x0B0) {
+                decode_suffix(cmd, suffix, &arg);
+            } else if (byte1 == 0xaf || byte1 == 0xb0) {
                 /* SPARE functions (see HP-41C instruction table */
                 goto skip;
-            } else if (byte1 >= 0x0B1 && byte1 <= 0x0BF) {
+            } else if (byte1 >= 0xb1 && byte1 <= 0xbf) {
                 /* 2-byte GTO */
                 byte2 = fgetc(gfile);
                 if (byte2 == EOF)
@@ -2195,8 +2465,7 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
                 cmd = CMD_GTO;
                 arg.type = ARGTYPE_NUM;
                 arg.val.num = (byte1 & 15) - 1;
-                goto store;
-            } else if (byte1 >= 0x0C0 && byte1 <= 0x0CD) {
+            } else if (byte1 >= 0xc0 && byte1 <= 0xcd) {
                 /* GLOBAL */
                 byte2 = fgetc(gfile);
                 if (byte2 == EOF)
@@ -2204,14 +2473,13 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
                 str_len = fgetc(gfile);
                 if (str_len == EOF)
                     goto done;
-                if (str_len < 0x0F1) {
+                if (str_len < 0xf1) {
                     /* END */
                     cmd = CMD_END;
                     arg.type = ARGTYPE_NONE;
-                    goto store;
                 } else {
                     /* LBL "" */
-                    str_len -= 0x0F1;
+                    str_len -= 0xf1;
                     byte2 = fgetc(gfile);
                     if (byte2 == EOF)
                         goto done;
@@ -2219,7 +2487,7 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
                     arg.type = ARGTYPE_STR;
                     goto do_string;
                 }
-            } else if (byte1 >= 0x0D0 && byte1 <= 0x0EF) {
+            } else if (byte1 >= 0xd0 && byte1 <= 0xef) {
                 /* 3-byte GTO & XEQ */
                 byte2 = fgetc(gfile);
                 if (byte2 == EOF)
@@ -2227,228 +2495,27 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
                 suffix = fgetc(gfile);
                 if (suffix == EOF)
                     goto done;
-                cmd = byte1 <= 0x0DF ? CMD_GTO : CMD_XEQ;
-                suffix &= 0x7F;
-                goto do_suffix;
-            } else /* byte1 >= 0xF1 && byte1 <= 0xFF */ {
+                cmd = byte1 <= 0xdf ? CMD_GTO : CMD_XEQ;
+                suffix &= 0x7f;
+                decode_suffix(cmd, suffix, &arg);
+            } else /* byte1 >= 0xf1 && byte1 <= 0xff */ {
                 /* Strings and parameterized HP-42S extensions */
-                byte2 = fgetc(gfile);
-                if (byte2 == EOF)
-                    goto done;
-                if ((byte2 & 0x080) == 0) {
-                    /* String */
-                    int i;
-                    cmd = CMD_STRING;
-                    goto string_2;
-                    xrom_string:
-                    cmd = CMD_XROM;
-                    string_2:
-                    str_len = byte1 - 0x0F0;
-                    ungetc(byte2, gfile);
-                    arg.type = ARGTYPE_STR;
-                    do_string:
-                    for (i = 0; i < str_len; i++) {
-                        suffix = fgetc(gfile);
-                        if (suffix == EOF)
-                            goto done;
-                        arg.val.text[i] = suffix;
-                    }
-                    if (extra_extension) {
-                        memmove(arg.val.text + 1, arg.val.text, str_len);
-                        arg.val.text[0] = 0xa7;
-                        str_len++;
-                    }
-                    arg.length = str_len;
-                    if (assign) {
-                        assign = 0;
-                        suffix = fgetc(gfile);
-                        if (suffix == EOF)
-                            goto done;
-                        if (suffix > 17) {
-                            /* Bad assign... Fix the command to the string
-                             * it would have been if I had known this
-                             * earlier.
-                             */
-                            for (i = arg.length; i > 0; i--)
-                                arg.val.text[i] = arg.val.text[i - 1];
-                            arg.val.text[0] = (char) 0xC0;
-                            arg.val.text[arg.length + 1] = suffix;
-                            arg.length += 2;
-                        } else {
-                            cmd += suffix;
-                        }
-                    }
-                    goto store;
-                } else {
-                    /* Parameterized HP-42S extension */
-                    if (byte1 == 0x0F1) {
-                        switch (byte2) {
-                            case 0x0D5: cmd = CMD_FIX; arg.val.num = 10; break;
-                            case 0x0D6: cmd = CMD_SCI; arg.val.num = 10; break;
-                            case 0x0D7: cmd = CMD_ENG; arg.val.num = 10; break;
-                            case 0x0E5: cmd = CMD_FIX; arg.val.num = 11; break;
-                            case 0x0E6: cmd = CMD_SCI; arg.val.num = 11; break;
-                            case 0x0E7: cmd = CMD_ENG; arg.val.num = 11; break;
-                            default: goto xrom_string;
-                        }
-                        arg.type = ARGTYPE_NUM;
-                        goto store;
-                    }
-                    if (byte2 == 0xa7) {
-                        byte2 = fgetc(gfile);
-                        if (byte2 == EOF)
-                            goto done;
-                        byte1--;
-                        extra_extension = true;
-                    }
-                    cmd = hp42ext[byte2];
-                    flag = cmd >> 12;
-                    cmd &= 0x0FFF;
-                    if (flag == 0 || flag == 1) {
-                        arg.type = flag == 0 ? ARGTYPE_STR
-                                                : ARGTYPE_IND_STR;
-                        str_len = byte1 - 0x0F1;
-                        extra_extension = false;
-                        if (cmd != CMD_XSTR)
-                            goto do_string;
-                        // XSTR is stored as a sequence of instructions, since
-                        // it may encode a string of up to 65535 characters, while
-                        // instructions are limited to 16 bytes, giving a payload
-                        // of up to 13 characters per instruction.
-                        char *newbuf = (char *) realloc(xstr_buf, xstr_len + str_len);
-                        if (newbuf == NULL)
-                            goto done;
-                        xstr_buf = newbuf;
-                        while (str_len-- > 0) {
-                            int b = fgetc(gfile);
-                            if (b == EOF)
-                                goto done;
-                            xstr_buf[xstr_len++] = b;
-                        }
-                        if (arg.type == ARGTYPE_IND_STR)
-                            continue;
-                        arg.type = ARGTYPE_XSTR;
-                        arg.length = xstr_len;
-                        arg.val.xstr = xstr_buf;
-                        goto store;
-                    } else if (flag == 2) {
-                        int ind;
-                        if (byte1 != 0x0F2)
-                            goto xrom_string;
-                        suffix = fgetc(gfile);
-                        if (suffix == EOF)
-                            goto done;
-                        do_suffix:
-                        ind = (suffix & 0x080) != 0;
-                        suffix &= 0x7F;
-                        if (!ind && (cmd == CMD_LBL || cmd == CMD_GTO || cmd == CMD_XEQ
-                                    || cmd >= CMD_KEY1G && cmd <= CMD_KEY9X)
-                                && suffix >= 102 && suffix <= 111) {
-                            arg.type = ARGTYPE_LCLBL;
-                            arg.val.lclbl = 'A' + (suffix - 102);
-                        } else if (!ind && (cmd == CMD_LBL || cmd == CMD_GTO || cmd == CMD_XEQ
-                                    || cmd >= CMD_KEY1G && cmd <= CMD_KEY9X)
-                                && suffix >= 123) {
-                            arg.type = ARGTYPE_LCLBL;
-                            arg.val.lclbl = 'a' + (suffix - 123);
-                        } else if (suffix >= 112 && suffix <= 116) {
-                            arg.type = ind ? ARGTYPE_IND_STK : ARGTYPE_STK;
-                            switch (suffix) {
-                                case 112: arg.val.stk = 'T'; break;
-                                case 113: arg.val.stk = 'Z'; break;
-                                case 114: arg.val.stk = 'Y'; break;
-                                case 115: arg.val.stk = 'X'; break;
-                                case 116: arg.val.stk = 'L'; break;
-                            }
-                        } else {
-                            arg.type = ind ? ARGTYPE_IND_NUM : ARGTYPE_NUM;
-                            arg.val.num = suffix;
-                        }
-                        goto store;
-                    } else if (flag == 3) {
-                        if (byte2 == 0x0C0) {
-                            /* ASSIGN */
-                            str_len = byte1 - 0x0F2;
-                            assign = 1;
-                            cmd = CMD_ASGN01;
-                            arg.type = ARGTYPE_STR;
-                            goto do_string;
-                        } else if (byte2 == 0x0C2 || byte2 == 0x0C3
-                                || byte2 == 0x0CA || byte2 == 0x0CB) {
-                            /* KEYG/KEYX name, KEYG/KEYX IND name */
-                            str_len = byte1 - 0x0F2;
-                            if (str_len == 0)
-                                goto xrom_string;
-                            cmd = byte2 == 0x0C2 || byte2 == 0x0CA
-                                    ? CMD_KEY1X : CMD_KEY1G;
-                            suffix = fgetc(gfile);
-                            if (suffix == EOF)
-                                goto done;
-                            if (suffix < 1 || suffix > 9) {
-                                /* Treat as plain string. Alas, it is
-                                 * not safe to back up 2 positions, so
-                                 * I do the whole thing here.
-                                 */
-                                int i;
-                                bad_keyg_keyx:
-                                cmd = CMD_STRING;
-                                arg.type = ARGTYPE_STR;
-                                arg.length = str_len + 2;
-                                arg.val.text[0] = byte2;
-                                arg.val.text[1] = suffix;
-                                for (i = 2; i < arg.length; i++) {
-                                    int c = fgetc(gfile);
-                                    if (c == EOF)
-                                        goto done;
-                                    arg.val.text[i] = c;
-                                }
-                                goto store;
-                            }
-                            cmd += suffix - 1;
-                            arg.type = byte2 == 0x0C2 || byte2 == 0x0C3
-                                        ? ARGTYPE_STR : ARGTYPE_IND_STR;
-                            goto do_string;
-                        } else if (byte2 == 0x0E2 || byte2 == 0x0E3) {
-                            /* KEYG/KEYX suffix */
-                            if (byte1 != 0x0F3)
-                                goto xrom_string;
-                            suffix = fgetc(gfile);
-                            if (suffix == EOF)
-                                goto done;
-                            if (suffix < 1 || suffix > 9)
-                                goto bad_keyg_keyx;
-                            cmd = byte2 == 0x0E2 ? CMD_KEY1X : CMD_KEY1G;
-                            cmd += suffix - 1;
-                            suffix = fgetc(gfile);
-                            if (suffix == EOF)
-                                goto done;
-                            goto do_suffix;
-                        } else /* byte2 == 0x0F7 */ {
-                            /* SIZE */
-                            int sz;
-                            if (byte1 != 0x0F3)
-                                goto xrom_string;
-                            suffix = fgetc(gfile);
-                            if (suffix == EOF)
-                                goto done;
-                            sz = suffix << 8;
-                            suffix = fgetc(gfile);
-                            if (suffix == EOF)
-                                goto done;
-                            sz += suffix;
-                            cmd = CMD_SIZE;
-                            arg.type = ARGTYPE_NUM;
-                            arg.val.num = sz;
-                            goto store;
-                        }
-                    } else /* flag == 4 */ {
-                        /* Unknown value; store as string XROM */
-                        goto xrom_string;
-                    }
+                unsigned char buf[16];
+                buf[0] = byte1;
+                str_len = byte1 - 0xf0;
+                for (int i = 0; i < str_len; i++) {
+                    int c = fgetc(gfile);
+                    if (c == EOF)
+                        goto done;
+                    buf[i + 1] = c;
                 }
+                decode_string(buf, &cmd, &arg, &xstr_buf, &xstr_len);
+                if (cmd == CMD_CANCELLED)
+                    goto done;
+                if (cmd == CMD_NONE)
+                    continue;
             }
         }
-        store:
         if (pending_end) {
             goto_dot_dot(true);
             pending_end = false;
@@ -2561,7 +2628,7 @@ static void serialize_list(textbuf *tb, vartype_list *list, int indent) {
                     unsigned char c = txt[j];
                     if (c == 10)
                         c = 138;
-                    else if (c >= 130 && c != 138)
+                    else if (undefined_char(c))
                         c &= 127;
                     if (c == '"') {
                         tb_write(tb, "\\\"", 2);
@@ -2599,7 +2666,7 @@ static void serialize_list(textbuf *tb, vartype_list *list, int indent) {
                             unsigned char c = text[k];
                             if (c == 10)
                                 c = 138;
-                            else if (c >= 130 && c != 138)
+                            else if (undefined_char(c))
                                 c &= 127;
                             if (c == '"') {
                                 tb_write(tb, "\\\"", 2);
@@ -2673,7 +2740,7 @@ char *core_copy() {
         tb_write_null(&tb);
         if (tb.fail) {
             free(tb.buf);
-            display_error(ERR_INSUFFICIENT_MEMORY, false);
+            display_error(ERR_INSUFFICIENT_MEMORY);
             redisplay();
             return NULL;
         } else
@@ -3073,18 +3140,28 @@ static int ascii2hp(char *dst, int dstlen, const char *src, int srclen /* = -1 *
             case 0x00f6: code =  28; break; // lowercase o with umlaut
             case 0x00dc:                    // uppercase u with umlaut
             case 0x00fc: code =  29; break; // lowercase u with umlaut
+            case '^':    code =  30; break; // caret
             case 0x00b7:                    // middle dot (Emu42)
             case 0x2022: code =  31; break; // bullet
             case 0x201c:                    // left curly double quote
             case 0x201d: code =  34; break; // right curly double quote
             case 0x2018:                    // left curly single quote
             case 0x2019: code =  39; break; // right curly single quote
-            case 0x2191: code =  94; break; // upward-pointing arrow
             case 0x2212: code =  45; break; // minus sign
+            case 0x2191: code =  94; break; // upward-pointing arrow
             case 0x22a2:                    // right tack sign (i41CX)
             case 0x22a6:                    // assertion sign (Emu42)
             case 0x251c: code = 127; break; // append sign
+            case 0x2236: code = 128; break; // ratio sign, used for thin colon
             case 0x028f: code = 129; break; // small-caps y
+            case 0x03a9: code = 130; break; // Uppercase omega
+            case 0x1d1b: code = 131; break; // small-caps t
+            case 0x029f: code = 132; break; // small-caps l
+            case 0x1d00: code = 133; break; // small-caps a
+            case 0x25b9: code = 134; break; // hollow right-pointing triangle
+            case 0x25ec: code = 135; break; // gray right-pointing triangle
+            case 0x00ab: code = 136; break; // opening guillemet
+            case 0x00bb: code = 137; break; // closing guillemet
             case 0x240a: code = 138; break; // LF symbol
             // Combining accents: apply them if they fit,
             // otherwise ignore them
@@ -3509,6 +3586,9 @@ static void paste_programs(const char *buf) {
     arg_struct arg;
     char numbuf[50];
 
+    char *xstr_buf = NULL;
+    int xstr_len = 0;
+
     while (!done) {
         int end = pos;
         char c;
@@ -3525,7 +3605,7 @@ static void paste_programs(const char *buf) {
         if (alen > 255) {
             hpbuf = (char *) malloc(alen + 4);
             if (hpbuf == NULL) {
-                display_error(ERR_INSUFFICIENT_MEMORY, false);
+                display_error(ERR_INSUFFICIENT_MEMORY);
                 redisplay();
                 return;
             }
@@ -3590,7 +3670,8 @@ static void paste_programs(const char *buf) {
                     goto line_done;
                 numbuf[i] = 0;
                 cmd = CMD_NUMBER;
-                arg.val_d = parse_number_line(numbuf);
+                if (!parse_number_line(numbuf, &arg.val_d))
+                    goto line_done;
                 arg.type = ARGTYPE_DOUBLE;
                 goto store;
             } else {
@@ -3615,12 +3696,12 @@ static void paste_programs(const char *buf) {
                                     && hpbuf[prev_hppos + 2] == '?'
                                     && hpbuf[prev_hppos + 3] == ' ') {
                     switch (hpbuf[prev_hppos + 1]) {
-                        case '=':    cmd = CMD_0_EQ_NN; goto parse_arg;
-                        case '\014': cmd = CMD_0_NE_NN; goto parse_arg;
-                        case '<':    cmd = CMD_0_LT_NN; goto parse_arg;
-                        case '>':    cmd = CMD_0_GT_NN; goto parse_arg;
-                        case '\011': cmd = CMD_0_LE_NN; goto parse_arg;
-                        case '\013': cmd = CMD_0_GE_NN; goto parse_arg;
+                        case '=':   cmd = CMD_0_EQ_NN; goto parse_arg;
+                        case '\14': cmd = CMD_0_NE_NN; goto parse_arg;
+                        case '<':   cmd = CMD_0_LT_NN; goto parse_arg;
+                        case '>':   cmd = CMD_0_GT_NN; goto parse_arg;
+                        case '\11': cmd = CMD_0_LE_NN; goto parse_arg;
+                        case '\13': cmd = CMD_0_GE_NN; goto parse_arg;
                         default: goto not_zero_comp;
                     }
                     parse_arg:
@@ -3669,7 +3750,7 @@ static void paste_programs(const char *buf) {
                 hpbuf[lineno_end] = 0;
                 cmd = CMD_NUMBER;
                 strcpy(numbuf, hpbuf + lineno_start);
-                arg.val_d = parse_number_line(numbuf);
+                parse_number_line(numbuf, &arg.val_d);
                 arg.type = ARGTYPE_DOUBLE;
                 goto store;
             }
@@ -3737,14 +3818,6 @@ static void paste_programs(const char *buf) {
                 arg.val.stk = 'Y';
                 goto store;
                 not_cx_comp:;
-            }
-            if (cmd_end - hppos == 6 && strncmp(hpbuf + hppos, "NEWSTR", 6) == 0) {
-                // NEWSTR; obsolete function replaced by XSTR ""
-                cmd = CMD_XSTR;
-                arg.type = ARGTYPE_XSTR;
-                arg.length = 0;
-                arg.val.xstr = NULL;
-                goto store;
             }
             cmd = find_builtin(hpbuf + hppos, cmd_end - hppos);
             int tok_start, tok_end;
@@ -3928,7 +4001,7 @@ static void paste_programs(const char *buf) {
                         }
                         if (tok_end - tok_start == 2 && isdigit(hpbuf[tok_start])
                                                      && isdigit(hpbuf[tok_start + 1])) {
-                            if (!ind && string_required)
+                            if (!ind && (string_required || cmd == CMD_GETMI || cmd == CMD_PUTMI || cmd == CMD_GETLI || cmd == CMD_PUTLI))
                                 goto line_done;
                             arg.type = ind ? ARGTYPE_IND_NUM : ARGTYPE_NUM;
                             sscanf(hpbuf + tok_start, "%02d", &arg.val.num);
@@ -3971,6 +4044,11 @@ static void paste_programs(const char *buf) {
                     case ARG_RVAR: {
                         string_required = true;
                         stk_allowed = false;
+                        argtype = ARG_VAR;
+                        goto string_only;
+                    }
+                    case ARG_M_STK:
+                    case ARG_L_STK: {
                         argtype = ARG_VAR;
                         goto string_only;
                     }
@@ -4047,7 +4125,8 @@ static void paste_programs(const char *buf) {
                     // bit set, putting it in the space of HP-42S extensions, but which do
                     // not correspond to any actual known extension.
                     char d = 0;
-                    arg.length = 0;
+                    unsigned char buf[16];
+                    int length = 0;
                     for (int i = 2; i < len; i++) {
                         char c = hpbuf[tok_start + i];
                         if (c >= '0' && c <= '9')
@@ -4059,14 +4138,22 @@ static void paste_programs(const char *buf) {
                         else
                             goto line_done;
                         if ((i & 1) != 0) {
-                            arg.val.text[arg.length++] = d;
+                            buf[++length] = d;
                             d = 0;
                         } else {
                             d <<= 4;
                         }
                     }
-                    cmd = CMD_XROM;
-                    arg.type = ARGTYPE_STR;
+                    buf[0] = 0xf0 + length;
+                    decode_string(buf, &cmd, &arg, &xstr_buf, &xstr_len);
+                    if (cmd == CMD_CANCELLED) {
+                        display_error(ERR_INSUFFICIENT_MEMORY);
+                        redisplay();
+                        free(xstr_buf);
+                        return;
+                    }
+                    if (cmd == CMD_NONE)
+                        goto line_done;
                     goto store;
                 }
                 if (len > 5)
@@ -4079,9 +4166,9 @@ static void paste_programs(const char *buf) {
                     goto line_done;
                 if (a < 0 || a > 31 || b < 0 || b > 63)
                     goto line_done;
-                cmd = CMD_XROM;
-                arg.type = ARGTYPE_NUM;
-                arg.val.num = (a << 6) | b;
+                int byte1 = 0xa0 | (a >> 2);
+                int byte2 = ((a << 6) | b) & 255;
+                decode_xrom(byte1, byte2, &cmd, &arg);
                 goto store;
             } else {
                 // Number or bust!
@@ -4136,7 +4223,8 @@ static void paste_programs(const char *buf) {
                             }
                         }
                         cmd = CMD_NUMBER;
-                        arg.val_d = parse_number_line(numbuf);
+                        if (!parse_number_line(numbuf, &arg.val_d))
+                            goto line_done;
                         arg.type = ARGTYPE_DOUBLE;
                         goto store;
                     }
@@ -4149,8 +4237,12 @@ static void paste_programs(const char *buf) {
         if (after_end)
             goto_dot_dot(false);
         after_end = cmd == CMD_END;
-        if (!after_end)
+        if (!after_end) {
             store_command_after(&pc, cmd, &arg, numbuf);
+            free(xstr_buf);
+            xstr_buf = NULL;
+            xstr_len = 0;
+        }
 
         line_done:
         pos = end + 1;
@@ -4159,6 +4251,8 @@ static void paste_programs(const char *buf) {
             hpbuf = NULL;
         }
     }
+    
+    free(xstr_buf);
 }
 
 static int get_token(const char *buf, int *pos, int *start) {
@@ -4486,7 +4580,7 @@ void core_paste(const char *buf) {
             }
             char *hpbuf = (char *) malloc(len + 4);
             if (hpbuf == NULL) {
-                display_error(ERR_INSUFFICIENT_MEMORY, false);
+                display_error(ERR_INSUFFICIENT_MEMORY);
                 redisplay();
                 return;
             }
@@ -4509,7 +4603,7 @@ void core_paste(const char *buf) {
                         break;
                 }
                 if (v == NULL) {
-                    display_error(ERR_INSUFFICIENT_MEMORY, false);
+                    display_error(ERR_INSUFFICIENT_MEMORY);
                     redisplay();
                     return;
                 }
@@ -4520,14 +4614,14 @@ void core_paste(const char *buf) {
             int n = rows * cols;
             phloat *data = (phloat *) malloc(n * sizeof(phloat));
             if (data == NULL) {
-                display_error(ERR_INSUFFICIENT_MEMORY, false);
+                display_error(ERR_INSUFFICIENT_MEMORY);
                 redisplay();
                 return;
             }
             char *is_string = (char *) malloc(n);
             if (is_string == NULL) {
                 free(data);
-                display_error(ERR_INSUFFICIENT_MEMORY, false);
+                display_error(ERR_INSUFFICIENT_MEMORY);
                 redisplay();
                 return;
             }
@@ -4535,7 +4629,7 @@ void core_paste(const char *buf) {
             if (hpbuf == NULL) {
                 free(data);
                 free(is_string);
-                display_error(ERR_INSUFFICIENT_MEMORY, false);
+                display_error(ERR_INSUFFICIENT_MEMORY);
                 redisplay();
                 return;
             }
@@ -4576,7 +4670,7 @@ void core_paste(const char *buf) {
                                     nomem:
                                     free(data);
                                     free(hpbuf);
-                                    display_error(ERR_INSUFFICIENT_MEMORY, false);
+                                    display_error(ERR_INSUFFICIENT_MEMORY);
                                     redisplay();
                                     return;
                                 }
@@ -4664,7 +4758,7 @@ void core_paste(const char *buf) {
                     free_long_strings(is_string, data, p);
                     free(data);
                     free(is_string);
-                    display_error(ERR_INSUFFICIENT_MEMORY, false);
+                    display_error(ERR_INSUFFICIENT_MEMORY);
                     redisplay();
                     return;
                 }
@@ -4675,7 +4769,7 @@ void core_paste(const char *buf) {
                     free_long_strings(is_string, data, p);
                     free(data);
                     free(is_string);
-                    display_error(ERR_INSUFFICIENT_MEMORY, false);
+                    display_error(ERR_INSUFFICIENT_MEMORY);
                     redisplay();
                     return;
                 }
@@ -4691,7 +4785,7 @@ void core_paste(const char *buf) {
                                 malloc(sizeof(vartype_complexmatrix));
                 if (cm == NULL) {
                     free(data);
-                    display_error(ERR_INSUFFICIENT_MEMORY, false);
+                    display_error(ERR_INSUFFICIENT_MEMORY);
                     redisplay();
                     return;
                 }
@@ -4700,7 +4794,7 @@ void core_paste(const char *buf) {
                 if (cm->array == NULL) {
                     free(cm);
                     free(data);
-                    display_error(ERR_INSUFFICIENT_MEMORY, false);
+                    display_error(ERR_INSUFFICIENT_MEMORY);
                     redisplay();
                     return;
                 }
@@ -4714,7 +4808,7 @@ void core_paste(const char *buf) {
         }
         parse_success:
         if (recall_result(v) != ERR_NONE) {
-            display_error(ERR_INSUFFICIENT_MEMORY, false);
+            display_error(ERR_INSUFFICIENT_MEMORY);
             redisplay();
             return;
         }
@@ -4728,6 +4822,20 @@ void core_paste(const char *buf) {
     flags.f.two_line_message = 0;
     redisplay();
 }
+
+#if defined(ANDROID) || defined(IPHONE)
+
+void core_get_char_pixels(const char *ch, char *pixels) {
+    char hpbuf[6];
+    int hplen = ascii2hp(hpbuf, 1, ch);
+    if (hplen == 0)
+        hpbuf[0] = ' ';
+    const char *bits = get_char(hpbuf[0]);
+    for (int i = 0; i < 5; i++)
+        pixels[i] = bits[i];
+}
+
+#endif
 
 void set_alpha_entry(bool state) {
     mode_alpha_entry = state;
@@ -4754,7 +4862,7 @@ void do_interactive(int command) {
     int err;
     if ((cmd_array[command].flags
                 & (flags.f.prgm_mode ? FLAG_NO_PRGM : FLAG_PRGM_ONLY)) != 0) {
-        display_error(ERR_RESTRICTED_OPERATION, false);
+        display_error(ERR_RESTRICTED_OPERATION);
         redisplay();
         return;
     }
@@ -4763,12 +4871,13 @@ void do_interactive(int command) {
             err = docmd_stoel(NULL);
             if (err != ERR_NONE && err != ERR_NONEXISTENT) {
                 // Nonexistent happens with empty lists
-                display_error(err, true);
+                display_error(err);
                 redisplay();
                 return;
             }
         }
     } else if (command == CMD_A_THRU_F) {
+        print_menu_trace("A...F", 5);
         set_base(16);
         set_menu(MENULEVEL_APP, MENU_BASE_A_THRU_F);
         redisplay();
@@ -4780,7 +4889,7 @@ void do_interactive(int command) {
         return;
     } else if (command == CMD_CLV || command == CMD_PRV || command == CMD_LCLV) {
         if (!flags.f.prgm_mode && vars_count == 0) {
-            display_error(ERR_NO_VARIABLES, false);
+            display_error(ERR_NO_VARIABLES);
             redisplay();
             return;
         }
@@ -4919,7 +5028,7 @@ static synonym_spec hp41_synonyms[] =
     { "X<>0?",  false, 5, CMD_X_NE_0  },
     { "X<>Y?",  false, 5, CMD_X_NE_Y  },
     { "v",      false, 1, CMD_DOWN    },
-    { "SST\016",true,  4, CMD_SST     },
+    { "SST\16", true,  4, CMD_SST     },
     { "X>=0?",  false, 5, CMD_X_GE_0  },
     { "X>=Y?",  false, 5, CMD_X_GE_Y  },
     { "S-N",    false, 3, CMD_S_TO_N  },
@@ -4961,11 +5070,15 @@ int find_builtin(const char *name, int namelen) {
         for (j = 0; j < namelen; j++) {
             unsigned char c1, c2;
             c1 = name[j];
-            if (c1 >= 130 && c1 != 138)
+            if (undefined_char(c1))
                 c1 &= 127;
+            else if (c1 == 30)
+                c1 = 94;
             c2 = cmd_array[i].name[j];
-            if (c2 >= 130 && c2 != 138)
+            if (undefined_char(c2))
                 c2 &= 127;
+            else if (c2 == 30)
+                c2 = 94;
             if (c1 != c2)
                 goto nomatch2;
         }
@@ -5058,7 +5171,7 @@ int find_menu_key(int key) {
 void start_incomplete_command(int cmd_id) {
     int argtype = cmd_array[cmd_id].argtype;
     if (!flags.f.prgm_mode && (cmd_array[cmd_id].flags & FLAG_PRGM_ONLY) != 0) {
-        display_error(ERR_RESTRICTED_OPERATION, false);
+        display_error(ERR_RESTRICTED_OPERATION);
         redisplay();
         return;
     }
@@ -5066,6 +5179,7 @@ void start_incomplete_command(int cmd_id) {
     incomplete_ind = false;
     if (argtype == ARG_NAMED || argtype == ARG_PRGM
             || argtype == ARG_RVAR || argtype == ARG_MAT
+            || argtype == ARG_M_STK || argtype == ARG_L_STK
             || argtype == ARG_XSTR)
         incomplete_alpha = true;
     else
@@ -5115,15 +5229,21 @@ void start_incomplete_command(int cmd_id) {
                 mode_commandmenu = MENU_ALPHA1;
         } else {
             mode_command_entry = false;
-            display_error(ERR_NO_REAL_VARIABLES, false);
+            display_error(ERR_NO_REAL_VARIABLES);
         }
     } else if (argtype == ARG_MAT) {
         if (flags.f.prgm_mode || vars_exist(CATSECT_MAT_LIST))
             set_catalog_menu(CATSECT_MAT_LIST_ONLY);
         else if (cmd_id != CMD_DIM) {
             mode_command_entry = false;
-            display_error(ERR_NO_MATRIX_VARIABLES, false);
+            display_error(ERR_NO_MATRIX_VARIABLES);
         }
+    } else if (argtype == ARG_M_STK) {
+        if (flags.f.prgm_mode || vars_exist(CATSECT_MAT))
+            set_catalog_menu(CATSECT_MAT_ONLY);
+    } else if (argtype == ARG_L_STK) {
+        if (flags.f.prgm_mode || vars_exist(CATSECT_LIST))
+            set_catalog_menu(CATSECT_LIST_ONLY);
     } else if (argtype == ARG_LBL || argtype == ARG_PRGM)
         set_catalog_menu(CATSECT_PGM_ONLY);
     else if (cmd_id == CMD_LBL || cmd_id == CMD_XSTR)
@@ -5158,8 +5278,11 @@ void finish_command_entry(bool refresh) {
             redisplay();
         } else {
             int inserting_an_end = pending_command == CMD_END;
-            if ((cmd_array[pending_command].flags & FLAG_IMMED) != 0)
+            if ((cmd_array[pending_command].flags & FLAG_IMMED) != 0) {
+                pc = incomplete_saved_pc;
+                prgm_highlight_row = incomplete_saved_highlight_row;
                 goto do_it_now;
+            }
             store_command(pc, pending_command, &pending_command_arg, NULL);
             if (inserting_an_end)
                 /* current_prgm was already incremented by store_command() */
@@ -5251,7 +5374,7 @@ void finish_xeq() {
             set_menu(MENULEVEL_COMMAND, MENU_NONE);
             if ((cmd == CMD_CLV || cmd == CMD_PRV || cmd == CMD_LCLV)
                     && !flags.f.prgm_mode && vars_count == 0) {
-                display_error(ERR_NO_VARIABLES, false);
+                display_error(ERR_NO_VARIABLES);
                 pending_command = CMD_NONE;
                 redisplay();
             } else
@@ -5261,7 +5384,9 @@ void finish_xeq() {
     }
 }
 
-void start_alpha_prgm_line() {
+bool start_alpha_prgm_line() {
+    if (flags.f.prgm_mode && prgms[current_prgm].locked)
+        return false;
     incomplete_saved_pc = pc;
     incomplete_saved_highlight_row = prgm_highlight_row;
     if (pc == -1)
@@ -5273,6 +5398,7 @@ void start_alpha_prgm_line() {
         display_prgm_line(0, -1);
     entered_string_length = 0;
     mode_alpha_entry = true;
+    return true;
 }
 
 void finish_alpha_prgm_line() {
@@ -5356,7 +5482,7 @@ static int handle_error(int error) {
             }
             handle_it:
             pc = oldpc;
-            display_error(error, true);
+            display_error(error);
             set_running(false);
             return 0;
         }
@@ -5398,7 +5524,7 @@ static int handle_error(int error) {
             }
             handle_it_2:
             pc = oldpc;
-            display_error(error, true);
+            display_error(error);
         }
         return 0;
     } else {
@@ -5415,7 +5541,7 @@ static int handle_error(int error) {
             error = ERR_NONE;
         }
         if (error != ERR_NONE && error != ERR_STOP)
-            display_error(error, true);
+            display_error(error);
         return 0;
     }
 }

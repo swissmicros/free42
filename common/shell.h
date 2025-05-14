@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -195,6 +195,13 @@ void shell_print(const char *text, int length,
                  int x, int y, int width, int height);
 
 #if defined(ANDROID) || defined(IPHONE)
+
+/* shell_show_alpha_keyboard()
+ *
+ * Requests the pop-up ALPHA keyboard to be shown or hidden.
+ */
+void shell_show_alpha_keyboard(bool show);
+
 /* shell_get_acceleration()
  * shell_get_location()
  * shell_get_heading()
@@ -230,6 +237,7 @@ bool shell_get_location(double *lat, double *lon, double *lat_lon_acc,
                                 double *elev, double *elev_acc);
 bool shell_get_heading(double *mag_heading, double *true_heading, double *acc,
                                 double *x, double *y, double *z);
+
 #endif
 
 /* shell_always_on()

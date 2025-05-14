@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -18,6 +18,7 @@
 #import <UIKit/UIKit.h>
 
 @class CalcView;
+@class AlphaKeyboardView;
 @class PrintView;
 @class HTTPServerView;
 @class SelectSkinView;
@@ -32,6 +33,7 @@
 @interface RootViewController : UIViewController {
     UIWindow *window;
     CalcView *calcView;
+    AlphaKeyboardView *alphaKeyboardView;
     PrintView *printView;
     HTTPServerView *httpServerView;
     SelectSkinView *selectSkinView;
@@ -46,6 +48,7 @@
 
 @property (nonatomic, retain) IBOutlet UIWindow *window;
 @property (nonatomic, retain) IBOutlet CalcView *calcView;
+@property (nonatomic, retain) IBOutlet AlphaKeyboardView *alphaKeyboardView;
 @property (nonatomic, retain) IBOutlet PrintView *printView;
 @property (nonatomic, retain) IBOutlet HTTPServerView *httpServerView;
 @property (nonatomic, retain) IBOutlet SelectSkinView *selectSkinView;
@@ -65,9 +68,11 @@
 
 + (void) showMessage:(NSString *) message;
 + (void) presentViewController:(UIViewController *)ctrl animated:(BOOL)a completion:(void (^)(void))completion;
++ (int) getBottomMargin;
 
 + (void) playSound: (int) which;
 + (void) showMain;
++ (void) showAlphaKeyboard;
 + (void) showPrintOut;
 + (void) showHttpServer;
 + (void) showSelectSkin;

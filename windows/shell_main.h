@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -21,6 +21,8 @@
 #include <string>
 #include "stdafx.h"
 #include "resource.h"
+
+#include "shell_skin.h"
 
 struct ci_char_traits : public std::char_traits<wchar_t> {
     static bool eq(wchar_t c1, wchar_t c2) { return towupper(c1) == towupper(c2); }
@@ -92,6 +94,8 @@ extern int ann_run;
 extern int ann_battery;
 extern int ann_g;
 extern int ann_rad;
+
+void get_keymap(keymap_entry **map, int *length);
 
 
 #endif

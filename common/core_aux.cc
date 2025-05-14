@@ -325,6 +325,10 @@ int is_pgm_mode() {
   return flags.f.prgm_mode;
 }
 
+int is_cur_pgm_locked() {
+  return prgms[current_prgm].locked;
+}
+
 int is_number_entry() {
   return mode_number_entry;
 }

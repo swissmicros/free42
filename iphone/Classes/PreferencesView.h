@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -29,6 +29,7 @@
     UISlider *hapticFeedbackSlider;
     UISegmentedControl *orientationSelector;
     UISegmentedControl *swipeDirectionSelector;
+    UISegmentedControl *popupAlphaKeyboardSelector;
     UISwitch *maintainSkinAspectSwitch;
     UISwitch *printToTextSwitch;
     UITextField *printToTextField;
@@ -51,6 +52,7 @@
 @property (nonatomic, retain) IBOutlet UISlider *hapticFeedbackSlider;
 @property (nonatomic, retain) IBOutlet UISegmentedControl *orientationSelector;
 @property (nonatomic, retain) IBOutlet UISegmentedControl *swipeDirectionSelector;
+@property (nonatomic, retain) IBOutlet UISegmentedControl *popupAlphaKeyboardSelector;
 @property (nonatomic, retain) IBOutlet UISwitch *maintainSkinAspectSwitch;
 @property (nonatomic, retain) IBOutlet UISwitch *printToTextSwitch;
 @property (nonatomic, retain) IBOutlet UITextField *printToTextField;

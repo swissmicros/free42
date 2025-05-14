@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Free42 -- an HP-42S calculator simulator
-// Copyright (C) 2004-2024  Thomas Okken
+// Copyright (C) 2004-2025  Thomas Okken
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License, version 2,
@@ -23,6 +23,8 @@
 #include <sys/types.h>
 #include <dirent.h>
 #include <math.h>
+#include <string>
+#include <set>
 
 #include <string>
 #include <vector>
@@ -98,12 +100,8 @@ static const SkinColor *skin_cmap;
 
 static char disp_bits[272];
 
-static vector<string> skin_labels;
-
 static keymap_entry *keymap = NULL;
 static int keymap_length;
-
-static bool display_enabled = true;
 
 static int window_width, window_height;
 
@@ -146,20 +144,39 @@ static void addMenuItem(GtkMenu *menu, const char *name, bool enabled) {
     gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(w), checked);
     gtk_widget_set_sensitive(w, enabled);
 
-    // Apparently, there is no way to retrieve the label from a menu item,
-    // so I have to store them and pass them to the callback explicitly.
-    skin_labels.push_back(name);
-    const char *lbl = skin_labels.back().c_str();
     g_signal_connect(G_OBJECT(w), "activate",
-                     G_CALLBACK(selectSkinCB), (gpointer) lbl);
+                     G_CALLBACK(selectSkinCB), NULL);
 
     gtk_menu_shell_append(GTK_MENU_SHELL(menu), w);
     gtk_widget_show(w);
 }
 
 static void selectSkinCB(GtkWidget *w, gpointer cd) {
+    /* The gtk_check_menu_item_set_active() call causes this callback
+     * to be re-entered; this bit of logic is to prevent getting stuck
+     * in infinite recursion.
+     */
+    static bool busy = false;
+    if (busy)
+        return;
+    busy = true;
+
+    GtkWidget *skin_menu = gtk_widget_get_parent(w);
+    GList *children = gtk_container_get_children(GTK_CONTAINER(skin_menu));
+    GList *item = children;
+    while (item != NULL) {
+        GtkWidget *mi = GTK_WIDGET(item->data);
+        if (GTK_IS_CHECK_MENU_ITEM(mi))
+            gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(mi), mi == w);
+        item = item->next;
+    }
+    g_list_free(children);
+
+    busy = false;
+
+    const char *label = gtk_menu_item_get_label(GTK_MENU_ITEM(w));
+    strcpy(state.skinName, label);
     int sw, sh;
-    strcpy(state.skinName, (char *) cd);
     skin_load(&sw, &sh);
     core_repaint_display();
 
@@ -289,8 +306,6 @@ void skin_menu_update(GtkWidget *w) {
     }
     g_list_free(children);
 
-    skin_labels.clear();
-
     set<string> shared_skins;
     const char *xdg_data_dirs = getenv("XDG_DATA_DIRS");
     if (xdg_data_dirs == NULL || xdg_data_dirs[0] == 0)
@@ -340,7 +355,6 @@ void skin_menu_update(GtkWidget *w) {
 
 void skin_load(int *width, int *height) {
     char line[1024];
-    int lineno = 0;
     bool force_builtin = false;
 
     if (state.skinName[0] == 0) {
@@ -373,6 +387,8 @@ void skin_load(int *width, int *height) {
     keymap = NULL;
     keymap_length = 0;
     int kmcap = 0;
+
+    int lineno = 0;
 
     while (skin_gets(line, 1024)) {
         lineno++;
@@ -651,17 +667,225 @@ void skin_repaint(cairo_t *cr) {
 }
 
 void skin_repaint_annunciator(cairo_t *cr, int which) {
-    if (!display_enabled)
-        return;
     SkinAnnunciator *ann = annunciators + (which - 1);
     cairo_save(cr);
     gdk_cairo_set_source_pixbuf(cr, skin_image,
-            ann->disp_rect.x - ann->src.x - skin.x,
-            ann->disp_rect.y - ann->src.y - skin.y);
+            ann->disp_rect.x - ann->src.x,
+            ann->disp_rect.y - ann->src.y);
     cairo_rectangle(cr, ann->disp_rect.x, ann->disp_rect.y, ann->disp_rect.width, ann->disp_rect.height);
     cairo_clip(cr);
     cairo_paint(cr);
     cairo_restore(cr);
+}
+
+struct KeyShortcutInfo {
+    int x, y, width, height;
+    string unshifted, shifted;
+    KeyShortcutInfo *next;
+    
+    KeyShortcutInfo(SkinKey *k) {
+        x = k->sens_rect.x;
+        y = k->sens_rect.y;
+        width = k->sens_rect.width;
+        height = k->sens_rect.height;
+        unshifted = "";
+        shifted = "";
+    }
+    
+    bool sameRect(SkinKey *that) {
+        return x == that->sens_rect.x
+                && y == that->sens_rect.y
+                && width == that->sens_rect.width
+                && height == that->sens_rect.height;
+    }
+    
+    void add(string entryStr, bool shifted) {
+        string *str = shifted ? &this->shifted : &this->unshifted;
+        *str = entryStr + " " + *str;
+    }
+    
+    string text() {
+        string u, s;
+        if (unshifted.size() == 0)
+            u = "n/a";
+        else
+            u = unshifted.substr(0, unshifted.size() - 1);
+        if (shifted.size() == 0)
+            s = "n/a";
+        else
+            s = shifted.substr(0, shifted.size() - 1);
+        return s + "\n" + u;
+    }
+};
+
+static string entry_to_text(keymap_entry *e) {
+    string c;
+    if (e->keyval >= 33 && e->keyval <= 126) {
+        /* Corresponds to the printable ASCII range */
+        char s[2] = { (char) e->keyval, 0 };
+        c = s;
+    } else {
+        switch (e->keyval) {
+            case GDK_KEY_Escape: c = "Esc"; break;
+            case GDK_KEY_BackSpace: c = "\342\214\253"; break;
+            case GDK_KEY_Up: c = "\342\206\221"; break;
+            case GDK_KEY_Down: c = "\342\206\223"; break;
+            case GDK_KEY_Left: c = "\342\206\220"; break;
+            case GDK_KEY_Right: c = "\342\206\222"; break;
+            case GDK_KEY_Insert: c = "Ins"; break;
+            case GDK_KEY_Delete: c = "\342\214\246"; break;
+            case GDK_KEY_Page_Up: c = "PgUp"; break;
+            case GDK_KEY_Page_Down: c = "PgDn"; break;
+            default: c = string(gdk_keyval_name(e->keyval));
+        }
+    }
+    string mods = "";
+    bool printable = !e->ctrl && c.size() == 1 && c[0] >= 33 && c[0] <= 126;
+    if (e->ctrl)
+        mods += "^";
+    if (e->alt)
+        mods += "\342\214\245";
+    if (e->shift && !printable)
+        mods += "\342\207\247";
+    return mods + c;
+}
+
+static KeyShortcutInfo *get_shortcut_info() {
+    KeyShortcutInfo *head = NULL;
+    set<string> seen;
+    for (int km = 0; km < 2; km++) {
+        keymap_entry *kmap;
+        int kmap_len;
+        if (km == 0) {
+            kmap = keymap;
+            kmap_len = keymap_length;
+        } else
+            get_keymap(&kmap, &kmap_len);
+        for (int i = kmap_len - 1; i >= 0; i--) {
+            keymap_entry *e = kmap + i;
+            if (e->cshift)
+                continue;
+            int key;
+            bool shifted;
+            if (e->macro[1] == 0) {
+                key = e->macro[0];
+                shifted = false;
+            } else if (e->macro[0] == 28 && e->macro[2] == 0) {
+                key = e->macro[1];
+                shifted = true;
+            } else
+                continue;
+            SkinKey *k = NULL;
+            for (int j = 0; j < nkeys; j++) {
+                k = keylist + j;
+                if (key == k->code)
+                    break;
+                if (key == k->shifted_code) {
+                    shifted = true;
+                    break;
+                }
+                k = NULL;
+            }
+            if (k == NULL)
+                continue;
+            string entryStr = entry_to_text(e);
+            if (seen.find(entryStr) != seen.end())
+                continue;
+            seen.insert(entryStr);
+            for (KeyShortcutInfo *p = head; p != NULL; p = p->next) {
+                if (p->sameRect(k)) {
+                    p->add(entryStr, shifted);
+                    goto endloop;
+                }
+            }
+            KeyShortcutInfo *ki;
+            ki = new KeyShortcutInfo(k);
+            ki->add(entryStr, shifted);
+            ki->next = head;
+            head = ki;
+            endloop:;
+        }
+    }
+    return head;
+}
+
+static void draw_text_in_rect(cairo_t *cr, const char *text, int x, int y, int width, int height) {
+    cairo_font_extents_t extents;
+    cairo_font_extents(cr, &extents);
+    cairo_save(cr);
+    cairo_rectangle(cr, x, y, width, height);
+    cairo_clip(cr);
+
+    size_t len = strlen(text);
+    char *buf = (char *) malloc(len + 1);
+    if (buf == NULL)
+        return;
+    size_t pos = 0;
+    double ypos = y + extents.ascent;
+
+    /* This is not efficient, but bear in mind we're only using this for pretty short chunks of text */
+    while (pos < len) {
+        strcpy(buf, text + pos);
+        char *lf = strchr(buf, '\n');
+        if (lf != NULL)
+            *lf = 0;
+        int extra = 1;
+        while (true) {
+            cairo_text_extents_t ext;
+            cairo_text_extents(cr, buf, &ext);
+            if (ext.width <= width)
+                break;
+            /* Too long; look for a word break */
+            char *sp = strrchr(buf, ' ');
+            if (sp != NULL && sp > buf) {
+                *sp = 0;
+                continue;
+            }
+            /* The whole line is one word; trim one char at a time until it's short enough */
+            size_t last = strlen(buf) - 1;
+            extra = 0;
+            do {
+                while (last > 0 && (buf[last] & 0xc0) == 0x80)
+                    last--;
+                if (last == 0)
+                    break;
+                buf[last--] = 0;
+                cairo_text_extents(cr, buf, &ext);
+            } while (ext.width > width);
+        }
+        cairo_move_to(cr, x, ypos);
+        cairo_show_text(cr, buf);
+        ypos += extents.height;
+        pos += strlen(buf) + extra;
+    }
+
+    free(buf);
+    cairo_restore(cr);
+}
+
+void skin_draw_keyboard_shortcuts(cairo_t *cr) {
+    cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.5);
+    cairo_rectangle(cr, 0, 0, skin.width, skin.height);
+    cairo_fill(cr);
+    KeyShortcutInfo *ksinfo = get_shortcut_info();
+    cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+    cairo_set_font_size(cr, sqrt(((double) skin.width) * skin.height) / 42);
+    while (ksinfo != NULL) {
+        cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.5);
+        cairo_rectangle(cr, ksinfo->x + 2, ksinfo->y + 2, ksinfo->width - 4, ksinfo->height - 4);
+        cairo_fill(cr);
+        cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
+        draw_text_in_rect(cr, ksinfo->text().c_str(), ksinfo->x + 4, ksinfo->y + 4, ksinfo->width - 8, ksinfo->height - 8);
+        KeyShortcutInfo *next = ksinfo->next;
+        delete ksinfo;
+        ksinfo = next;
+    }
+}
+
+void skin_make_darker(cairo_t *cr) {
+    cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.15);
+    cairo_rectangle(cr, 0, 0, skin.width, skin.height);
+    cairo_fill(cr);
 }
 
 static void scaled_gdk_window_invalidate_rect(GdkWindow *win, const GdkRectangle *rect, gboolean invalidate_children) {
@@ -674,8 +898,6 @@ static void scaled_gdk_window_invalidate_rect(GdkWindow *win, const GdkRectangle
 }
 
 void skin_invalidate_annunciator(GdkWindow *win, int which) {
-    if (!display_enabled)
-        return;
     SkinAnnunciator *ann = annunciators + (which - 1);
     GdkRectangle clip;
     clip.x = ann->disp_rect.x;
@@ -765,11 +987,6 @@ void skin_repaint_key(cairo_t *cr, int key, bool state) {
 
     if (key >= -7 && key <= -2) {
         /* Soft key */
-        if (!display_enabled)
-            // Should never happen -- the display is only disabled during macro
-            // execution, and softkey events should be impossible to generate
-            // in that state. But, just staying on the safe side.
-            return;
         key = -1 - key;
         int kx = (key - 1) * 22;
         int ky = 9;
@@ -818,8 +1035,8 @@ void skin_repaint_key(cairo_t *cr, int key, bool state) {
     k = keylist + key;
     if (state)
         gdk_cairo_set_source_pixbuf(cr, skin_image,
-                k->disp_rect.x - k->src.x - skin.x,
-                k->disp_rect.y - k->src.y - skin.y);
+                k->disp_rect.x - k->src.x,
+                k->disp_rect.y - k->src.y);
     else
         gdk_cairo_set_source_pixbuf(cr, skin_image, -skin.x, -skin.y);
     cairo_save(cr);
@@ -830,8 +1047,6 @@ void skin_repaint_key(cairo_t *cr, int key, bool state) {
 }
 
 void skin_invalidate_key(GdkWindow *win, int key) {
-    if (!display_enabled)
-        return;
     if (key >= -7 && key <= -2) {
         /* Soft key */
         key = -1 - key;
@@ -868,7 +1083,7 @@ void skin_display_invalidater(GdkWindow *win, const char *bits, int bytesperline
                 disp_bits[v * 17 + (h >> 3)] &= ~(1 << (h & 7));
 
     if (win != NULL) {
-        if (allow_paint && display_enabled) {
+        if (allow_paint) {
             GdkRectangle clip;
             clip.x = display_loc.x + x * display_scale_x;
             clip.y = display_loc.y + y * display_scale_y;
@@ -895,8 +1110,6 @@ bool need_to_paint_only_display(cairo_t *cr) {
 }
 
 void skin_repaint_display(cairo_t *cr) {
-    if (!display_enabled)
-        return;
     cairo_save(cr);
     cairo_translate(cr, display_loc.x, display_loc.y);
     cairo_scale(cr, display_scale_x, display_scale_y);
@@ -914,21 +1127,6 @@ void skin_repaint_display(cairo_t *cr) {
         }
     }
     cairo_restore(cr);
-}
-
-void skin_invalidate_display(GdkWindow *win) {
-    if (display_enabled) {
-        GdkRectangle clip;
-        clip.x = display_loc.x;
-        clip.y = display_loc.y;
-        clip.width = 131 * display_scale_x;
-        clip.height = 16 * display_scale_y;
-        scaled_gdk_window_invalidate_rect(win, &clip, FALSE);
-    }
-}
-
-void skin_display_set_enabled(bool enable) {
-    display_enabled = enable;
 }
 
 void skin_get_size(int *width, int *height) {

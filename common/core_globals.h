@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -75,6 +75,8 @@ extern FILE *gfile;
 #define ERR_BIG_STACK_DISABLED     37
 #define ERR_INVALID_CONTEXT        38
 #define ERR_NAME_TOO_LONG          39
+#define ERR_PROGRAM_LOCKED         40
+#define ERR_NEXT_PROGRAM_LOCKED    41
 
 #define RTNERR_MAX 8
 
@@ -348,7 +350,8 @@ extern var_struct *vars;
 struct prgm_struct {
     int4 capacity;
     int4 size;
-    int lclbl_invalid;
+    bool lclbl_invalid;
+    bool locked;
     unsigned char *text;
     inline bool is_end(int4 pc) {
         return text[pc] == CMD_END && (text[pc + 1] & 112) == 0;
@@ -410,6 +413,9 @@ extern bool mode_time_clktd;
 extern bool mode_time_clk24;
 extern int mode_wsize;
 extern bool mode_menu_caps;
+#if defined(ANDROID) || defined(IPHONE)
+extern bool mode_popup_unknown;
+#endif
 
 extern phloat entered_number;
 extern int entered_string_length;
@@ -459,6 +465,8 @@ extern int4 incomplete_saved_highlight_row;
 #define CATSECT_LIST_STR_ONLY 24
 #define CATSECT_MAT_LIST 25
 #define CATSECT_MAT_LIST_ONLY 26
+#define CATSECT_LIST 27
+#define CATSECT_LIST_ONLY 28
 
 /* Command line handling temporaries */
 extern char cmdline[100];
@@ -530,10 +538,11 @@ int get_command_length(int prgm, int4 pc);
 void get_next_command(int4 *pc, int *command, arg_struct *arg, int find_target, const char **num_str);
 void rebuild_label_table();
 void delete_command(int4 pc);
-void store_command(int4 pc, int command, arg_struct *arg, const char *num_str);
+bool store_command(int4 pc, int command, arg_struct *arg, const char *num_str);
 void store_command_after(int4 *pc, int command, arg_struct *arg, const char *num_str);
 int x2line();
 int a2line(bool append);
+int prgm_lock(bool lock);
 int4 pc2line(int4 pc);
 int4 line2pc(int4 line);
 int4 global_pc2line(int prgm, int4 pc);

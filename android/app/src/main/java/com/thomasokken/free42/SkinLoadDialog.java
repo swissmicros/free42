@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -145,7 +145,9 @@ public class SkinLoadDialog extends Dialog {
         try {
             loadFile(urls[0], tempGifName);
             loadFile(urls[1], tempLayoutName);
-            String sname = java.net.URLDecoder.decode(urls[2], "UTF-8");
+            String sname = urls[2];
+            sname = sname.replace("+", "%2B"); // prevent turning + into space
+            sname = java.net.URLDecoder.decode(sname, "UTF-8");
             String gifName = filesDir + "/" + sname + ".gif";
             String layoutName = filesDir + "/" + sname + ".layout";
             new File(tempGifName).renameTo(new File(gifName));

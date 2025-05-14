@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -29,12 +29,15 @@ import java.util.List;
 import java.util.Locale;
 import java.util.NoSuchElementException;
 import java.util.StringTokenizer;
+import java.util.TreeSet;
 
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
+import android.graphics.Typeface;
 import android.graphics.drawable.BitmapDrawable;
 
 public class SkinLayout {
@@ -82,7 +85,6 @@ public class SkinLayout {
     private SkinMacro[] macrolist = null;
     private SkinAnnunciator[] annunciators = new SkinAnnunciator[7];
     private KeymapEntry[] keymap;
-    private boolean display_enabled = true;
     private Bitmap skinBitmap;
     private Bitmap display = Bitmap.createBitmap(131, 16, Bitmap.Config.ARGB_8888);
     private int[] display_buffer = new int[131 * 16];
@@ -91,15 +93,17 @@ public class SkinLayout {
     private boolean skinSmoothing;
     private boolean displaySmoothing;
     private boolean maintainSkinAspect;
+    private KeymapEntry[] calcKeymap;
 
-    public SkinLayout(Context ctx, String skinName, boolean skinSmoothing, boolean displaySmoothing, boolean maintainSkinAspect) {
-        this(ctx, skinName, skinSmoothing, displaySmoothing, maintainSkinAspect, null);
+    public SkinLayout(Context ctx, String skinName, boolean skinSmoothing, boolean displaySmoothing, boolean maintainSkinAspect, KeymapEntry[] calcKeymap) {
+        this(ctx, skinName, skinSmoothing, displaySmoothing, maintainSkinAspect, calcKeymap, null);
     }
     
-    public SkinLayout(Context ctx, String skinName, boolean skinSmoothing, boolean displaySmoothing, boolean maintainSkinAspect, boolean[] ann_state) {
+    public SkinLayout(Context ctx, String skinName, boolean skinSmoothing, boolean displaySmoothing, boolean maintainSkinAspect, KeymapEntry[] calcKeymap, boolean[] ann_state) {
         this.skinSmoothing = skinSmoothing;
         this.displaySmoothing = displaySmoothing;
         this.maintainSkinAspect = maintainSkinAspect;
+        this.calcKeymap = calcKeymap;
         if (ann_state == null)
             this.ann_state = new boolean[7];
         else
@@ -400,8 +404,14 @@ public class SkinLayout {
             return null;
     }
     
-    public boolean in_menu_area(int x, int y) {
-        return y < display_loc.y + display_scale.y * 8;
+    public int in_menu_area(int x, int y) {
+        if (y < display_loc.y + display_scale.y * 16 / 2)
+            if (x > display_loc.x + display_scale.x * 131 / 2)
+                return 2;
+            else
+                return 1;
+        else
+            return 0;
     }
 
     public void find_key(boolean menu_active, int x, int y, IntHolder skey, IntHolder ckey) {
@@ -475,11 +485,6 @@ public class SkinLayout {
     private void repaint_key(Canvas canvas, Bitmap skin, int key, boolean state) {
         if (key >= -7 && key <= -2) {
             /* Soft key */
-            if (!display_enabled)
-                // Should never happen -- the display is only disabled during macro
-                // execution, and softkey events should be impossible to generate
-                // in that state. But, just staying on the safe side.
-                return;
             key = -1 - key;
             Rect dst = new Rect((int) (display_loc.x + (key - 1) * 22 * display_scale.x),
                                 (int) (display_loc.y + 9 * display_scale.y),
@@ -579,7 +584,7 @@ public class SkinLayout {
             return new Rect(minx, miny, maxx, maxy);
     }
     
-    public void repaint(Canvas canvas) {
+    public void repaint(Canvas canvas, boolean shortcuts) {
         Rect clip = canvas.getClipBounds();
         boolean paintDisplay = false;
         boolean paintSkin = false;
@@ -594,7 +599,6 @@ public class SkinLayout {
             paintSkin = Rect.intersects(clip, sk);
             paintDisplay = Rect.intersects(clip, disp);
         }
-        paintDisplay = paintDisplay && display_enabled;
         if (!paintDisplay && !paintSkin)
             return;
         Paint p = new Paint();
@@ -604,22 +608,21 @@ public class SkinLayout {
             p.setFilterBitmap(skinSmoothing);
             canvas.drawBitmap(skinBitmap, new Rect(skin.x, skin.y, skin.x + skin.width, skin.y + skin.height),
                                           new Rect(0, 0, skin.width, skin.height), p);
-            if (display_enabled)
-                for (int i = 0; i < 7; i++)
-                    if (ann_state[i]) {
-                        SkinAnnunciator ann = annunciators[i];
-                        Rect src = new Rect(ann.src.x,
-                                            ann.src.y,
-                                            ann.src.x + ann.disp_rect.width,
-                                            ann.src.y + ann.disp_rect.height);
-                        Rect dst = new Rect(ann.disp_rect.x,
-                                            ann.disp_rect.y,
-                                            ann.disp_rect.x + ann.disp_rect.width,
-                                            ann.disp_rect.y + ann.disp_rect.height);
-                        p.setAntiAlias(displaySmoothing);
-                        p.setFilterBitmap(displaySmoothing);
-                        canvas.drawBitmap(skinBitmap, src, dst, p);
-                    }
+            for (int i = 0; i < 7; i++)
+                if (ann_state[i]) {
+                    SkinAnnunciator ann = annunciators[i];
+                    Rect src = new Rect(ann.src.x,
+                                        ann.src.y,
+                                        ann.src.x + ann.disp_rect.width,
+                                        ann.src.y + ann.disp_rect.height);
+                    Rect dst = new Rect(ann.disp_rect.x,
+                                        ann.disp_rect.y,
+                                        ann.disp_rect.x + ann.disp_rect.width,
+                                        ann.disp_rect.y + ann.disp_rect.height);
+                    p.setAntiAlias(displaySmoothing);
+                    p.setFilterBitmap(displaySmoothing);
+                    canvas.drawBitmap(skinBitmap, src, dst, p);
+                }
             if (active_key >= 0)
                 repaint_key(canvas, skinBitmap, active_key, true);
         }
@@ -636,22 +639,182 @@ public class SkinLayout {
             if (active_key >= -7 && active_key <= -2)
                 repaint_key(canvas, skinBitmap, active_key, true);
         }
-    }
-    
-    public Rect set_display_enabled(boolean enable) {
-        if (display_enabled == enable)
-            return null;
-        display_enabled = enable;
-        if (!display_enabled)
-            return null;
-        Rect r = new Rect(display_loc.x, display_loc.y,
-                            (int) Math.ceil(display_loc.x + 131 * display_scale.x),
-                            (int) Math.ceil(display_loc.y + 16 * display_scale.y));
-        for (int i = 0; i < 7; i++) {
-            SkinRect a = annunciators[i].disp_rect;
-            Rect ra = new Rect(a.x, a.y, a.x + a.width, a.y + a.height);
-            r.union(ra);
+
+        if (shortcuts) {
+            Paint transparentWhite = new Paint();
+            transparentWhite.setARGB(127, 255, 255, 255);
+            canvas.drawRect(0, 0, skin.width, skin.height, transparentWhite);
+            List<KeyShortcutInfo> ksinfolist = getShortcutInfo();
+            Paint opaqueBlack = new Paint();
+            opaqueBlack.setColor(Color.BLACK);
+            opaqueBlack.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD));
+            opaqueBlack.setTextSize((float) Math.sqrt(((double) skin.width) * skin.height) / 30);
+            for (KeyShortcutInfo ksinfo : ksinfolist) {
+                canvas.drawRect(ksinfo.x + 2, ksinfo.y + 2, ksinfo.x + ksinfo.width - 2, ksinfo.y + ksinfo.height - 2, transparentWhite);
+                drawTextInRect(canvas, ksinfo.text(), ksinfo.x + 4, ksinfo.y + 4, ksinfo.width - 8, ksinfo.height - 8, opaqueBlack);
+            }
         }
-        return r;
+    }
+
+    private class KeyShortcutInfo {
+        int x, y, width, height;
+        String unshifted, shifted;
+
+        KeyShortcutInfo(SkinKey k) {
+            x = k.sens_rect.x;
+            y = k.sens_rect.y;
+            width = k.sens_rect.width;
+            height = k.sens_rect.height;
+            unshifted = "";
+            shifted = "";
+        }
+
+        boolean sameRect(SkinKey that) {
+            return x == that.sens_rect.x
+                    && y == that.sens_rect.y
+                    && width == that.sens_rect.width
+                    && height == that.sens_rect.height;
+        }
+
+        void add(String entryStr, boolean shift) {
+            if (shift)
+                shifted = entryStr + " " + shifted;
+            else
+                unshifted = entryStr + " " + unshifted;
+        }
+
+        String text() {
+            String u, s;
+            if (unshifted.length() == 0)
+                u = "n/a";
+            else
+                u = unshifted.substring(0, unshifted.length() - 1);
+            if (shifted.length() == 0)
+                s = "n/a";
+            else
+                s = shifted.substring(0, shifted.length() - 1);
+            return s + "\n" + u;
+        }
+    }
+
+    private static String entry_to_text(KeymapEntry e) {
+        String c;
+        boolean numpad = e.numpad;
+        String k = e.keychar;
+        if (k.startsWith("NUMPAD_")) {
+            k = k.substring(7);
+            numpad = true;
+        }
+        if (e.keychar.equals("ESCAPE"))
+            c = "Esc";
+        else if (e.keychar.equals("\n"))
+            c = "Enter";
+        else if (e.keychar.equals("DEL"))
+            c = "\u232b";
+        else if (e.keychar.equals("DPAD_UP"))
+            c = "\u2191";
+        else if (e.keychar.equals("DPAD_DOWN"))
+            c = "\u2193";
+        else if (e.keychar.equals("DPAD_LEFT"))
+            c = "\u2190";
+        else if (e.keychar.equals("DPAD_RIGHT"))
+            c = "\u2192";
+        else if (e.keychar.equals("INSERT"))
+            c = "Ins";
+        else if (e.keychar.equals("FORWARD_DEL"))
+            c = "\u2326";
+        else if (e.keychar.equals("PAGE_UP"))
+            c = "PgUp";
+        else if (e.keychar.equals("PAGE_DOWN"))
+            c = "PgDn";
+        else
+            c = e.keychar;
+        if (numpad)
+            c = "Kp" + c;
+        String mods = "";
+        boolean printable = !e.ctrl && !e.alt && c.length() == 1 && c.charAt(0) >= 33 && c.charAt(0) <= 126;
+        if (e.ctrl)
+            mods += "^";
+        if (e.alt)
+            mods += "\u2325";
+        if (e.shift && !printable)
+            mods += "\u21e7";
+        return mods + c;
+    }
+
+    private List<KeyShortcutInfo> getShortcutInfo() {
+        ArrayList<KeyShortcutInfo> list = new ArrayList<KeyShortcutInfo>();
+        TreeSet<String> seen = new TreeSet<String>();
+        for (int km = 0; km < 2; km++) {
+            KeymapEntry[] kmap = km == 0 ? keymap : calcKeymap;
+            for (int i = kmap.length - 1; i >= 0; i--) {
+                KeymapEntry e = kmap[i];
+                if (e.cshift)
+                    continue;
+                int key;
+                boolean shifted;
+                if (e.macro.length == 1) {
+                    key = e.macro[0];
+                    shifted = false;
+                } else if (e.macro[0] == 28 && e.macro.length == 2) {
+                    key = e.macro[1];
+                    shifted = true;
+                } else
+                    continue;
+                SkinKey k = null;
+                for (int j = 0; j < keylist.length; j++) {
+                    k = keylist[j];
+                    if (key == k.code)
+                        break;
+                    if (key == k.shifted_code) {
+                        shifted = true;
+                        break;
+                    }
+                    k = null;
+                }
+                if (k == null)
+                    continue;
+                String entryStr = entry_to_text(e);
+                if (seen.contains(entryStr))
+                    continue;
+                seen.add(entryStr);
+                boolean exists = false;
+                for (KeyShortcutInfo p : list) {
+                    if (p.sameRect(k)) {
+                        p.add(entryStr, shifted);
+                        exists = true;
+                        break;
+                    }
+                }
+                if (!exists) {
+                    KeyShortcutInfo ki = new KeyShortcutInfo(k);
+                    ki.add(entryStr, shifted);
+                    list.add(ki);
+                }
+            }
+        }
+        return list;
+    }
+
+    private void drawTextInRect(Canvas canvas, String text, int x, int y, int width, int height, Paint paint) {
+        Paint.FontMetrics metrics = paint.getFontMetrics();
+        float spacing = -metrics.ascent + metrics.descent + metrics.leading;
+        char[] chars = text.toCharArray();
+        float ypos = y - paint.ascent();
+        int pos = 0;
+        canvas.save();
+        canvas.clipRect(x, y, x + width, y + height);
+        while (pos < chars.length) {
+            int lf = text.indexOf('\n', pos);
+            if (lf == -1)
+                lf = chars.length;
+            int len = paint.breakText(chars, pos, lf - pos, width, null);
+            canvas.drawText(chars, pos, len, x, ypos, paint);
+            pos += len;
+            if (pos < chars.length && (chars[pos] == ' ' || chars[pos] == '\n'))
+                pos++;
+            ypos += spacing;
+        }
+        canvas.restore();
     }
 }

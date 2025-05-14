@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -991,7 +991,7 @@ int docmd_pgminti(arg_struct *arg) {
         set_menu(MENULEVEL_APP, MENU_VARMENU);
         set_appmenu_exitcallback(4);
         clear_row(0);
-        draw_string(0, 0, "Set Vars; Select \003var", 21);
+        draw_string(0, 0, "Set Vars; Select \3var", 21);
         flags.f.message = 1;
         flags.f.two_line_message = 0;
         mode_varmenu = true;

@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -25,5 +25,6 @@ void keydown_number_entry(int shift, int key);
 void keydown_command_entry(int shift, int key);
 void keydown_alpha_mode(int shift, int key);
 void keydown_normal_mode(int shift, int key);
+int find_cmd_getkey_mapping(int cmd);
 
 #endif

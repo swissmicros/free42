@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -17,6 +17,7 @@
 
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
+#import "shell_skin.h"
 
 #define FILENAMELEN 256
 #define SHELL_VERSION 6
@@ -57,6 +58,8 @@ void calc_mouseup();
 void calc_keydown(NSString *characters, NSUInteger flags, unsigned short keycode);
 void calc_keyup(NSString *characters, NSUInteger flags, unsigned short keycode);
 void calc_keymodifierschanged(NSUInteger flags);
+
+void get_keymap(keymap_entry **map, int *length);
     
 @class ProgramListDataSource;
 @class SkinListDataSource;
@@ -144,6 +147,9 @@ void calc_keymodifierschanged(NSUInteger flags);
 - (void)windowDidBecomeKey:(NSNotification *)notification;
 
 - (IBAction) showAbout:(id)sender;
+- (IBAction) showDocumentation:(id)sender;
+- (IBAction) showWebSite:(id)sender;
+- (IBAction) showPlus42WebSite:(id)sender;
 - (IBAction) showPreferences:(id)sender;
 - (void) getPreferences;
 - (IBAction) browsePrintTextFile:(id)sender;

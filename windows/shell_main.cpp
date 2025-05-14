@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -497,7 +497,6 @@ static void shell_keydown() {
                 }
             } else {
                 bool waitForProgram = !program_running();
-                skin_display_set_enabled(false);
                 while (*macro != 0) {
                     running = core_keydown(*macro++, &enqueued, &repeat);
                     if (*macro != 0 && !enqueued)
@@ -505,10 +504,6 @@ static void shell_keydown() {
                     while (waitForProgram && running)
                         running = core_keydown(0, &enqueued, &repeat);
                 }
-                skin_display_set_enabled(true);
-                invalidate_display();
-                for (int i = 1; i <= 7; i++)
-                    skin_invalidate_annunciator(i);
                 repeat = 0;
             }
         }
@@ -532,6 +527,16 @@ static void shell_keyup() {
     }
     if (!enqueued)
         running = core_keyup();
+}
+
+static bool keyboardShortcutsShowing = false;
+
+static void toggle_keyboard_shortcuts() {
+    keyboardShortcutsShowing = !keyboardShortcutsShowing;
+    HMENU mainmenu = GetMenu(hMainWnd);
+    HMENU helpmenu = GetSubMenu(mainmenu, 3);
+    CheckMenuItem(helpmenu, IDM_SHORTCUTS, keyboardShortcutsShowing ? MF_CHECKED : MF_UNCHECKED);
+    InvalidateRect(hMainWnd, NULL, FALSE);
 }
 
 //
@@ -604,6 +609,18 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT message, WPARAM wParam, LPAR
                     break;
                 case ID_EDIT_PASTE:
                     paste();
+                    break;
+                case IDM_DOCUMENTATION:
+                    ShellExecute(NULL, "open", "https://thomasokken.com/free42/#doc", NULL, NULL, SW_SHOWNORMAL);
+                    break;
+                case IDM_WEBSITE:
+                    ShellExecute(NULL, "open", "https://thomasokken.com/free42/", NULL, NULL, SW_SHOWNORMAL);
+                    break;
+                case IDM_OTHER_WEBSITE:
+                    ShellExecute(NULL, "open", "https://thomasokken.com/plus42/", NULL, NULL, SW_SHOWNORMAL);
+                    break;
+                case IDM_SHORTCUTS:
+                    toggle_keyboard_shortcuts();
                     break;
                 case IDM_ABOUT:
                     DialogBoxW(hInst, (LPCWSTR)IDD_ABOUTBOX, hWnd, (DLGPROC)About);
@@ -726,7 +743,7 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT message, WPARAM wParam, LPAR
             goto do_default;
         }
         case WM_PAINT: {
-            skin_repaint();
+            skin_repaint(keyboardShortcutsShowing);
             break;
         }
         case WM_LBUTTONDOWN: {
@@ -1211,6 +1228,9 @@ static LRESULT CALLBACK PrintOutWndProc(HWND hWnd, UINT message, WPARAM wParam, 
                     break;
                 case ID_EDIT_PASTE:
                     paste();
+                    break;
+                case IDM_SHORTCUTS:
+                    toggle_keyboard_shortcuts();
                     break;
             }
             return 0;
@@ -2925,4 +2945,9 @@ int my_remove(const char *name) {
     int ret = _wremove(wname);
     free(wname);
     return ret;
+}
+
+void get_keymap(keymap_entry **map, int *length) {
+    *map = keymap;
+    *length = keymap_length;
 }

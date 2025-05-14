@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Free42 -- an HP-42S calculator simulator
-// Copyright (C) 2004-2024  Thomas Okken
+// Copyright (C) 2004-2025  Thomas Okken
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License, version 2,
@@ -41,6 +41,8 @@ void skin_finish_image();
 
 void skin_repaint(cairo_t *cr);
 void skin_repaint_annunciator(cairo_t *cr, int which);
+void skin_draw_keyboard_shortcuts(cairo_t *cr);
+void skin_make_darker(cairo_t *cr);
 void skin_invalidate_annunciator(GdkWindow *win, int which);
 void skin_find_key(int x, int y, bool cshift, int *key, int *code);
 int skin_find_skey(int ckey);
@@ -54,8 +56,6 @@ void skin_display_invalidater(GdkWindow *win, const char *bits, int bytesperline
                                 int x, int y, int width, int height);
 bool need_to_paint_only_display(cairo_t *cr);
 void skin_repaint_display(cairo_t *cr);
-void skin_invalidate_display(GdkWindow *win);
-void skin_display_set_enabled(bool enable);
 void skin_get_size(int *width, int *height);
 void skin_set_window_size(int width, int height);
 void skin_get_window_size(int *width, int *height);

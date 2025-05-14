@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -343,7 +343,7 @@ int docmd_custom(arg_struct *arg) {
     if (mode_plainmenu != MENU_CUSTOM1
             && mode_plainmenu != MENU_CUSTOM2
             && mode_plainmenu != MENU_CUSTOM3)
-        set_menu(MENULEVEL_PLAIN, MENU_CUSTOM1);
+        set_plainmenu(MENU_CUSTOM1, NULL, 0);
     return ERR_NONE;
 }
 
@@ -1120,7 +1120,6 @@ int docmd_fnrm(arg_struct *arg) {
 
 int docmd_getm(arg_struct *arg) {
     vartype *m;
-    phloat xx, yy;
     int4 x, y;
 
     int err = matedit_get(&m);
@@ -1138,23 +1137,12 @@ int docmd_getm(arg_struct *arg) {
     if (stack[sp - 1]->type != TYPE_REAL)
         return ERR_INVALID_TYPE;
 
-    xx = ((vartype_real *) stack[sp])->x;
-    if (xx <= -2147483648.0 || xx >= 2147483648.0)
+    if (!dim_to_int4(stack[sp], &x))
         return ERR_DIMENSION_ERROR;
-    x = to_int4(xx);
-    if (x == 0)
+    x++;
+    if (!dim_to_int4(stack[sp - 1], &y))
         return ERR_DIMENSION_ERROR;
-    if (x < 0)
-        x = -x;
-
-    yy = ((vartype_real *) stack[sp - 1])->x;
-    if (yy <= -2147483648.0 || yy >= 2147483648.0)
-        return ERR_DIMENSION_ERROR;
-    y = to_int4(yy);
-    if (y == 0)
-        return ERR_DIMENSION_ERROR;
-    if (y < 0)
-        y = -y;
+    y++;
 
     if (m->type == TYPE_REALMATRIX) {
         vartype_realmatrix *src, *dst;
@@ -1422,7 +1410,7 @@ void matedit_goto(int4 row, int4 column) {
         }
     }
     if (err != ERR_NONE) {
-        display_error(err, false);
+        display_error(err);
         flush_display();
     }
 }

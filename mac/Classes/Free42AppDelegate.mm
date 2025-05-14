@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -262,6 +262,11 @@ static struct timeval runner_end_time;
     }
     printout_top = 0;
     print_text_top = 0;
+    
+    /* Suppress the Search box in the Help menu */
+    NSMenu *unusedMenu = [[NSMenu alloc] initWithTitle:@"Unused"];
+    NSApplication *theApp = [NSApplication sharedApplication];
+    theApp.helpMenu = unusedMenu;
 }
 
 static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
@@ -498,8 +503,26 @@ static void low_battery_checker(CFRunLoopTimerRef timer, void *info) {
 - (IBAction) showAbout:(id)sender {
     const char *version = [Free42AppDelegate getVersion];
     [aboutVersion setStringValue:[NSString stringWithFormat:@"Free42 %s", version]];
-    [aboutCopyright setStringValue:@"© 2004-2024 Thomas Okken"];
+    [aboutCopyright setStringValue:@"© 2004-2025 Thomas Okken"];
     [NSApp runModalForWindow:aboutWindow];
+}
+
+- (IBAction) showDocumentation:(id)sender {
+    NSString *urlStr = @"https://thomasokken.com/free42/#doc";
+    NSURL *url = [NSURL URLWithString:urlStr];
+    [[NSWorkspace sharedWorkspace] openURL:url];
+}
+
+- (IBAction) showWebSite:(id)sender {
+    NSString *urlStr = @"https://thomasokken.com/free42/";
+    NSURL *url = [NSURL URLWithString:urlStr];
+    [[NSWorkspace sharedWorkspace] openURL:url];
+}
+
+- (IBAction) showPlus42WebSite:(id)sender {
+    NSString *urlStr = @"https://thomasokken.com/plus42/";
+    NSURL *url = [NSURL URLWithString:urlStr];
+    [[NSWorkspace sharedWorkspace] openURL:url];
 }
 
 - (IBAction) showPreferences:(id)sender {
@@ -1179,7 +1202,6 @@ static void shell_keydown() {
                 }
             } else {
                 bool waitForProgram = !program_running();
-                skin_display_set_enabled(false);
                 while (*macro != 0) {
                     we_want_cpu = true;
                     keep_running = core_keydown(*macro++, &enqueued, &repeat);
@@ -1192,17 +1214,6 @@ static void shell_keydown() {
                         we_want_cpu = false;
                     }
                 }
-                skin_display_set_enabled(true);
-                skin_repaint_display();
-                /*
-                skin_repaint_annunciator(1, ann_updown);
-                skin_repaint_annunciator(2, ann_shift);
-                skin_repaint_annunciator(3, ann_print);
-                skin_repaint_annunciator(4, ann_run);
-                skin_repaint_annunciator(5, ann_battery);
-                skin_repaint_annunciator(6, ann_g);
-                skin_repaint_annunciator(7, ann_rad);
-                */
                 repeat = 0;
             }
         }
@@ -1456,6 +1467,11 @@ void calc_keymodifierschanged(NSUInteger flags) {
             shell_keyup();
         }
     }
+}
+
+void get_keymap(keymap_entry **map, int *length) {
+    *map = keymap;
+    *length = keymap_length;
 }
 
 static void show_message(const char *title, const char *message) {

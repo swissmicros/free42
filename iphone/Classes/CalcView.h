@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -16,8 +16,9 @@
  *****************************************************************************/
 
 #import <UIKit/UIKit.h>
+#import "shell_skin.h"
 
-#define SHELL_VERSION 13
+#define SHELL_VERSION 14
 #define FILENAMELEN 1024
 
 struct state_type {
@@ -41,16 +42,21 @@ struct state_type {
     bool allow_big_stack;
     bool localized_copy_paste;
     int swipeDirectionMode; // 0=left 1=off 2=right
-    bool dummy;
+    char popupAlphaKeyboard; // 0=disabled 1=off 2=on
 };
 
 extern state_type state;
 extern FILE *statefile;
 
+void get_keymap(keymap_entry **map, int *length);
+
 
 @interface CalcView : UIView {
-    //
+    UIButton *keyboardShortcutsButton;
+    bool keyboardShortcutsShowing;
 }
+
+@property (nonatomic, retain) IBOutlet UIButton *keyboardShortcutsButton;
 
 - (void) awakeFromNib;
 - (void) layoutSubviews;
@@ -69,9 +75,14 @@ extern FILE *statefile;
 - (void) cancelTimeout3;
 - (void) setRepeater:(int) delay;
 - (void) cancelRepeater;
++ (void) alphaKeyboardAlpha:(unsigned short) code;
++ (void) alphaKeyboardDown:(int) key;
++ (void) alphaKeyboardUp;
++ (void) keyFeedback;
 + (void) stopTextPrinting;
 + (void) stopGifPrinting;
 - (void) setActive:(bool) active;
 + (void) readKeyMap;
+- (IBAction) toggleKeyboardShortcuts:(id)sender;
 
 @end

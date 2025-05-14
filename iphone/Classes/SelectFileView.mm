@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -130,7 +130,7 @@ static int dirTypeCapacity = 0;
 
 - (void) keyboardDidShow:(NSNotification *)notif {
     NSDictionary *userInfo = [notif userInfo];
-    CGSize kbSize = [[userInfo objectForKey:UIKeyboardFrameBeginUserInfoKey] CGRectValue].size;
+    CGSize kbSize = [[userInfo objectForKey:UIKeyboardFrameEndUserInfoKey] CGRectValue].size;
     
     UIEdgeInsets contentInsets = UIEdgeInsetsMake(0.0, 0.0, kbSize.height, 0.0);
     scrollView.contentInset = contentInsets;
@@ -205,6 +205,32 @@ static int dirTypeCapacity = 0;
         return [dirList count];
     else
         return 0;
+}
+
+- (UITableViewCellEditingStyle)tableView:(UITableView *)tableView editingStyleForRowAtIndexPath:(NSIndexPath *)indexPath {
+    return UITableViewCellEditingStyleDelete;
+}
+
+- (BOOL)tableView:(UITableView *)tableView canEditRowAtIndexPath:(NSIndexPath *)indexPath {
+    NSUInteger n = [indexPath indexAtPosition:1];
+    if (dirList == NULL || n >= [dirList count])
+        return NO;
+    return dirType[n] ? NO : YES;
+}
+
+- (UISwipeActionsConfiguration *) tableView:(UITableView *) tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *) indexPath {
+    return nil;
+}
+
+- (void)tableView:(UITableView *)tableView commitEditingStyle:(UITableViewCellEditingStyle)editingStyle forRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (editingStyle == UITableViewCellEditingStyleDelete) {
+        NSUInteger n = [indexPath indexAtPosition:1];
+        if (dirList == NULL || n >= [dirList count] || dirType[n])
+            return;
+        NSString *path = [NSString stringWithFormat:@"%@/%@", dirName, [dirList objectAtIndex:n]];
+        remove([path UTF8String]);
+        [self typeChanged];
+    }
 }
 
 - (IBAction) selectFile {

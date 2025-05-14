@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -39,6 +39,7 @@ int docmd_mdy(arg_struct *arg);
 int docmd_time(arg_struct *arg);
 int docmd_ymd(arg_struct *arg);
 int docmd_getkey1(arg_struct *arg);
+int docmd_getkeya(arg_struct *arg);
 
 int docmd_fptest(arg_struct *arg);
 
@@ -64,6 +65,9 @@ int docmd_varmnu1(arg_struct *arg);
 int docmd_x2line(arg_struct *arg);
 int docmd_a2line(arg_struct *arg);
 int docmd_a2pline(arg_struct *arg);
+int docmd_lock(arg_struct *arg);
+int docmd_unlock(arg_struct *arg);
+int docmd_ident(arg_struct *arg);
 int docmd_rcomplx(arg_struct *arg);
 int docmd_pcomplx(arg_struct *arg);
 int docmd_caps(arg_struct *arg);
@@ -72,6 +76,10 @@ int docmd_skip(arg_struct *arg);
 int docmd_cpxmat_t(arg_struct *arg);
 int docmd_type_t(arg_struct *arg);
 int docmd_csld_t(arg_struct *arg);
+int docmd_getmi(arg_struct *arg);
+int docmd_putmi(arg_struct *arg);
+int docmd_getli(arg_struct *arg);
+int docmd_putli(arg_struct *arg);
 
 int docmd_4stk(arg_struct *arg);
 int docmd_l4stk(arg_struct *arg);

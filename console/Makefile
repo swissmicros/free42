@@ -28,6 +28,9 @@ CXXFLAGS += -MMD \
 	    -Wno-parentheses \
 	    -Wno-write-strings \
 	    -Wno-maybe-uninitialized \
+	    -Wno-unknown-pragmas \
+	    -Wno-class-memaccess \
+	    -Wno-sign-compare \
 	    -fno-exceptions \
 	    -fno-rtti \
 	    -DVERSION="\"$(shell cat ../gtk/VERSION)\"" \

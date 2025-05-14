@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -81,7 +81,9 @@ const error_spec errors[] = {
     { /* NUMBER_TOO_SMALL */       "Number Too Small",        16 },
     { /* BIG_STACK_DISABLED */     "Big Stack Disabled",      18 },
     { /* INVALID_CONTEXT */        "Invalid Context",         15 },
-    { /* NAME_TOO_LONG */          "Name Too Long",           13 }
+    { /* NAME_TOO_LONG */          "Name Too Long",           13 },
+    { /* PROGRAM_LOCKED */         "Program Locked",          14 },
+    { /* NEXT_PROGRAM_LOCKED */    "Next Program Locked",     19 },
 };
 
 
@@ -94,12 +96,12 @@ const menu_spec menus[] = {
                         { MENU_ALPHA_RSTUV1, 5, "RSTUV" },
                         { MENU_ALPHA_WXYZ,   4, "WXYZ"  } } },
     { /* MENU_ALPHA2 */ MENU_NONE, MENU_ALPHA1, MENU_ALPHA1,
-                      { { MENU_ALPHA_PAREN, 5, "( [ {"     },
-                        { MENU_ALPHA_ARROW, 3, "\020^\016" },
-                        { MENU_ALPHA_COMP,  5, "< = >"     },
-                        { MENU_ALPHA_MATH,  4, "MATH"      },
-                        { MENU_ALPHA_PUNC1, 4, "PUNC"      },
-                        { MENU_ALPHA_MISC1, 4, "MISC"      } } },
+                      { { MENU_ALPHA_PAREN, 5, "( [ {"   },
+                        { MENU_ALPHA_ARROW, 3, "\20^\16" },
+                        { MENU_ALPHA_COMP,  5, "< = >"   },
+                        { MENU_ALPHA_MATH,  4, "MATH"    },
+                        { MENU_ALPHA_PUNC1, 4, "PUNC"    },
+                        { MENU_ALPHA_MISC1, 4, "MISC"    } } },
     { /* MENU_ALPHA_ABCDE1 */ MENU_ALPHA1, MENU_ALPHA_ABCDE2, MENU_ALPHA_ABCDE2,
                       { { MENU_NONE, 1, "A" },
                         { MENU_NONE, 1, "B" },
@@ -108,12 +110,12 @@ const menu_spec menus[] = {
                         { MENU_NONE, 1, "E" },
                         { MENU_NONE, 1, " " } } },
     { /* MENU_ALPHA_ABCDE2 */ MENU_ALPHA1, MENU_ALPHA_ABCDE1, MENU_ALPHA_ABCDE1,
-                      { { MENU_NONE, 1, "\026" },
-                        { MENU_NONE, 1, "\024" },
-                        { MENU_NONE, 1, "\031" },
-                        { MENU_NONE, 1, " "    },
-                        { MENU_NONE, 1, " "    },
-                        { MENU_NONE, 1, " "    } } },
+                      { { MENU_NONE, 1, "\26" },
+                        { MENU_NONE, 1, "\24" },
+                        { MENU_NONE, 1, "\31" },
+                        { MENU_NONE, 1, " "   },
+                        { MENU_NONE, 1, " "   },
+                        { MENU_NONE, 1, " "   } } },
     { /* MENU_ALPHA_FGHI */ MENU_ALPHA1, MENU_NONE, MENU_NONE,
                       { { MENU_NONE, 1, "F" },
                         { MENU_NONE, 1, "G" },
@@ -136,12 +138,12 @@ const menu_spec menus[] = {
                         { MENU_NONE, 1, " " },
                         { MENU_NONE, 1, " " } } },
     { /* MENU_ALPHA_NOPQ2 */ MENU_ALPHA1, MENU_ALPHA_NOPQ1, MENU_ALPHA_NOPQ1,
-                      { { MENU_NONE, 1, "\025" },
-                        { MENU_NONE, 1, "\034" },
-                        { MENU_NONE, 1, " "    },
-                        { MENU_NONE, 1, " "    },
-                        { MENU_NONE, 1, " "    },
-                        { MENU_NONE, 1, " "    } } },
+                      { { MENU_NONE, 1, "\25" },
+                        { MENU_NONE, 1, "\34" },
+                        { MENU_NONE, 1, " "   },
+                        { MENU_NONE, 1, " "   },
+                        { MENU_NONE, 1, " "   },
+                        { MENU_NONE, 1, " "   } } },
     { /* MENU_ALPHA_RSTUV1 */ MENU_ALPHA1, MENU_ALPHA_RSTUV2, MENU_ALPHA_RSTUV2,
                       { { MENU_NONE, 1, "R" },
                         { MENU_NONE, 1, "S" },
@@ -150,12 +152,12 @@ const menu_spec menus[] = {
                         { MENU_NONE, 1, "V" },
                         { MENU_NONE, 1, " " } } },
     { /* MENU_ALPHA_RSTUV2 */ MENU_ALPHA1, MENU_ALPHA_RSTUV1, MENU_ALPHA_RSTUV1,
-                      { { MENU_NONE, 1, " "    },
-                        { MENU_NONE, 1, " "    },
-                        { MENU_NONE, 1, " "    },
-                        { MENU_NONE, 1, "\035" },
-                        { MENU_NONE, 1, " "    },
-                        { MENU_NONE, 1, " "    } } },
+                      { { MENU_NONE, 1, " "   },
+                        { MENU_NONE, 1, " "   },
+                        { MENU_NONE, 1, " "   },
+                        { MENU_NONE, 1, "\35" },
+                        { MENU_NONE, 1, " "   },
+                        { MENU_NONE, 1, " "   } } },
     { /* MENU_ALPHA_WXYZ */ MENU_ALPHA1, MENU_NONE, MENU_NONE,
                       { { MENU_NONE, 1, "W" },
                         { MENU_NONE, 1, "X" },
@@ -171,26 +173,26 @@ const menu_spec menus[] = {
                         { MENU_NONE, 1, "{" },
                         { MENU_NONE, 1, "}" } } },
     { /* MENU_ALPHA_ARROW */ MENU_ALPHA2, MENU_NONE, MENU_NONE,
-                      { { MENU_NONE, 1, "\020" },
-                        { MENU_NONE, 1, "^"    },
-                        { MENU_NONE, 1, "\016" },
-                        { MENU_NONE, 1, "\017" },
-                        { MENU_NONE, 1, " "    },
-                        { MENU_NONE, 1, " "    } } },
+                      { { MENU_NONE, 1, "\20" },
+                        { MENU_NONE, 1, "^"   },
+                        { MENU_NONE, 1, "\16" },
+                        { MENU_NONE, 1, "\17" },
+                        { MENU_NONE, 1, " "   },
+                        { MENU_NONE, 1, " "   } } },
     { /* MENU_ALPHA_COMP */ MENU_ALPHA2, MENU_NONE, MENU_NONE,
-                      { { MENU_NONE, 1, "="    },
-                        { MENU_NONE, 1, "\014" },
-                        { MENU_NONE, 1, "<"    },
-                        { MENU_NONE, 1, ">"    },
-                        { MENU_NONE, 1, "\011" },
-                        { MENU_NONE, 1, "\013" } } },
+                      { { MENU_NONE, 1, "="   },
+                        { MENU_NONE, 1, "\14" },
+                        { MENU_NONE, 1, "<"   },
+                        { MENU_NONE, 1, ">"   },
+                        { MENU_NONE, 1, "\11" },
+                        { MENU_NONE, 1, "\13" } } },
     { /* MENU_ALPHA_MATH */ MENU_ALPHA2, MENU_NONE, MENU_NONE,
-                      { { MENU_NONE, 1, "\005" },
-                        { MENU_NONE, 1, "\003" },
-                        { MENU_NONE, 1, "\002" },
-                        { MENU_NONE, 1, "\027" },
-                        { MENU_NONE, 1, "\023" },
-                        { MENU_NONE, 1, "\021" } } },
+                      { { MENU_NONE, 1, "\5"  },
+                        { MENU_NONE, 1, "\3"  },
+                        { MENU_NONE, 1, "\2"  },
+                        { MENU_NONE, 1, "\27" },
+                        { MENU_NONE, 1, "\23" },
+                        { MENU_NONE, 1, "\21" } } },
     { /* MENU_ALPHA_PUNC1 */ MENU_ALPHA2, MENU_ALPHA_PUNC2, MENU_ALPHA_PUNC2,
                       { { MENU_NONE, 1, ","  },
                         { MENU_NONE, 1, ";"  },
@@ -199,26 +201,26 @@ const menu_spec menus[] = {
                         { MENU_NONE, 1, "?"  },
                         { MENU_NONE, 1, "\"" } } },
     { /* MENU_ALPHA_PUNC2 */ MENU_ALPHA2, MENU_ALPHA_PUNC1, MENU_ALPHA_PUNC1,
-                      { { MENU_NONE, 1, "\032" },
-                        { MENU_NONE, 1, "_"    },
-                        { MENU_NONE, 1, "`"    },
-                        { MENU_NONE, 1, "'"    },
-                        { MENU_NONE, 1, "\010" },
-                        { MENU_NONE, 1, "\012" } } },
+                      { { MENU_NONE, 1, "\32" },
+                        { MENU_NONE, 1, "_"   },
+                        { MENU_NONE, 1, "`"   },
+                        { MENU_NONE, 1, "'"   },
+                        { MENU_NONE, 1, "\10" },
+                        { MENU_NONE, 1, "\12" } } },
     { /* MENU_ALPHA_MISC1 */ MENU_ALPHA2, MENU_ALPHA_MISC2, MENU_ALPHA_MISC2,
-                      { { MENU_NONE, 1, "$"    },
-                        { MENU_NONE, 1, "*"    },
-                        { MENU_NONE, 1, "#"    },
-                        { MENU_NONE, 1, "/"    },
-                        { MENU_NONE, 1, "\037" },
-                        { MENU_NONE, 1, " "    } } },
+                      { { MENU_NONE, 1, "$"   },
+                        { MENU_NONE, 1, "*"   },
+                        { MENU_NONE, 1, "#"   },
+                        { MENU_NONE, 1, "/"   },
+                        { MENU_NONE, 1, "\37" },
+                        { MENU_NONE, 1, " "   } } },
     { /* MENU_ALPHA_MISC2 */ MENU_ALPHA2, MENU_ALPHA_MISC1, MENU_ALPHA_MISC1,
-                      { { MENU_NONE, 1, "\022" },
-                        { MENU_NONE, 1, "&"    },
-                        { MENU_NONE, 1, "@"    },
-                        { MENU_NONE, 1, "\\"   },
-                        { MENU_NONE, 1, "~"    },
-                        { MENU_NONE, 1, "|"    } } },
+                      { { MENU_NONE, 1, "\22" },
+                        { MENU_NONE, 1, "&"   },
+                        { MENU_NONE, 1, "@"   },
+                        { MENU_NONE, 1, "\\"  },
+                        { MENU_NONE, 1, "~"   },
+                        { MENU_NONE, 1, "|"   } } },
     { /* MENU_ST */ MENU_NONE, MENU_NONE, MENU_NONE,
                       { { MENU_NONE, 4, "ST L" },
                         { MENU_NONE, 4, "ST X" },
@@ -554,7 +556,7 @@ const menu_spec menus[] = {
                         { 0,                 3, "ACC"  },
                         { 0x1000 + CMD_NULL, 0, ""     },
                         { 0x1000 + CMD_NULL, 0, ""     },
-                        { 0,                 1, "\003" } } }
+                        { 0,                 1, "\3"   } } }
 };
 
 
@@ -631,6 +633,9 @@ bool mode_time_clktd;
 bool mode_time_clk24;
 int mode_wsize;
 bool mode_menu_caps;
+#if defined(ANDROID) || defined(IPHONE)
+bool mode_popup_unknown = true;
+#endif
 
 phloat entered_number;
 int entered_string_length;
@@ -740,8 +745,9 @@ bool no_keystrokes_yet;
  * Version 46: 3.1    CSLD?
  * Version 47: 3.1    Back-port of Plus42 RTN stack; FUNC stack hiding
  * Version 48: 3.1    Matrix editor nested lists
+ * Version 49: 3.1.13 Program locking
  */
-#define FREE42_VERSION 48
+#define FREE42_VERSION 49
 
 
 /*******************/
@@ -1299,6 +1305,9 @@ static bool persist_globals() {
         goto done;
     for (i = 0; i < prgms_count; i++)
         core_export_programs(1, &i, NULL);
+    for (i = 0; i < prgms_count; i++)
+        if (!write_bool(prgms[i].locked))
+            goto done;
     if (!write_int(current_prgm))
         goto done;
     if (!write_int4(pc2line(pc)))
@@ -1464,6 +1473,10 @@ static bool unpersist_globals() {
     loading_state = true;
     core_import_programs(nprogs, NULL);
     loading_state = false;
+    if (ver >= 49)
+        for (i = 0; i < nprogs; i++)
+            if (!read_bool(&prgms[i].locked))
+                goto done;
     if (!read_int(&current_prgm)) {
         current_prgm = 0;
         goto done;
@@ -1816,7 +1829,8 @@ void goto_dot_dot(bool force_new) {
     current_prgm = prgms_count++;
     prgms[current_prgm].capacity = 0;
     prgms[current_prgm].size = 0;
-    prgms[current_prgm].lclbl_invalid = 1;
+    prgms[current_prgm].lclbl_invalid = true;
+    prgms[current_prgm].locked = false;
     prgms[current_prgm].text = NULL;
     command = CMD_END;
     arg.type = ARGTYPE_NONE;
@@ -2011,7 +2025,7 @@ void get_next_command(int4 *pc, int *command, arg_struct *arg, int find_target, 
             prgm->text[orig_pc + i] = target_pc;
             target_pc >>= 8;
         }
-        prgm->lclbl_invalid = 0;
+        prgm->lclbl_invalid = false;
     }
 }
 
@@ -2098,7 +2112,7 @@ static void invalidate_lclbls(int prgm_index, bool force) {
             }
             pc2 += get_command_length(prgm_index, pc2);
         }
-        prgm->lclbl_invalid = 1;
+        prgm->lclbl_invalid = true;
     }
 }
 
@@ -2156,13 +2170,18 @@ void delete_command(int4 pc) {
     draw_varmenu();
 }
 
-void store_command(int4 pc, int command, arg_struct *arg, const char *num_str) {
+bool store_command(int4 pc, int command, arg_struct *arg, const char *num_str) {
     unsigned char buf[100];
     int bufptr = 0;
     int xstr_len;
     int i;
     int4 pos;
     prgm_struct *prgm = prgms + current_prgm;
+
+    if (flags.f.prgm_mode && prgm->locked) {
+        display_error(ERR_PROGRAM_LOCKED);
+        return false;
+    }
 
     /* We should never be called with pc = -1, but just to be safe... */
     if (pc == -1)
@@ -2285,7 +2304,7 @@ void store_command(int4 pc, int command, arg_struct *arg, const char *num_str) {
         invalidate_lclbls(current_prgm - 1, true);
         clear_all_rtns();
         draw_varmenu();
-        return;
+        return true;
     }
 
     if ((command == CMD_GTO || command == CMD_XEQ)
@@ -2395,14 +2414,17 @@ void store_command(int4 pc, int command, arg_struct *arg, const char *num_str) {
     clear_all_rtns();
     if (!loading_state)
         draw_varmenu();
+    return true;
 }
 
 void store_command_after(int4 *pc, int command, arg_struct *arg, const char *num_str) {
+    int4 oldpc = *pc;
     if (*pc == -1)
         *pc = 0;
     else if (!prgms[current_prgm].is_end(*pc))
         *pc += get_command_length(current_prgm, *pc);
-    store_command(*pc, command, arg, num_str);
+    if (!store_command(*pc, command, arg, num_str))
+        *pc = oldpc;
 }
 
 static bool ensure_prgm_space(int n) {
@@ -2419,6 +2441,8 @@ static bool ensure_prgm_space(int n) {
 }
 
 int x2line() {
+    if (prgms[current_prgm].locked)
+        return ERR_PROGRAM_LOCKED;
     switch (stack[sp]->type) {
         case TYPE_REAL: {
             if (!ensure_prgm_space(2 + sizeof(phloat)))
@@ -2465,6 +2489,8 @@ int x2line() {
 }
 
 int a2line(bool append) {
+    if (prgms[current_prgm].locked)
+        return ERR_PROGRAM_LOCKED;
     if (reg_alpha_length == 0) {
         squeak();
         return ERR_NONE;
@@ -2502,6 +2528,13 @@ int a2line(bool append) {
         len -= len2;
         maxlen = 14;
     }
+    return ERR_NONE;
+}
+
+int prgm_lock(bool lock) {
+    if (!flags.f.prgm_mode)
+        return ERR_RESTRICTED_OPERATION;
+    prgms[current_prgm].locked = lock;
     return ERR_NONE;
 }
 
@@ -3233,7 +3266,7 @@ int rtn(int err) {
             /* It's an END; go to line 0 */
             pc = -1;
         if (err != ERR_NONE)
-            display_error(err, true);
+            display_error(err);
         return ERR_STOP;
     } else {
         current_prgm = newprgm;

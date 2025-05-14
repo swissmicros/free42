@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -24,8 +24,10 @@
 #import <CoreMotion/CoreMotion.h>
 
 #import "CalcView.h"
+#import "AlphaKeyboardView.h"
 #import "PrintView.h"
 #import "RootViewController.h"
+#import "ToastAlert.h"
 #import "Free42AppDelegate.h"
 #import "free42.h"
 #import "core_main.h"
@@ -39,28 +41,6 @@
 #import "core_globals.h"
 
 
-///////////////////////////////////////////////////////////////////////////////
-/////                         Ye olde C stuphphe                          /////
-///////////////////////////////////////////////////////////////////////////////
-
-#if 0
-class Tracer {
-private:
-    const char *name;
-public:
-    Tracer(const char *name) {
-        this->name = name;
-        NSLog(@"%@ : ENTERING %s", [NSThread currentThread], name);
-    }
-    ~Tracer() {
-        NSLog(@"%@ : EXITING %s", [NSThread currentThread], name);
-    }
-};
-#define TRACE(x) Tracer T(x)
-#else
-#define TRACE(x)
-#endif
-        
 static void quit2(bool really_quit);
 static void shell_keydown();
 static void shell_keyup();
@@ -117,9 +97,10 @@ static void gif_seeker(int4 pos);
 static void gif_writer(const char *text, int length);
 static bool is_file(const char *name);
 
-///////////////////////////////////////////////////////////////////////////////
-/////                    Ende ophphe ye olde C stuphphe                   /////
-///////////////////////////////////////////////////////////////////////////////
+void get_keymap(keymap_entry **map, int *length) {
+    *map = keymap;
+    *length = keymap_length;
+}
 
 
 //////////////////////////////////////////////////////////////////////
@@ -169,12 +150,14 @@ static double hdg_mag = 0, hdg_true = 0, hdg_acc = -1, hdg_x = 0, hdg_y = 0, hdg
 
 
 static CalcView *calcView = nil;
+static bool macroInProgress = false;
 
 @implementation CalcView
 
+@synthesize keyboardShortcutsButton;
+
 
 - (id) initWithFrame:(CGRect)frame {
-    TRACE("initWithFrame");
     if (self = [super initWithFrame:frame]) {
         // Note: this does not get called when instantiated from a nib file,
         // so don't bother doing anything here!
@@ -260,13 +243,16 @@ static CalcView *calcView = nil;
     [RootViewController presentViewController:ctrl animated:YES completion:nil];
 }
 
+- (void) traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+    [super traitCollectionDidChange:previousTraitCollection];
+    [self setNeedsDisplay];
+}
+
 - (void) drawRect:(CGRect)rect {
-    TRACE("drawRect");
-    skin_repaint(&rect);
+    skin_repaint(&rect, keyboardShortcutsShowing);
 }
 
 - (void) dealloc {
-    TRACE("dealloc");
     NSLog(@"Shutting down!");
     [super dealloc];
 }
@@ -275,8 +261,6 @@ static char touchDelayed = 0;
 static CGPoint touchPoint;
 
 - (void) touchesBegan: (NSSet *) touches withEvent: (UIEvent *) event {
-    TRACE("touchesBegan");
-    [super touchesBegan:touches withEvent:event];
     if (touchDelayed != 0) {
         [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(touchesBegan2) object:nil];
         [self touchesBegan2];
@@ -298,21 +282,24 @@ static CGPoint touchPoint;
     if (ckey == 0) {
         skin_find_key(x, y, ann_shift != 0, &skey, &ckey);
         if (ckey == 0) {
-            if (skin_in_menu_area(x, y))
-                [self showMainMenu];
+            bool keyboard;
+            if (skin_in_menu_area(x, y, &keyboard))
+                if (state.popupAlphaKeyboard != 0 && keyboard) {
+                    state.popupAlphaKeyboard = 3 - state.popupAlphaKeyboard;
+                    if (!core_alpha_menu()) {
+                        NSString *message = [NSString stringWithFormat:@"Pop-up ALPHA keyboard %s", state.popupAlphaKeyboard == 1 ? "Off" : "On"];
+                        [self addSubview: [[ToastAlert alloc] initWithText:message]];
+                    } else {
+
+                        if (state.popupAlphaKeyboard == 2)
+                            [RootViewController showAlphaKeyboard];
+                        else
+                            [calcView.superview bringSubviewToFront:calcView];
+                    }
+                } else
+                    [self showMainMenu];
         } else {
-            if (state.keyClicks > 0)
-                [RootViewController playSound:state.keyClicks + 10];
-            if (state.hapticFeedback > 0) {
-                UIImpactFeedbackStyle s;
-                switch (state.hapticFeedback) {
-                    case 1: s = UIImpactFeedbackStyleLight; break;
-                    case 2: s = UIImpactFeedbackStyleMedium; break;
-                    case 3: s = UIImpactFeedbackStyleHeavy; break;
-                }
-                UIImpactFeedbackGenerator *fbgen = [[UIImpactFeedbackGenerator alloc] initWithStyle:s];
-                [fbgen impactOccurred];
-            }
+            [self keyFeedback2];
             macro = skin_find_macro(ckey, &macro_type);
             shell_keydown();
             mouse_key = true;
@@ -339,29 +326,41 @@ static CGPoint touchPoint;
 }
 
 - (void) touchesEnded: (NSSet *) touches withEvent: (UIEvent *) event {
-    TRACE("touchesEnded");
-    [super touchesEnded:touches withEvent:event];
     [self myTouchesEnded:touches];
 }
 
 - (void) touchesCancelled: (NSSet *) touches withEvent: (UIEvent *) event {
-    TRACE("touchesCancelled");
-    [super touchesCancelled:touches withEvent:event];
     [self myTouchesEnded:touches];
 }
 
+- (void) keyFeedback2 {
+    if (state.keyClicks > 0)
+        [RootViewController playSound:state.keyClicks + 10];
+    if (state.hapticFeedback > 0) {
+        UIImpactFeedbackStyle s;
+        switch (state.hapticFeedback) {
+            case 1: s = UIImpactFeedbackStyleLight; break;
+            case 2: s = UIImpactFeedbackStyleMedium; break;
+            case 3: s = UIImpactFeedbackStyleHeavy; break;
+        }
+        UIImpactFeedbackGenerator *fbgen = [[UIImpactFeedbackGenerator alloc] initWithStyle:s];
+        [fbgen impactOccurred];
+    }
+}
+
++ (void) keyFeedback {
+    [calcView keyFeedback2];
+}
+
 + (void) repaint {
-    TRACE("repaint");
     [calcView setNeedsDisplay];
 }
 
 + (void) quit {
-    TRACE("quit");
     quit2(true);
 }
 
 - (void) quitB {
-    TRACE("quitB");
     quit2(true);
 }
 
@@ -385,12 +384,10 @@ static CGPoint touchPoint;
 }
 
 + (void) enterBackground {
-    TRACE("enterBackground");
     quit2(false);
 }
 
 + (void) leaveBackground {
-    TRACE("leaveBackground");
     keep_running = core_powercycle();
     if (keep_running)
         [calcView startRunner];
@@ -416,7 +413,6 @@ static CGPoint touchPoint;
 static struct timeval runner_end_time;
 
 - (void) startRunner {
-    TRACE("startRunner");
     gettimeofday(&runner_end_time, NULL);
     runner_end_time.tv_usec += 10000; // run for up to 10 ms
     if (runner_end_time.tv_usec >= 1000000) {
@@ -433,7 +429,6 @@ static struct timeval runner_end_time;
 }
 
 - (void) awakeFromNib {
-    TRACE("awakeFromNib");
     [super awakeFromNib];
     calcView = self;
     statefile = fopen("config/state", "r");
@@ -500,7 +495,9 @@ static struct timeval runner_end_time;
     UIGestureRecognizerState gstate = [panrec state];
     CGPoint p = [panrec translationInView:[self superview]];
     PrintView *print = ((Free42AppDelegate *) UIApplication.sharedApplication.delegate).rootViewController.printView;
+    AlphaKeyboardView *alpha = ((Free42AppDelegate *) UIApplication.sharedApplication.delegate).rootViewController.alphaKeyboardView;
     CGRect cf = self.frame;
+    CGRect af = alpha.frame;
     CGRect pf = print.frame;
     if (gstate == UIGestureRecognizerStateBegan) {
         // Make sure the Print-Out view isn't hidden
@@ -513,6 +510,8 @@ static struct timeval runner_end_time;
     if (gstate == UIGestureRecognizerStateEnded) {
         cf.origin.x = prevX;
         self.frame = cf;
+        af.origin.x = prevX;
+        alpha.frame = af;
         pf.origin.x = prevX;
         print.frame = pf;
         CGPoint v = [panrec velocityInView:[self superview]];
@@ -526,6 +525,8 @@ static struct timeval runner_end_time;
             p.x = 0;
         cf.origin.x = self.superview.bounds.origin.x + p.x;
         self.frame = cf;
+        af.origin.x = self.superview.bounds.origin.x + p.x;
+        alpha.frame = af;
         pf.origin.x = self.superview.bounds.origin.x + p.x + dir * self.frame.size.width;
         print.frame = pf;
     }
@@ -542,12 +543,15 @@ static struct timeval runner_end_time;
     char corefilename[FILENAMELEN];
     snprintf(corefilename, FILENAMELEN, "config/%s.f42", state.coreName);
     core_init(1, 26, corefilename, 0);
+    if (state.popupAlphaKeyboard == 2 && core_alpha_menu())
+        [RootViewController showAlphaKeyboard];
+    else
+        [calcView.superview bringSubviewToFront:calcView];
     if (core_powercycle())
         [calcView startRunner];
 }
 
 - (void) setTimeout:(int) which {
-    TRACE("setTimeout");
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(timeout_callback) object:NULL];
     timeout_which = which;
     timeout_active = true;
@@ -555,13 +559,11 @@ static struct timeval runner_end_time;
 }
 
 - (void) cancelTimeout {
-    TRACE("cancelTimeout");
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(timeout_callback) object:NULL];
     timeout_active = false;
 }
 
 - (void) timeout_callback {
-    TRACE("timeout_callback");
     timeout_active = false;
     if (ckey != 0) {
         if (timeout_which == 1) {
@@ -574,20 +576,17 @@ static struct timeval runner_end_time;
 }
 
 - (void) setTimeout3: (int) delay {
-    TRACE("setTimeout3");
     [self cancelTimeout3];
     [self performSelector:@selector(timeout3_callback) withObject:NULL afterDelay:(delay / 1000.0)];
     timeout3_active = true;
 }
 
 - (void) cancelTimeout3 {
-    TRACE("cancelTimeout3");
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(timeout3_callback) object:NULL];
     timeout3_active = false;
 }
     
 - (void) timeout3_callback {
-    TRACE("timeout3_callback");
     timeout3_active = false;
     keep_running = core_timeout3(true);
     if (keep_running)
@@ -595,20 +594,50 @@ static struct timeval runner_end_time;
 }
 
 - (void) setRepeater: (int) delay {
-    TRACE("setRepeater");
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(repeater_callback) object:NULL];
     [self performSelector:@selector(repeater_callback) withObject:NULL afterDelay:(delay / 1000.0)];
     repeater_active = true;
 }
 
 - (void) cancelRepeater {
-    TRACE("cancelRepeater");
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(repeater_callback) object:NULL];
     repeater_active = false;
 }
 
++ (void) alphaKeyboardAlpha:(unsigned short) code {
+    ckey = 1024 + code;
+    skey = -1;
+    macro = NULL;
+    shell_keydown();
+    mouse_key = false;
+    active_keycode = -1;
+}
+
++ (void) alphaKeyboardDown:(int) key {
+    static unsigned char macrobuf[3];
+    if (key > 37) {
+        macrobuf[0] = 28;
+        macrobuf[1] = key - 37;
+        macrobuf[2] = 0;
+        ckey = key - 37;
+    } else {
+        macrobuf[0] = key;
+        macrobuf[1] = 0;
+        ckey = key;
+    }
+    skey = -1;
+    macro = macrobuf;
+    macro_type = 0;
+    shell_keydown();
+    mouse_key = false;
+    active_keycode = -1;
+}
+
++ (void) alphaKeyboardUp {
+    shell_keyup();
+}
+
 - (void) repeater_callback {
-    TRACE("repeater_callback");
     int repeat = core_repeat();
     if (repeat != 0)
         [self setRepeater:(repeat == 1 ? 200 : 100)];
@@ -694,9 +723,11 @@ static CLLocationManager *locMgr = nil;
 }
 
 - (void) setActive:(bool) active {
-    if (active)
+    if (active) {
         [self becomeFirstResponder];
-    else
+        if (state.popupAlphaKeyboard == 2 && core_alpha_menu())
+            [RootViewController showAlphaKeyboard];
+    } else
         [self resignFirstResponder];
 }
 
@@ -709,6 +740,14 @@ static void read_key_map(const char *keymapfilename);
 + (void) readKeyMap {
     mkdir("config", 0755);
     read_key_map("config/keymap.txt");
+}
+
+- (IBAction) toggleKeyboardShortcuts:(id)sender {
+    [RootViewController showMain];
+    keyboardShortcutsShowing = !keyboardShortcutsShowing;
+    NSString *newTitle = keyboardShortcutsShowing ? @"Hide Keyboard Shortcuts" : @"Show Keyboard Shortcuts";
+    [keyboardShortcutsButton setTitle:newTitle forState:UIControlStateNormal];
+    [self setNeedsDisplay];
 }
 
 // Keyboard handling (UIResponder methods)
@@ -848,7 +887,6 @@ static void read_key_map(const char *keymapfilename) {
 extern bool off_enable_flag;
 
 static int read_shell_state(int *ver) {
-    TRACE("read_shell_state");
     int magic;
     int version;
     int state_size;
@@ -895,7 +933,6 @@ static int read_shell_state(int *ver) {
 }
 
 static void init_shell_state(int version) {
-    TRACE("init_shell_state");
     switch (version) {
         case -1:
             state.printerToTxtFile = 0;
@@ -947,7 +984,10 @@ static void init_shell_state(int version) {
         case 12:
             /* fall through */
         case 13:
-            /* current version (SHELL_VERSION = 13),
+            state.popupAlphaKeyboard = 1;
+            /* fall through */
+        case 14:
+            /* current version (SHELL_VERSION = 14),
              * so nothing to do here since everything
              * was initialized from the state file.
              */
@@ -957,8 +997,6 @@ static void init_shell_state(int version) {
 }
 
 static void quit2(bool really_quit) {
-    TRACE("quit2");
-
     [PrintView dump];
     
     if (print_txt != NULL) {
@@ -987,7 +1025,6 @@ static void quit2(bool really_quit) {
 }
 
 static void shell_keydown() {
-    TRACE("shell_keydown");
     int repeat;
     if (skey == -1)
         skey = skin_find_skey(ckey);
@@ -1025,7 +1062,7 @@ static void shell_keydown() {
                 }
             } else {
                 bool waitForProgram = !program_running();
-                skin_display_set_enabled(false);
+                macroInProgress = true;
                 while (*macro != 0) {
                     we_want_cpu = true;
                     keep_running = core_keydown(*macro++, &enqueued, &repeat);
@@ -1038,17 +1075,12 @@ static void shell_keydown() {
                         we_want_cpu = false;
                     }
                 }
-                skin_display_set_enabled(true);
-                skin_repaint_display(calcView);
-                /*
-                skin_repaint_annunciator(1, ann_updown);
-                skin_repaint_annunciator(2, ann_shift);
-                skin_repaint_annunciator(3, ann_print);
-                skin_repaint_annunciator(4, ann_run);
-                skin_repaint_annunciator(5, ann_battery);
-                skin_repaint_annunciator(6, ann_g);
-                skin_repaint_annunciator(7, ann_rad);
-                */
+                macroInProgress = false;
+                if (state.popupAlphaKeyboard == 2)
+                    if (core_alpha_menu())
+                        [RootViewController showAlphaKeyboard];
+                    else
+                        [calcView.superview bringSubviewToFront:calcView];
                 repeat = 0;
             }
         }
@@ -1073,7 +1105,6 @@ static void shell_keydown() {
 }
 
 static void shell_keyup() {
-    TRACE("shell_keyup");
     skin_set_pressed_key(-1, calcView);
     ckey = 0;
     skey = -1;
@@ -1102,6 +1133,7 @@ static void calc_keydown(NSString *characters, long flags, int keycode) {
 
     NSString *c2 = nil;
     if ([characters hasPrefix:@"UIKeyInput"]) {
+        // See https://developer.apple.com/documentation/uikit/input-strings-for-special-keys?language=objc
         NSString *s = [characters substringFromIndex:10];
         unsigned int fn;
         if ([s isEqualToString:@"UpArrow"])
@@ -1301,7 +1333,6 @@ static void calc_keyup(NSString *characters, long flags, int keycode) {
 }
 
 static int write_shell_state() {
-    TRACE("write_shell_state");
     int magic = FREE42_MAGIC;
     int version = 27;
     int state_size = sizeof(state);
@@ -1333,7 +1364,6 @@ static int write_shell_state() {
 }
 
 void shell_blitter(const char *bits, int bytesperline, int x, int y, int width, int height) {
-    TRACE("shell_blitter");
     skin_display_blitter(bits, bytesperline, x, y, width, height, calcView);
 }
 
@@ -1346,13 +1376,11 @@ const char *shell_platform() {
 }
 
 void shell_beeper(int tone) {
-    TRACE("shell_beeper");
     [RootViewController playSound:tone];
     shell_delay(tone == 10 ? 125 : 250);
 }
 
 void shell_annunciators(int updn, int shf, int prt, int run, int g, int rad) {
-    TRACE("shell_annunciators");
     if (updn != -1 && ann_updown != updn) {
         ann_updown = updn;
         skin_update_annunciator(1, ann_updown, calcView);
@@ -1392,7 +1420,6 @@ void shell_log(const char *message) {
 }
 
 bool shell_wants_cpu() {
-    TRACE("shell_wants_cpu");
     if (we_want_cpu)
         return true;
     struct timeval now;
@@ -1402,7 +1429,6 @@ bool shell_wants_cpu() {
 }
 
 void shell_delay(int duration) {
-    TRACE("shell_delay");
     struct timespec ts;
     ts.tv_sec = duration / 1000;
     ts.tv_nsec = (duration % 1000) * 1000000;
@@ -1410,12 +1436,10 @@ void shell_delay(int duration) {
 }
 
 void shell_request_timeout3(int delay) {
-    TRACE("shell_request_timeout3");
     [calcView setTimeout3:delay];
 }
 
 uint8 shell_get_mem() {
-    TRACE("shell_get_mem");
     int mib[2];
     size_t memsize = 0;
     size_t len;
@@ -1431,20 +1455,17 @@ uint8 shell_get_mem() {
 }
 
 void shell_powerdown() {
-    TRACE("shell_powerdown");
     quit_flag = true;
     we_want_cpu = true;
 }
 
 int8 shell_random_seed() {
-    TRACE("shell_random_seed");
     struct timeval tv;
     gettimeofday(&tv, NULL);
     return tv.tv_sec * 1000LL + tv.tv_usec / 1000;
 }
 
 unsigned int shell_milliseconds() {
-    TRACE("shell_milliseconds");
     struct timeval tv;
     gettimeofday(&tv, NULL);
     return (unsigned int) (tv.tv_sec * 1000L + tv.tv_usec / 1000);
@@ -1505,8 +1526,6 @@ void shell_get_time_date(uint4 *time, uint4 *date, int *weekday) {
 void shell_print(const char *text, int length,
                  const char *bits, int bytesperline,
                  int x, int y, int width, int height) {
-    TRACE("shell_print");
-
     int xx, yy;
     int oldlength, newlength;
     
@@ -1654,6 +1673,14 @@ void shell_print(const char *text, int length,
         if (print_text_top >= PRINT_TEXT_SIZE)
             print_text_top -= PRINT_TEXT_SIZE;
     }
+}
+
+void shell_show_alpha_keyboard(bool show) {
+    if (state.popupAlphaKeyboard == 2 && !macroInProgress)
+        if (show)
+            [RootViewController showAlphaKeyboard];
+        else
+            [calcView.superview bringSubviewToFront:calcView];
 }
 
 //////////////////////////////////////////////////////////////////////

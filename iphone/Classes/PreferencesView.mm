@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -37,6 +37,7 @@
 @synthesize hapticFeedbackSlider;
 @synthesize orientationSelector;
 @synthesize swipeDirectionSelector;
+@synthesize popupAlphaKeyboardSelector;
 @synthesize maintainSkinAspectSwitch;
 @synthesize printToTextSwitch;
 @synthesize printToTextField;
@@ -81,6 +82,7 @@
     [hapticFeedbackSlider setValue:state.hapticFeedback];
     [orientationSelector setSelectedSegmentIndex:state.orientationMode];
     [swipeDirectionSelector setSelectedSegmentIndex:state.swipeDirectionMode];
+    [popupAlphaKeyboardSelector setSelectedSegmentIndex:state.popupAlphaKeyboard];
     [maintainSkinAspectSwitch setOn:state.maintainSkinAspect[[CalcView isPortrait] ? 0 : 1] != 0];
     [printToTextSwitch setOn:(state.printerToTxtFile != 0)];
     [printToTextField setText:[NSString stringWithUTF8String:state.printerTxtFileName]];
@@ -102,7 +104,7 @@
 
 - (void) keyboardDidShow:(NSNotification *)notif {
     NSDictionary *userInfo = [notif userInfo];
-    CGSize kbSize = [[userInfo objectForKey:UIKeyboardFrameBeginUserInfoKey] CGRectValue].size;
+    CGSize kbSize = [[userInfo objectForKey:UIKeyboardFrameEndUserInfoKey] CGRectValue].size;
 
     UIEdgeInsets contentInsets = UIEdgeInsetsMake(0.0, 0.0, kbSize.height, 0.0);
     scrollView.contentInset = contentInsets;
@@ -219,6 +221,7 @@
         [CalcView repaint];
     }
     state.swipeDirectionMode = (int) swipeDirectionSelector.selectedSegmentIndex;
+    state.popupAlphaKeyboard = popupAlphaKeyboardSelector.selectedSegmentIndex;
     state.printerToTxtFile = printToTextSwitch.on;
     NSString *s = [printToTextField text];
     if ([s length] > 0 && ![[s lowercaseString] hasSuffix:@".txt"])

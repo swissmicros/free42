@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -30,6 +30,7 @@
 
 int resolve_ind_arg(arg_struct *arg, char *buf = NULL, int *len = NULL);
 int arg_to_num(arg_struct *arg, int4 *num);
+bool dim_to_int4(vartype *dim, int4 *res);
 int recall_result_silently(vartype *v);
 int recall_result(vartype *v);
 int recall_two_results(vartype *x, vartype *y);
@@ -51,6 +52,8 @@ bool string_equals(const char *s1, int s1len, const char *s2, int s2len);
 int string_pos(const char *ntext, int nlen, const vartype *hs, int startpos);
 bool vartype_equals(const vartype *v1, const vartype *v2);
 int anum(const char *text, int len, phloat *res);
+
+#define undefined_char(c) ((c) >= 139)
 
 #define FLAGOP_SF 0
 #define FLAGOP_CF 1
@@ -76,6 +79,8 @@ void print_right(const char *left, int leftlen,
 void print_wide(const char *left, int leftlen,
                 const char *right, int rightlen);
 void print_command(int cmd, const arg_struct *arg);
+void print_menu_trace(const char *name, int len);
+void print_menu_trace_always(const char *name, int len);
 void print_trace();
 void print_stack_trace();
 

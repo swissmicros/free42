@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -51,7 +51,7 @@ int skin_init_image(int type, int ncolors, const SkinColor *colors,
 void skin_put_pixels(unsigned const char *data);
 void skin_finish_image();
 
-void skin_repaint();
+void skin_repaint(bool shortcuts);
 void skin_invalidate_annunciator(int which);
 void skin_find_key(int x, int y, bool cshift, int *skey, int *ckey);
 int skin_find_skey(int ckey);
@@ -59,8 +59,6 @@ unsigned char *skin_find_macro(int ckey, int *type);
 unsigned char *skin_keymap_lookup(int keycode, bool ctrl, bool alt, bool extended, bool shift, bool cshift, bool *exact);
 void skin_invalidate_key(int key);
 void skin_display_blitter(const char *bits, int bytesperline, int x, int y, int width, int height);
-void skin_display_set_enabled(bool enable);
-void invalidate_display();
 void skin_get_size(int *width, int *height);
 void skin_set_window(HWND window);
 void skin_set_window_size(int width, int height);

@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -61,7 +61,7 @@ public class FileImportActivity extends Activity {
         String baseName = null;
         String type = "f42";
         String scheme = uri.getScheme();
-        if (scheme.equals("content")) {
+        if ("content".equals(scheme)) {
             try {
                 Cursor cursor = getContentResolver().query(uri, new String[]{MediaStore.MediaColumns.DISPLAY_NAME}, null, null, null);
                 cursor.moveToFirst();
@@ -104,7 +104,7 @@ public class FileImportActivity extends Activity {
         }
 
         // Network access not allowed on main thread, so...
-        if (scheme.equals("http") || scheme.equals("https")) {
+        if ("http".equals(scheme) || "https".equals(scheme)) {
             new NetworkLoader(uri.toString()).start();
             return;
         }

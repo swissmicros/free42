@@ -94,7 +94,7 @@ BST      Shift CursorUp
 7        '7'
 SOLVER   '&' (Shift 7)
 8        '8'
-∫f(x)    Alt 8 (can't use Shift 8 because that's 'x' (multiply))
+∫f(x)    Alt 8 (can't use Shift 8 because that's * (multiply))
 9        '9'
 MATRIX   '(' (Shift 9)
 ÷        '/'
@@ -109,7 +109,7 @@ CONVERT  '%' (Shift 5)
 6        '6'
 FLAGS    '^' (Shift 6)
 ×        '*'
-PROB     Ctrl 8 (can't use Shift * because '*' is shifted itself (Shift 8))
+PROB     Ctrl 8 (can't use Shift * because * is shifted itself (Shift 8))
 
 Shift    Shift
 1        '1'
@@ -168,7 +168,7 @@ If you don't fully understand the above, it is best to play safe and use
 Free42 Decimal.
 
 
-Free42 is (C) 2004-2024, by Thomas Okken
+Free42 is (C) 2004-2025, by Thomas Okken
 Contact the author at thomasokken@gmail.com
 Look for updates, and versions for other operating systems, at
 https://thomasokken.com/free42/

@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -27,7 +27,7 @@
 @property (nonatomic, retain) IBOutlet NSTextField *label;
 @property (nonatomic, retain) IBOutlet NSTextField *stateName;
 
-- (void) setupWithLabel:(NSString *)label existingNames:(NSMutableArray *)names;
+- (void) setupWithLabel:(NSString *)label initialName:(NSString *)name existingNames:(NSMutableArray *)names;
 - (NSString *) selectedName;
 - (IBAction) ok:(id)sender;
 - (IBAction) cancel:(id)sender;

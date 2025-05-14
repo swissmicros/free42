@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -88,8 +88,6 @@ static int disp_bytesperline;
 
 static keymap_entry *keymap = NULL;
 static int keymap_length = 0;
-
-static bool display_enabled = true;
 
 
 /*****************/
@@ -332,9 +330,6 @@ static void skin_close() {
 
 void skin_load(long *width, long *height) {
     char line[1024];
-    int size;
-    int kmcap = 0;
-    int lineno = 0;
     bool force_builtin = false;
     
     if (state.skinName[0] == 0) {
@@ -373,7 +368,10 @@ void skin_load(long *width, long *height) {
         free(keymap);
     keymap = NULL;
     keymap_length = 0;
-    
+    int kmcap = 0;
+
+    int lineno = 0;
+
     while (skin_gets(line, 1024)) {
         lineno++;
         if (*line == 0)
@@ -594,7 +592,7 @@ void skin_load(long *width, long *height) {
     if (disp_bitmap != NULL)
         free(disp_bitmap);
     disp_bytesperline = 17; // bytes needed for 131 pixels
-    size = disp_bytesperline * 16;
+    int size = disp_bytesperline * 16;
     disp_bitmap = (unsigned char *) malloc(size);
     // TODO - handle memory allocation failure
     memset(disp_bitmap, 255, size);
@@ -694,7 +692,145 @@ void skin_finish_image() {
     skin_bitmap = NULL;
 }
 
-void skin_repaint(NSRect *rect) {
+struct KeyShortcutInfo {
+    int x, y, width, height;
+    NSString *unshifted, *shifted;
+    KeyShortcutInfo *next;
+    
+    KeyShortcutInfo(SkinKey *k) {
+        x = k->sens_rect.x;
+        y = k->sens_rect.y;
+        width = k->sens_rect.width;
+        height = k->sens_rect.height;
+        unshifted = @"";
+        shifted = @"";
+    }
+    
+    bool sameRect(SkinKey *that) {
+        return x == that->sens_rect.x
+                && y == that->sens_rect.y
+                && width == that->sens_rect.width
+                && height == that->sens_rect.height;
+    }
+    
+    void add(NSString *entryStr, bool shifted) {
+        NSString **str = shifted ? &this->shifted : &this->unshifted;
+        *str = [entryStr stringByAppendingFormat:@" %@", *str];
+    }
+    
+    NSString *text() {
+        NSString *u, *s;
+        if ([unshifted length] == 0)
+            u = @"n/a";
+        else
+            u = [unshifted substringToIndex:[unshifted length] - 1];
+        if ([shifted length] == 0)
+            s = @"n/a";
+        else
+            s = [shifted substringToIndex:[shifted length] - 1];
+        return [NSString stringWithFormat:@"%@\n%@", s, u];
+    }
+};
+
+static NSString *entry_to_text(keymap_entry *e) {
+    NSString *mods = @"";
+    bool printable = !e->ctrl && e->keychar >= 33 && e->keychar <= 126;
+    if (e->numpad)
+        mods = [mods stringByAppendingString:@"{n}"];
+    if (e->ctrl)
+        mods = [mods stringByAppendingString:@"^"];
+    if (e->alt)
+        mods = [mods stringByAppendingString:@"\u2325"];
+    if (e->shift && !printable)
+        mods = [mods stringByAppendingString:@"\u21e7"];
+    NSString *c;
+    switch (e->keychar) {
+        case 3: c = @"KpEnter"; break;
+        case 13: c = @"Enter"; break;
+        case 27: c = @"Esc"; break;
+        case 127: c = @"\u232B"; break;
+        case NSUpArrowFunctionKey: c = @"\u2191"; break;
+        case NSDownArrowFunctionKey: c = @"\u2193"; break;
+        case NSLeftArrowFunctionKey: c = @"\u2190"; break;
+        case NSRightArrowFunctionKey: c = @"\u2192"; break;
+        case NSInsertFunctionKey: c = @"Ins"; break;
+        case NSDeleteFunctionKey: c = @"\u2326"; break;
+        case NSHomeFunctionKey: c = @"Home"; break;
+        case NSBeginFunctionKey: c = @"Begin"; break;
+        case NSEndFunctionKey: c = @"End"; break;
+        case NSPageUpFunctionKey: c = @"PgUp"; break;
+        case NSPageDownFunctionKey: c = @"PgDn"; break;
+        case NSPrevFunctionKey: c = @"Prev"; break;
+        case NSNextFunctionKey: c = @"Next"; break;
+        default:
+            if (e->keychar >= NSF1FunctionKey && e->keychar <= NSF35FunctionKey)
+                c = [NSString stringWithFormat:@"F%d", e->keychar - NSF1FunctionKey + 1];
+            else
+                c = [NSString stringWithFormat:@"%C", e->keychar];
+    }
+    return [mods stringByAppendingString:c];
+}
+
+static KeyShortcutInfo *get_shortcut_info() {
+    KeyShortcutInfo *head = NULL;
+    NSMutableSet *seen = [NSMutableSet setWithCapacity:100];
+    for (int km = 0; km < 2; km++) {
+        keymap_entry *kmap;
+        int kmap_len;
+        if (km == 0) {
+            kmap = keymap;
+            kmap_len = keymap_length;
+        } else
+            get_keymap(&kmap, &kmap_len);
+        for (int i = kmap_len - 1; i >= 0; i--) {
+            keymap_entry *e = kmap + i;
+            if (e->cshift)
+                continue;
+            int key;
+            bool shifted;
+            if (e->macro[1] == 0) {
+                key = e->macro[0];
+                shifted = false;
+            } else if (e->macro[0] == 28 && e->macro[2] == 0) {
+                key = e->macro[1];
+                shifted = true;
+            } else
+                continue;
+            SkinKey *k = NULL;
+            for (int j = 0; j < nkeys; j++) {
+                k = keylist + j;
+                if (key == k->code)
+                    break;
+                if (key == k->shifted_code) {
+                    shifted = true;
+                    break;
+                }
+                k = NULL;
+            }
+            if (k == NULL)
+                continue;
+            NSString *entryStr = entry_to_text(e);
+            if ([seen containsObject:entryStr])
+                continue;
+            [seen addObject:entryStr];
+            for (KeyShortcutInfo *p = head; p != NULL; p = p->next) {
+                if (p->sameRect(k)) {
+                    p->add(entryStr, shifted);
+                    goto endloop;
+                }
+            }
+            KeyShortcutInfo *ki;
+            ki = new KeyShortcutInfo(k);
+            ki->add(entryStr, shifted);
+            ki->next = head;
+            head = ki;
+            endloop:;
+        }
+    }
+    return head;
+}
+
+void skin_repaint(NSRect *rect, bool shortcuts) {
     CGContextRef myContext = (CGContextRef) [[NSGraphicsContext currentContext] graphicsPort];
     
     // Optimize for the common case that *only* the display needs painting
@@ -777,6 +913,34 @@ void skin_repaint(NSRect *rect) {
                 CGContextDrawImage(myContext, CGRectMake(ann->disp_rect.x, ann->disp_rect.y, ann->disp_rect.width, ann->disp_rect.height), ann_image);
                 CGImageRelease(ann_image);
             }
+        }
+    }
+    
+    if (shortcuts) {
+        CGContextSetRGBFillColor(myContext, 1.0, 1.0, 1.0, 0.5);
+        CGContextFillRect(myContext, NSRectToCGRect(*rect));
+        KeyShortcutInfo *ksinfo = get_shortcut_info();
+        NSMutableDictionary *atts = [NSMutableDictionary dictionary];
+        double fsize = sqrt(((double) skin.width) * skin.height) / 40;
+        [atts setObject:[NSFont systemFontOfSize:fsize] forKey:NSFontAttributeName];
+        while (ksinfo != NULL) {
+            CGContextSetRGBFillColor(myContext, 1.0, 1.0, 1.0, 0.5);
+            CGContextFillRect(myContext, CGRectMake(ksinfo->x + 2, ksinfo->y + 2, ksinfo->width - 4, ksinfo->height - 4));
+            CGContextSetRGBFillColor(myContext, 0.0, 0.0, 0.0, 1.0);
+            NSString *text = ksinfo->text();
+            CGRect r = CGRectMake(ksinfo->x + 4, ksinfo->y + 4, ksinfo->width - 8, ksinfo->height - 8);
+            [text drawInRect:r withAttributes:atts];
+            KeyShortcutInfo *next = ksinfo->next;
+            delete ksinfo;
+            ksinfo = next;
+        }
+    }
+
+    if (@available(*, macOS 10.14)) {
+        NSAppearance *currentAppearance = [NSAppearance  currentAppearance];
+        if (currentAppearance.name == NSAppearanceNameDarkAqua) {
+            CGContextSetRGBFillColor(myContext, 0.0, 0.0, 0.0, 0.15);
+            CGContextFillRect(myContext, NSRectToCGRect(*rect));
         }
     }
 }
@@ -914,15 +1078,8 @@ void skin_display_blitter(const char *bits, int bytesperline, int x, int y, int 
 }
 
 void skin_repaint_display() {
-    if (!display_enabled)
-        // Prevent screen flashing during macro execution
-        return;
     Free42AppDelegate *delegate = (Free42AppDelegate *) [NSApp delegate];
     [delegate.calcView setNeedsDisplayInRect:CGRectMake(display_loc.x, display_loc.y, 131 * display_scale.x, 16 * display_scale.y)];
-}
-
-void skin_display_set_enabled(bool enable) {
-    display_enabled = enable;
 }
 
 void skin_get_size(int *width, int *height) {

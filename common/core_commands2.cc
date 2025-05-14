@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -428,9 +428,6 @@ int docmd_input(arg_struct *arg) {
 
 int view_helper(arg_struct *arg, bool print) {
     int err;
-    char buf[22];
-    int bufptr = 0, part2;
-    vartype *v;
     if (arg->type == ARGTYPE_IND_NUM
             || arg->type == ARGTYPE_IND_STK
             || arg->type == ARGTYPE_IND_STR) {
@@ -438,6 +435,13 @@ int view_helper(arg_struct *arg, bool print) {
         if (err != ERR_NONE)
             return err;
     }
+    vartype *v;
+    err = generic_rcl(arg, &v);
+    if (err != ERR_NONE)
+        return err;
+
+    char buf[64];
+    int bufptr = 0;
     switch (arg->type) {
         case ARGTYPE_NUM: {
             int num = arg->val.num;
@@ -456,27 +460,43 @@ int view_helper(arg_struct *arg, bool print) {
             break;
     }
     char2buf(buf, 22, &bufptr, '=');
-    part2 = bufptr;
-    err = generic_rcl(arg, &v);
-    if (err != ERR_NONE)
-        return err;
+    int part2 = bufptr;
+
     bufptr += vartype2string(v, buf + bufptr, 22 - bufptr);
-    free_vartype(v);
     clear_row(0);
     draw_string(0, 0, buf, bufptr);
     flush_display();
     flags.f.message = 1;
     flags.f.two_line_message = 0;
 
+    err = ERR_NONE;
     if (print && (flags.f.printer_enable || !program_running())) {
         if (flags.f.printer_exists) {
             shell_annunciators(-1, -1, 1, -1, -1, -1);
-            print_wide(buf, part2, buf + part2, bufptr - part2);
+            bufptr = part2;
+            char *sbuf = NULL;
+            char *pbuf = buf;
+            int slen = 64;
+            if (v->type == TYPE_STRING) {
+                vartype_string *s = (vartype_string *) v;
+                slen = bufptr + s->length + 2;
+                sbuf = (char *) malloc(slen);
+                if (sbuf == NULL) {
+                    slen = 64;
+                } else {
+                    memcpy(sbuf, buf, bufptr);
+                    pbuf = sbuf;
+                }
+            }
+            bufptr += vartype2string(v, pbuf + bufptr, slen - bufptr);
+            print_lines(pbuf, bufptr, true);
+            free(sbuf);
             shell_annunciators(-1, -1, 0, -1, -1, -1);
         } else
-            return ERR_STOP;
+            err = ERR_STOP;
     }
-    return ERR_NONE;
+    free_vartype(v);
+    return err;
 }
 
 int docmd_view(arg_struct *arg) {
@@ -1037,19 +1057,19 @@ struct sigma_label_spec {
 };
 
 static const sigma_label_spec sigma_labels[] = {
-    { "\005X=",           3 },
-    { "\005X^2=",         5 },
-    { "\005Y=",           3 },
-    { "\005Y^2=",         5 },
-    { "\005XY=",          4 },
-    { "N=",               2 },
-    { "\005LN(X)=",       7 },
-    { "\005LN(X)^2=",     9 },
-    { "\005LN(Y)=",       7 },
-    { "\005LN(Y)^2=",     9 },
-    { "\005LN(X)LN(Y)=", 12 },
-    { "\005XLN(Y)=",      8 },
-    { "\005YLN(X)=",      8 }
+    { "\5X=",           3 },
+    { "\5X^2=",         5 },
+    { "\5Y=",           3 },
+    { "\5Y^2=",         5 },
+    { "\5XY=",          4 },
+    { "N=",             2 },
+    { "\5LN(X)=",       7 },
+    { "\5LN(X)^2=",     9 },
+    { "\5LN(Y)=",       7 },
+    { "\5LN(Y)^2=",     9 },
+    { "\5LN(X)LN(Y)=", 12 },
+    { "\5XLN(Y)=",      8 },
+    { "\5YLN(X)=",      8 }
 };
 
 int docmd_prsigma(arg_struct *arg) {
@@ -1775,25 +1795,13 @@ int docmd_stop(arg_struct *arg) {
 int docmd_newmat(arg_struct *arg) {
     vartype *m;
 
-    phloat x = ((vartype_real *) stack[sp])->x;
-    if (x <= -2147483648.0 || x >= 2147483648.0)
+    int4 row, col;
+    if (!dim_to_int4(stack[sp - 1], &row))
         return ERR_DIMENSION_ERROR;
-    int4 xx = to_int4(x);
-    if (xx == 0)
+    if (!dim_to_int4(stack[sp], &col))
         return ERR_DIMENSION_ERROR;
-    if (xx < 0)
-        xx = -xx;
 
-    phloat y = ((vartype_real *) stack[sp - 1])->x;
-    if (y <= -2147483648.0 || y >= 2147483648.0)
-        return ERR_DIMENSION_ERROR;
-    int4 yy = to_int4(y);
-    if (yy == 0)
-        return ERR_DIMENSION_ERROR;
-    if (yy < 0)
-        yy = -yy;
-
-    m = new_realmatrix(yy, xx);
+    m = new_realmatrix(row + 1, col + 1);
     if (m == NULL)
         return ERR_INSUFFICIENT_MEMORY;
     else

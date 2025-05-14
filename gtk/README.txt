@@ -49,9 +49,9 @@ Remove free42dec, free42bin, and the $XDG_DATA_HOME/free42 or
 $HOME/.local/share/free42 directory and its contents.
 
 
-NOTE: The binary in this package was built on a PC running Ubuntu 12.04, and it
-is dynamically linked against glibc version 3.2, libstdc++ version 4.6.3, and
-GTK+ version 3.4.2. If your system has different versions of these libraries,
+NOTE: The binary in this package was built on a PC running Ubuntu 16.04, and it
+is dynamically linked against libc version 2.23, libstdc++ version 5.4.0, and
+GTK+ version 3.18.9. If your system has different versions of these libraries,
 the binary in this package may not work. In this case, please download the
 Free42 source package and compile Free42 using your installation's own compiler
 and libraries.
@@ -110,7 +110,7 @@ BST      Shift CursorUp
 7        '7'
 SOLVER   '&' (Shift 7)
 8        '8'
-∫f(x)    Alt 8 (can't use Shift 8 because that's 'x' (multiply))
+∫f(x)    Alt 8 (can't use Shift 8 because that's * (multiply))
 9        '9'
 MATRIX   '(' (Shift 9)
 ÷        '/'
@@ -125,7 +125,7 @@ CONVERT  '%' (Shift 5)
 6        '6'
 FLAGS    '^' (Shift 6)
 ×        '*'
-PROB     Ctrl 8 (can't use Shift * because '*' is shifted itself (Shift 8))
+PROB     Ctrl 8 (can't use Shift * because * is shifted itself (Shift 8))
 
 Shift    Shift
 1        '1'
@@ -184,7 +184,7 @@ If you don't fully understand the above, it is best to play safe and use
 Free42 Decimal (free42dec).
 
 
-Free42 is (C) 2004-2024, by Thomas Okken
+Free42 is (C) 2004-2025, by Thomas Okken
 Contact the author at thomasokken@gmail.com
 Look for updates, and versions for other operating systems, at
 https://thomasokken.com/free42/

@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -89,12 +89,14 @@ import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.RelativeLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 /**
  * This Activity class contains most of the Free42 'shell' functionality;
@@ -109,7 +111,7 @@ public class Free42Activity extends Activity {
     public static final String[] builtinSkinNames = new String[] { "Standard", "Landscape" };
     private static final String KEYMAP_FILE_NAME = "keymap.txt";
     
-    private static final int SHELL_VERSION = 22;
+    private static final int SHELL_VERSION = 23;
     
     private static final int PRINT_BACKGROUND_COLOR = Color.LTGRAY;
     
@@ -129,6 +131,7 @@ public class Free42Activity extends Activity {
     }
     
     private CalcView calcView;
+    private CalcContainer calcContainer;
     private SkinLayout skin;
     private KeymapEntry[] keymap;
     private View printView;
@@ -188,6 +191,8 @@ public class Free42Activity extends Activity {
     private int keyVibration = 0;
     private int preferredOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
     private int style = 0;
+    private int popupAlpha = 1;
+    private boolean macroInProgress = false;
     
     private final Runnable repeaterCaller = new Runnable() { public void run() { repeater(); } };
     private final Runnable timeout1Caller = new Runnable() { public void run() { timeout1(); } };
@@ -340,7 +345,9 @@ public class Free42Activity extends Activity {
         
         mainHandler = new Handler();
         calcView = new CalcView(this);
-        setContentView(calcView);
+        AlphaKeyboardView kb = new AlphaKeyboardView(this);
+        calcContainer = new CalcContainer(this, calcView, kb);
+        setContentView(calcContainer);
 
         LayoutInflater inflater = (LayoutInflater) getSystemService(Context.LAYOUT_INFLATER_SERVICE);
         printView = inflater.inflate(R.layout.print_view, null);
@@ -390,17 +397,17 @@ public class Free42Activity extends Activity {
         skin = null;
         if (skinName[orientation].length() == 0 && externalSkinName[orientation].length() > 0) {
             try {
-                skin = new SkinLayout(this, externalSkinName[orientation], skinSmoothing[orientation], displaySmoothing[orientation], maintainSkinAspect[orientation]);
+                skin = new SkinLayout(this, externalSkinName[orientation], skinSmoothing[orientation], displaySmoothing[orientation], maintainSkinAspect[orientation], keymap);
             } catch (IllegalArgumentException e) {}
         }
         if (skin == null) {
             try {
-                skin = new SkinLayout(this, skinName[orientation], skinSmoothing[orientation], displaySmoothing[orientation], maintainSkinAspect[orientation]);
+                skin = new SkinLayout(this, skinName[orientation], skinSmoothing[orientation], displaySmoothing[orientation], maintainSkinAspect[orientation], keymap);
             } catch (IllegalArgumentException e) {}
         }
         if (skin == null) {
             try {
-                skin = new SkinLayout(this, builtinSkinNames[0], skinSmoothing[orientation], displaySmoothing[orientation], maintainSkinAspect[orientation]);
+                skin = new SkinLayout(this, builtinSkinNames[0], skinSmoothing[orientation], displaySmoothing[orientation], maintainSkinAspect[orientation], keymap);
             } catch (IllegalArgumentException e) {
                 // This one should never fail; we're loading a built-in skin.
             }
@@ -409,6 +416,8 @@ public class Free42Activity extends Activity {
 
         nativeInit();
         core_init(init_mode, version.value, coreFileName, coreFileOffset);
+        if (popupAlpha == 2 && core_alpha_menu())
+            calcContainer.showAlphaKeyboard(true);
 
         lowBatteryReceiver = new BroadcastReceiver() {
             public void onReceive(Context ctx, Intent intent) {
@@ -438,7 +447,7 @@ public class Free42Activity extends Activity {
         for (int i = 0; i < soundResourceIds.length; i++)
             soundIds[i] = soundPool.load(this, soundResourceIds[i], 1);
     }
-    
+
     @Override
     protected void onStart() {
         // Check battery level -- this is necessary because the ACTTON_BATTERY_LOW
@@ -621,17 +630,17 @@ public class Free42Activity extends Activity {
         SkinLayout newSkin = null;
         if (skinName[orientation].length() == 0 && externalSkinName[orientation].length() > 0) {
             try {
-                newSkin = new SkinLayout(this, externalSkinName[orientation], skinSmoothing[orientation], displaySmoothing[orientation], maintainSkinAspect[orientation], ann_state);
+                newSkin = new SkinLayout(this, externalSkinName[orientation], skinSmoothing[orientation], displaySmoothing[orientation], maintainSkinAspect[orientation], keymap, ann_state);
             } catch (IllegalArgumentException e) {}
         }
         if (newSkin == null) {
             try {
-                newSkin = new SkinLayout(this, skinName[orientation], skinSmoothing[orientation], displaySmoothing[orientation], maintainSkinAspect[orientation], ann_state);
+                newSkin = new SkinLayout(this, skinName[orientation], skinSmoothing[orientation], displaySmoothing[orientation], maintainSkinAspect[orientation], keymap, ann_state);
             } catch (IllegalArgumentException e) {}
         }
         if (newSkin == null) {
             try {
-                newSkin = new SkinLayout(this, builtinSkinNames[0], skinSmoothing[orientation], displaySmoothing[orientation], maintainSkinAspect[orientation], ann_state);
+                newSkin = new SkinLayout(this, builtinSkinNames[0], skinSmoothing[orientation], displaySmoothing[orientation], maintainSkinAspect[orientation], keymap, ann_state);
             } catch (IllegalArgumentException e) {
                 // This one should never fail; we're loading a built-in skin.
             }
@@ -866,6 +875,8 @@ public class Free42Activity extends Activity {
         coreName = stateName;
         String newFileName = getFilesDir() + "/" + coreName + ".f42";
         core_init(1, 26, newFileName, 0);
+        boolean show = popupAlpha == 2 && core_alpha_menu();
+        calcContainer.showAlphaKeyboard(show);
         if (core_powercycle())
             startRunner();
     }
@@ -887,7 +898,7 @@ public class Free42Activity extends Activity {
     
     private void doFlipCalcPrintout() {
         printViewShowing = !printViewShowing;
-        setContentView(printViewShowing ? printView : calcView);
+        setContentView(printViewShowing ? printView : calcContainer);
     }
     
     private void doImport() {
@@ -1228,7 +1239,7 @@ public class Free42Activity extends Activity {
     private void doSelectSkin(String skinName) {
         try {
             boolean[] annunciators = skin.getAnnunciators();
-            skin = new SkinLayout(this, skinName, skinSmoothing[orientation], displaySmoothing[orientation], maintainSkinAspect[orientation], annunciators);
+            skin = new SkinLayout(this, skinName, skinSmoothing[orientation], displaySmoothing[orientation], maintainSkinAspect[orientation], keymap, annunciators);
             if (skinName.startsWith("/")) {
                 externalSkinName[orientation] = skinName;
                 this.skinName[orientation] = "";
@@ -1264,6 +1275,7 @@ public class Free42Activity extends Activity {
         preferencesDialog.setKeyVibration(keyVibration);
         preferencesDialog.setOrientation(preferredOrientation);
         preferencesDialog.setStyle(style);
+        preferencesDialog.setPopupAlpha(popupAlpha);
         preferencesDialog.setDisplayFullRepaint(alwaysRepaintFullDisplay);
         preferencesDialog.setMaintainSkinAspect(maintainSkinAspect[orientation]);
         preferencesDialog.setSkinSmoothing(skinSmoothing[orientation]);
@@ -1294,6 +1306,8 @@ public class Free42Activity extends Activity {
         int oldOrientation = preferredOrientation;
         preferredOrientation = preferencesDialog.getOrientation();
         style = preferencesDialog.getStyle();
+        popupAlpha = preferencesDialog.getPopupAlpha();
+        calcContainer.showAlphaKeyboard(popupAlpha == 2 && core_alpha_menu());
         alwaysRepaintFullDisplay = preferencesDialog.getDisplayFullRepaint();
         setAlwaysRepaintFullDisplay(alwaysRepaintFullDisplay);
 
@@ -1363,10 +1377,13 @@ public class Free42Activity extends Activity {
         private class AboutView extends RelativeLayout {
             public AboutView(Context context) {
                 super(context);
-                
+
+                int gap = (int) (getResources().getDisplayMetrics().density * 10 + 0.5);
+
                 ImageView icon = new ImageView(context);
                 icon.setId(1);
                 icon.setImageResource(R.mipmap.icon);
+                icon.setPadding(gap, gap, gap, gap);
                 addView(icon);
                 
                 TextView label1 = new TextView(context);
@@ -1383,7 +1400,7 @@ public class Free42Activity extends Activity {
 
                 TextView label2 = new TextView(context);
                 label2.setId(3);
-                label2.setText("\u00a9 2004-2024 Thomas Okken");
+                label2.setText("\u00a9 2004-2025 Thomas Okken");
                 lp = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
                 lp.addRule(RelativeLayout.ALIGN_LEFT, label1.getId());
                 lp.addRule(RelativeLayout.BELOW, label1.getId());
@@ -1431,8 +1448,24 @@ public class Free42Activity extends Activity {
                 lp.addRule(RelativeLayout.BELOW, label5.getId());
                 addView(label6, lp);
 
+                Button shortcutsB = new Button(context);
+                shortcutsB.setId(8);
+                shortcutsB.setText(calcView.shortcutsShowing() ? "Hide Keyboard Shortcuts" : "Show Keyboard Shortcuts");
+                shortcutsB.setOnClickListener(new OnClickListener() {
+                    public void onClick(View view) {
+                        calcView.toggleShortcuts();
+                        AboutDialog.this.dismiss();
+                    }
+                });
+                shortcutsB.setBackgroundColor(0xffc0c0c0);
+                lp = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.FILL_PARENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
+                lp.addRule(RelativeLayout.CENTER_HORIZONTAL);
+                lp.addRule(RelativeLayout.BELOW, label6.getId());
+                lp.setMargins(gap, gap, gap, gap);
+                addView(shortcutsB, lp);
+
                 Button okB = new Button(context);
-                okB.setId(8);
+                okB.setId(9);
                 okB.setText("   OK   ");
                 okB.setOnClickListener(new OnClickListener() {
                     public void onClick(View view) {
@@ -1440,13 +1473,46 @@ public class Free42Activity extends Activity {
                     }
                 });
                 lp = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
-                lp.addRule(RelativeLayout.BELOW, label6.getId());
+                lp.addRule(RelativeLayout.BELOW, shortcutsB.getId());
                 lp.addRule(RelativeLayout.CENTER_HORIZONTAL);
                 addView(okB, lp);
 
             }
         }
     }
+
+    private class CalcContainer extends ViewGroup {
+        private CalcView calcView;
+        private AlphaKeyboardView alphaKeyboardView;
+        private boolean alphaShowing;
+        public CalcContainer(Context ctx, CalcView calcView, AlphaKeyboardView alphaKeyboardView) {
+            super(ctx);
+            this.calcView = calcView;
+            this.alphaKeyboardView = alphaKeyboardView;
+            addView(alphaKeyboardView);
+            addView(calcView);
+            alphaKeyboardView.setVisibility(View.INVISIBLE);
+            alphaShowing = false;
+        }
+        protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+            calcView.layout(0, 0, right - left, bottom - top);
+            alphaKeyboardView.layout(0, 0, right - left, bottom - top);
+        }
+        void showAlphaKeyboard(boolean show) {
+            if (show == alphaShowing)
+                return;
+            alphaShowing = show;
+            if (show) {
+                alphaKeyboardView.setVisibility(View.VISIBLE);
+                bringChildToFront(alphaKeyboardView);
+                alphaKeyboardView.raised();
+            } else {
+                alphaKeyboardView.setVisibility(View.INVISIBLE);
+                bringChildToFront(calcView);
+            }
+        }
+    }
+
     /**
      * This class is calculator view used by the Free42 Activity.
      * Note that most of the heavy lifting takes place in the
@@ -1458,6 +1524,7 @@ public class Free42Activity extends Activity {
         private float hScale, vScale;
         private int hOffset, vOffset;
         private boolean possibleMenuEvent = false;
+        private boolean shortcutsShowing = false;
 
         public CalcView(Context context) {
             super(context);
@@ -1481,6 +1548,15 @@ public class Free42Activity extends Activity {
             }
         }
 
+        public boolean shortcutsShowing() {
+            return shortcutsShowing;
+        }
+
+        public void toggleShortcuts() {
+            shortcutsShowing = !shortcutsShowing;
+            invalidate();
+        }
+
         @Override
         protected void onSizeChanged(int w, int h, int oldw, int oldh) {
             width = w;
@@ -1492,7 +1568,7 @@ public class Free42Activity extends Activity {
         protected void onDraw(Canvas canvas) {
             canvas.translate(hOffset, vOffset);
             canvas.scale(hScale, vScale);
-            skin.repaint(canvas);
+            skin.repaint(canvas, shortcutsShowing);
         }
 
         private void shell_keydown() {
@@ -1527,15 +1603,17 @@ public class Free42Activity extends Activity {
                     }
                 } else {
                     boolean waitForProgram = !program_running();
-                    skin.set_display_enabled(false);
+                    macroInProgress = true;
                     for (int i = 0; i < macro.length; i++) {
                         running = core_keydown(macro[i] & 255, enqueued, repeat, true);
-                        if (!enqueued.value)
+                        if (i < macro.length - 1 && !enqueued.value)
                             running = core_keyup();
                         while (waitForProgram && running)
                             running = core_keydown(0, null, null, true);
                     }
-                    skin.set_display_enabled(true);
+                    macroInProgress = false;
+                    if (popupAlpha == 2)
+                        calcContainer.showAlphaKeyboard(core_alpha_menu());
                 }
             }
             if (running)
@@ -1553,7 +1631,7 @@ public class Free42Activity extends Activity {
                 possibleMenuEvent = false;
                 int x = (int) ((e.getX() - hOffset) / hScale);
                 int y = (int) ((e.getY() - vOffset) / vScale);
-                if (skin.in_menu_area(x, y))
+                if (skin.in_menu_area(x, y) != 0)
                     Free42Activity.this.postMainMenu();
             }
             ckey = 0;
@@ -1583,8 +1661,18 @@ public class Free42Activity extends Activity {
                 skey = skeyHolder.value;
                 ckey = ckeyHolder.value;
                 if (ckey == 0) {
-                    if (skin.in_menu_area(x, y))
+                    int where = skin.in_menu_area(x, y);
+                    if (where == 1 || where == 2 && popupAlpha == 0)
                         this.possibleMenuEvent = true;
+                    else if (where == 2) {
+                        popupAlpha = 3 - popupAlpha;
+                        if (!core_alpha_menu()) {
+                            Toast toast = Toast.makeText(Free42Activity.this, "Pop-up ALPHA keyboard " + (popupAlpha == 1 ? "Off" : "On"), Toast.LENGTH_SHORT);
+                            toast.show();
+                        } else {
+                            calcContainer.showAlphaKeyboard(popupAlpha == 2);
+                        }
+                    }
                     return true;
                 }
                 click();
@@ -1619,12 +1707,20 @@ public class Free42Activity extends Activity {
                     || keyCode == KeyEvent.KEYCODE_CTRL_RIGHT)
                 return super.onKeyDown(keyCode, event);
 
+            cancelRepeaterAndTimeouts1And2();
+
             int ch = event.getUnicodeChar();
             if (ch == 0)
                 ch = event.getUnicodeChar(0);
             ch &= KeyCharacterMap.COMBINING_ACCENT_MASK;
-            String code = ch == 0 ? KeyEvent.keyCodeToString(keyCode).substring(8)
-                                  : "" + (char) ch;
+            String code;
+            if (ch == 0) {
+                code = KeyEvent.keyCodeToString(keyCode);
+                if (code.startsWith("KEYCODE_"))
+                    code = code.substring(8);
+            } else {
+                code = "" + (char) ch;
+            }
 
             boolean ctrl = event.isCtrlPressed();
             boolean alt = event.isAltPressed();
@@ -1688,7 +1784,8 @@ public class Free42Activity extends Activity {
                 }
             }
 
-            if (key_macro == null || !key_macro.equals("\44") && !key_macro.equals("\34\44")) {
+            if (key_macro == null || (key_macro[0] != 36 || key_macro.length > 1)
+                    && (key_macro[0] != 28 || key_macro[1] != 36 || key_macro.length > 2)) {
                 // The test above is to make sure that whatever mapping is in
                 // effect for R/S will never be overridden by the special cases
                 // for the ALPHA and A..F menus.
@@ -1807,6 +1904,7 @@ public class Free42Activity extends Activity {
         public boolean onKeyUp(int keyCode, KeyEvent event) {
             if (event.getRepeatCount() > 0)
                 return true;
+            cancelRepeaterAndTimeouts1And2();
             if (just_pressed_shift) {
                 just_pressed_shift = false;
                 ckey = 28;
@@ -1838,6 +1936,42 @@ public class Free42Activity extends Activity {
             inval.bottom = (int) Math.ceil(((double) inval.bottom) * vScale + vOffset);
             inval.inset(-1, -1);
             invalidate(inval);
+        }
+
+        public void alphaKeyboardAlpha(char c) {
+            cancelRepeaterAndTimeouts1And2();
+            ckey = 1024 + c;
+            skey = -1;
+            macroObj = null;
+            shell_keydown();
+            mouse_key = false;
+            active_keycode = -1;
+        }
+
+        public void alphaKeyboardDown(int key) {
+            cancelRepeaterAndTimeouts1And2();
+            byte[] macro;
+            if (key > 37) {
+                macro = new byte[2];
+                macro[0] = 28;
+                macro[1] = (byte) (key - 37);
+                ckey = key - 37;
+            } else {
+                macro = new byte[1];
+                macro[0] = (byte) key;
+                ckey = key;
+            }
+            skey = -1;
+            macroObj = macro;
+            macroIsText = false;
+            shell_keydown();
+            mouse_key = false;
+            active_keycode = -1;
+        }
+
+        public void alphaKeyboardUp() {
+            cancelRepeaterAndTimeouts1And2();
+            shell_keyup(null);
         }
     }
 
@@ -2311,6 +2445,8 @@ public class Free42Activity extends Activity {
                     style = maxStyle;
             } else
                 style = 0;
+            if (shell_version >= 23)
+                popupAlpha = state_read_int();
             if (shell_version >= 10)
                 alwaysRepaintFullDisplay = state_read_boolean();
             if (shell_version >= 11)
@@ -2427,7 +2563,10 @@ public class Free42Activity extends Activity {
             readKeymap(KEYMAP_FILE_NAME);
             // fall through
         case 22:
-            // current version (SHELL_VERSION = 22),
+            popupAlpha = 1;
+            // fall through
+        case 23:
+            // current version (SHELL_VERSION = 23),
             // so nothing to do here since everything
             // was initialized from the state file.
             ;
@@ -2456,6 +2595,7 @@ public class Free42Activity extends Activity {
             state_write_boolean(displaySmoothing[1]);
             state_write_int(keyVibration);
             state_write_int(style);
+            state_write_int(popupAlpha);
             state_write_boolean(alwaysRepaintFullDisplay);
             state_write_boolean(alwaysOn);
             state_write_boolean(maintainSkinAspect[0]);
@@ -2580,6 +2720,22 @@ public class Free42Activity extends Activity {
             Vibrator v = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
             v.vibrate(ms);
         }
+    }
+
+    public static void keyFeedback() {
+        instance.click();
+    }
+
+    public static void alphaKeyboardAlpha(char c) {
+        instance.calcView.alphaKeyboardAlpha(c);
+    }
+
+    public static void alphaKeyboardDown(int key) {
+        instance.calcView.alphaKeyboardDown(key);
+    }
+
+    public static void alphaKeyboardUp() {
+        instance.calcView.alphaKeyboardUp();
     }
     
     
@@ -3010,6 +3166,15 @@ public class Free42Activity extends Activity {
                 printGifFile = null;
             }
         }
+    }
+
+    /**
+     * shell_show_alpha_keyboard()
+     * Requests the pop-up ALPHA keyboard to be shown or hidden.
+     */
+    public void shell_show_alpha_keyboard(boolean show) {
+        if (popupAlpha == 2 && !macroInProgress)
+            calcContainer.showAlphaKeyboard(show);
     }
 
     /**

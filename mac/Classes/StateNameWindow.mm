@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -23,9 +23,10 @@
 @synthesize label;
 @synthesize stateName;
 
-- (void) setupWithLabel:(NSString *)labelText existingNames:(NSMutableArray *)names {
+- (void) setupWithLabel:(NSString *)labelText initialName:(NSString *)name existingNames:(NSMutableArray *)names {
     [label setStringValue:labelText];
-    [stateName setStringValue:@""];
+    [stateName setStringValue:name];
+    [stateName selectText:nil];
     existingNames = [NSMutableArray arrayWithArray:names];
     confirmed = NO;
 }

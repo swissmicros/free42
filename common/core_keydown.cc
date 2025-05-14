@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -67,10 +67,14 @@ static int basekeys() {
 }
 
 static void set_solve_integ(int solve) {
+    if (solve)
+        print_menu_trace("SOLVER", 6);
+    else
+        print_menu_trace("\3f(x)", 5);
     if (flags.f.prgm_mode || !mvar_prgms_exist()) {
         set_menu(MENULEVEL_APP, solve ? MENU_SOLVE : MENU_INTEG);
         if (!flags.f.prgm_mode)
-            display_error(ERR_NO_MENU_VARIABLES, false);
+            display_error(ERR_NO_MENU_VARIABLES);
     } else {
         int err = set_menu_return_err(MENULEVEL_APP, MENU_CATALOG, false);
         if (err == ERR_NONE) {
@@ -80,11 +84,11 @@ static void set_solve_integ(int solve) {
             if (solve)
                 draw_string(0, 0, "Select Solve Program", 20);
             else
-                draw_string(0, 0, "Select \003f(x) Program", 20);
+                draw_string(0, 0, "Select \3f(x) Program", 20);
             flags.f.message = 1;
             flags.f.two_line_message = 0;
         } else
-            display_error(err, true);
+            display_error(err);
     }
     redisplay();
 }
@@ -98,7 +102,7 @@ static void view(const char *varname, int varlength) {
         arg.val.text[i] = varname[i];
     err = view_helper(&arg, 0);
     if (err != ERR_NONE) {
-        display_error(err, true);
+        display_error(err);
         flush_display();
         pending_command = CMD_NONE;
     } else {
@@ -153,6 +157,18 @@ static cmd_getkey_mapping_struct cmd_getkey_mapping[] = {
     {  0, CMD_NONE }
 };
 
+int find_cmd_getkey_mapping(int cmd) {
+    cmd_getkey_mapping_struct *gm = cmd_getkey_mapping;
+    while (true) {
+        if (gm->key == 0)
+            // Command that's not on the standard keyboard
+            return 0;
+        else if (gm->cmd == cmd)
+            return gm->key;
+        gm++;
+    }
+}
+
 void keydown(int shift, int key) {
     // Preserve state of Shift, to allow MENU handlers to implement
     // different behaviors for unshifted and shifted menu keys.
@@ -191,18 +207,11 @@ void keydown(int shift, int key) {
         if (key >= 2048) {
             // Direct command mapping
             int cmd = key - 2048;
-            cmd_getkey_mapping_struct *gm = cmd_getkey_mapping;
-            while (true) {
-                if (gm->key == 0) {
-                    // Command that's not on the standard keyboard
-                    squeak();
-                    shell_annunciators(-1, -1, -1, 0, -1, -1);
-                    return;
-                } else if (gm->cmd == cmd) {
-                    key = gm->key;
-                    break;
-                }
-                gm++;
+            key = find_cmd_getkey_mapping(cmd);
+            if (key == 0) {
+                squeak();
+                shell_annunciators(-1, -1, -1, 0, -1, -1);
+                return;
             }
         } else {
             if (shift)
@@ -215,7 +224,7 @@ void keydown(int shift, int key) {
             flags.f.stack_lift_disable = 0;
         } else {
             nomem:
-            display_error(ERR_INSUFFICIENT_MEMORY, true);
+            display_error(ERR_INSUFFICIENT_MEMORY);
             set_running(false);
         }
         if (key == KEY_RUN || !mode_getkey1 && (key == KEY_EXIT || key == KEY_EXIT + 37))
@@ -258,6 +267,8 @@ void keydown(int shift, int key) {
                 print_command(CMD_NULL, NULL);
             }
         }
+
+        print_menu_trace_always("PRGM", 4);
 
         mode_alpha_entry = false;
         mode_number_entry = false;
@@ -703,6 +714,7 @@ void keydown_command_entry(int shift, int key) {
                 || (menukey == 5 && mode_commandmenu == MENU_IND_ST))) {
             if (mode_commandmenu == MENU_IND_ST && menukey == 0) {
                 incomplete_ind = true;
+                incomplete_alpha = false;
                 incomplete_maxdigits = 2;
                 set_catalog_menu(CATSECT_REAL_ONLY);
                 redisplay();
@@ -793,13 +805,13 @@ void keydown_command_entry(int shift, int key) {
     }
 
     if ((incomplete_command == CMD_ASTO || incomplete_command == CMD_ARCL)
-            && incomplete_length == 1 && mode_commandmenu == MENU_NONE
+            && mode_commandmenu == MENU_NONE
             && mode_alphamenu >= MENU_ALPHA1 && mode_alphamenu <= MENU_ALPHA_MISC2) {
-        /* A similar oddity are ASTO and ARCL, when entered using the
-         * STO and RCL keys while ALPHA mode is active. Initially,
-         * you'll get a menu of all variables, but when you type a
-         * digit, the variables menu disappears, and the ALPHA menu
-         * returns... but we still want 0-9 to be treated as numeric.
+        /* ASTO and ARCL in ALPHA mode: When no variables menu is shown, either
+         * because one digit has already been typed, or because no variables
+         * exist, you can type digits for a numeric argument, even though the
+         * ALPHA menu is active. Note that this behaves similarly to LBL, but
+         * different.
          */
         switch (key - 1024) {
             case '0': key = KEY_0; break;
@@ -1233,10 +1245,22 @@ void keydown_command_entry(int shift, int key) {
                         incomplete_num = 1;
                         goto do_goto1;
                     }
+                    if ((flags.f.trace_print || flags.f.normal_print) && flags.f.printer_exists) {
+                        arg_struct arg;
+                        arg.type = ARGTYPE_NUM;
+                        arg.val.num = incomplete_num;
+                        print_command(CMD_GOTOROW, &arg);
+                    }
                     start_incomplete_command(CMD_GOTOCOLUMN);
                     return;
                 } else if (incomplete_command == CMD_GOTOCOLUMN) {
                     do_goto1:
+                    if ((flags.f.trace_print || flags.f.normal_print) && flags.f.printer_exists) {
+                        arg_struct arg;
+                        arg.type = ARGTYPE_NUM;
+                        arg.val.num = incomplete_num;
+                        print_command(CMD_GOTOCOLUMN, &arg);
+                    }
                     matedit_goto(pending_command_arg.val.num, incomplete_num);
                     pending_command = CMD_NONE;
                     finish_command_entry(true);
@@ -1257,6 +1281,8 @@ void keydown_command_entry(int shift, int key) {
                 if (incomplete_argtype == ARG_VAR
                         || incomplete_argtype == ARG_REAL
                         || incomplete_argtype == ARG_MAT
+                        || incomplete_argtype == ARG_M_STK
+                        || incomplete_argtype == ARG_L_STK
                         || incomplete_argtype == ARG_RVAR
                         || incomplete_argtype == ARG_NAMED
                         || incomplete_argtype == ARG_LBL
@@ -1324,10 +1350,22 @@ void keydown_command_entry(int shift, int key) {
                         incomplete_num = 1;
                         goto do_goto2;
                     }
+                    if ((flags.f.trace_print || flags.f.normal_print) && flags.f.printer_exists) {
+                        arg_struct arg;
+                        arg.type = ARGTYPE_NUM;
+                        arg.val.num = incomplete_num;
+                        print_command(CMD_GOTOROW, &arg);
+                    }
                     start_incomplete_command(CMD_GOTOCOLUMN);
                     return;
                 } else if (incomplete_command == CMD_GOTOCOLUMN) {
                     do_goto2:
+                    if ((flags.f.trace_print || flags.f.normal_print) && flags.f.printer_exists) {
+                        arg_struct arg;
+                        arg.type = ARGTYPE_NUM;
+                        arg.val.num = incomplete_num;
+                        print_command(CMD_GOTOCOLUMN, &arg);
+                    }
                     matedit_goto(pending_command_arg.val.num, incomplete_num);
                     pending_command = CMD_NONE;
                     finish_command_entry(true);
@@ -1457,6 +1495,16 @@ void keydown_command_entry(int shift, int key) {
             set_catalog_menu(CATSECT_REAL_ONLY);
             redisplay();
             return;
+        } else if ((incomplete_argtype == ARG_M_STK
+                    || incomplete_argtype == ARG_L_STK)
+                && !incomplete_ind
+                && incomplete_length == 0
+                && (mode_commandmenu < MENU_ALPHA1
+                    || mode_commandmenu > MENU_ALPHA_MISC2)
+                && !shift && key == KEY_DOT) {
+            set_menu(MENULEVEL_COMMAND, MENU_IND_ST);
+            redisplay();
+            return;
         }
 
         if (shift && key == KEY_ADD) {
@@ -1577,6 +1625,8 @@ void keydown_command_entry(int shift, int key) {
                 int catsect;
                 if (mode_commandmenu >= MENU_ALPHA1
                         && mode_commandmenu <= MENU_ALPHA_MISC2) {
+                    if (incomplete_ind)
+                        goto out_of_alpha;
                     if (incomplete_command == CMD_GTODOT) {
                         incomplete_argtype = ARG_OTHER;
                         incomplete_maxdigits = 4;
@@ -1600,6 +1650,16 @@ void keydown_command_entry(int shift, int key) {
                     } else if (incomplete_argtype == ARG_MAT) {
                         if (vars_exist(CATSECT_MAT_LIST))
                             set_catalog_menu(CATSECT_MAT_LIST_ONLY);
+                        else
+                            set_menu(MENULEVEL_COMMAND, MENU_NONE);
+                    } else if (incomplete_argtype == ARG_M_STK) {
+                        if (vars_exist(CATSECT_MAT))
+                            set_catalog_menu(CATSECT_MAT_ONLY);
+                        else
+                            set_menu(MENULEVEL_COMMAND, MENU_NONE);
+                    } else if (incomplete_argtype == ARG_L_STK) {
+                        if (vars_exist(CATSECT_LIST))
+                            set_catalog_menu(CATSECT_LIST_ONLY);
                         else
                             set_menu(MENULEVEL_COMMAND, MENU_NONE);
                     } else if (incomplete_argtype == ARG_PRGM)
@@ -1645,6 +1705,10 @@ void keydown_command_entry(int shift, int key) {
             }
             incomplete_length--;
             if (incomplete_length == 0) {
+                if (incomplete_ind
+                        && mode_commandmenu >= MENU_ALPHA1
+                        && mode_commandmenu <= MENU_ALPHA_MISC2)
+                    goto out_of_alpha;
                 if (incomplete_command == CMD_GTODOT) {
                     incomplete_argtype = ARG_OTHER;
                     incomplete_maxdigits = 4;
@@ -1665,6 +1729,12 @@ void keydown_command_entry(int shift, int key) {
                 } else if (incomplete_argtype == ARG_MAT) {
                     if (vars_exist(CATSECT_MAT_LIST))
                         set_catalog_menu(CATSECT_MAT_LIST_ONLY);
+                } else if (incomplete_argtype == ARG_M_STK) {
+                    if (vars_exist(CATSECT_MAT))
+                        set_catalog_menu(CATSECT_MAT_ONLY);
+                } else if (incomplete_argtype == ARG_L_STK) {
+                    if (vars_exist(CATSECT_LIST))
+                        set_catalog_menu(CATSECT_LIST_ONLY);
                 } else if (incomplete_argtype == ARG_PRGM)
                     set_catalog_menu(CATSECT_PGM_ONLY);
                 else if (incomplete_argtype == ARG_XSTR) {
@@ -1722,6 +1792,7 @@ void keydown_command_entry(int shift, int key) {
                             || catsect == CATSECT_MAT_ONLY
                             || catsect == CATSECT_LIST_STR_ONLY
                             || catsect == CATSECT_MAT_LIST_ONLY
+                            || catsect == CATSECT_LIST_ONLY
                             || catsect == CATSECT_VARS_ONLY)) {
                     set_menu(MENULEVEL_COMMAND, MENU_ALPHA1);
                     redisplay();
@@ -1825,7 +1896,11 @@ void keydown_alpha_mode(int shift, int key) {
         handle_char:
         if (flags.f.prgm_mode) {
             if (!mode_alpha_entry)
-                start_alpha_prgm_line();
+                if (!start_alpha_prgm_line()) {
+                    display_error(ERR_PROGRAM_LOCKED);
+                    redisplay();
+                    return;
+                }
             if (entered_string_length < 15)
                 entered_string[entered_string_length++] = c;
         } else {
@@ -1880,7 +1955,11 @@ void keydown_alpha_mode(int shift, int key) {
     }
     if (flags.f.prgm_mode) {
         if (!mode_alpha_entry)
-            start_alpha_prgm_line();
+            if (!start_alpha_prgm_line()) {
+                display_error(ERR_PROGRAM_LOCKED);
+                redisplay();
+                return;
+            }
         if (entered_string_length < 15)
             entered_string[entered_string_length++] = c;
     } else {
@@ -1925,6 +2004,7 @@ void keydown_alpha_mode(int shift, int key) {
                     docmd_pra(NULL);
                 mode_alpha_entry = false;
             }
+            print_menu_trace("EXIT", 4);
             pending_command = CMD_CANCELLED;
         } else
             redisplay();
@@ -1945,13 +2025,24 @@ void keydown_alpha_mode(int shift, int key) {
                     finish_alpha_prgm_line();
             } else {
                 int4 line = pc2line(pc);
-                if (line != 0
-                        && (current_prgm != prgms_count - 1
-                            || !prgms[current_prgm].is_end(pc))) {
-                    delete_command(pc);
-                    pc = line2pc(line - 1);
+                if (line != 0) {
+                    if (current_prgm == prgms_count - 1
+                            && prgms[current_prgm].is_end(pc)) {
+                        // .END.
+                        pc = line2pc(line - 1);
+                        prgm_highlight_row = 0;
+                    } else if (prgms[current_prgm].locked) {
+                        display_error(ERR_PROGRAM_LOCKED);
+                    } else if (current_prgm < prgms_count - 1
+                            && prgms[current_prgm].is_end(pc)
+                            && prgms[current_prgm + 1].locked) {
+                        display_error(ERR_NEXT_PROGRAM_LOCKED);
+                    } else {
+                        delete_command(pc);
+                        pc = line2pc(line - 1);
+                        prgm_highlight_row = 0;
+                    }
                 }
-                    prgm_highlight_row = 0;
                 if (mode_alphamenu != MENU_ALPHA1
                         && mode_alphamenu != MENU_ALPHA2)
                     set_menu(MENULEVEL_ALPHA, menus[mode_alphamenu].parent);
@@ -1980,10 +2071,13 @@ void keydown_alpha_mode(int shift, int key) {
                 set_menu(MENULEVEL_ALPHA, MENU_NONE);
             } else if (shift) {
                 set_menu(MENULEVEL_ALPHA, MENU_NONE);
+                print_menu_trace("ALPHA", 5);
             } else {
-                start_alpha_prgm_line();
-                entered_string[0] = 127;
-                entered_string_length = 1;
+                if (start_alpha_prgm_line()) {
+                    entered_string[0] = 127;
+                    entered_string_length = 1;
+                } else
+                    display_error(ERR_PROGRAM_LOCKED);
             }
         } else {
             if (shift || mode_alpha_entry) {
@@ -2010,32 +2104,44 @@ void keydown_alpha_mode(int shift, int key) {
         }
     } else {
         switch (key) {
-            case KEY_CHS: set_plainmenu(MENU_MODES1); break;
-            case KEY_E: set_plainmenu(MENU_DISP); break;
-            case KEY_BSP: set_plainmenu(MENU_CLEAR1); break;
+            case KEY_CHS: set_plainmenu(MENU_MODES1, "MODES", 5); break;
+            case KEY_E: set_plainmenu(MENU_DISP, "DISP", 4); break;
+            case KEY_BSP: set_plainmenu(MENU_CLEAR1, "CLEAR", 5); break;
             case KEY_7: set_solve_integ(1); break;
             case KEY_8: set_solve_integ(0); break;
-            case KEY_9: set_menu(MENULEVEL_APP, MENU_MATRIX1); break;
-            case KEY_DIV: set_menu(MENULEVEL_APP, MENU_STAT1); break;
+            case KEY_9: print_menu_trace("MATRIX", 6);
+                        set_menu(MENULEVEL_APP, MENU_MATRIX1);
+                        break;
+            case KEY_DIV: print_menu_trace("STAT", 4);
+                          set_menu(MENULEVEL_APP, MENU_STAT1);
+                          break;
             case KEY_DOWN: command = CMD_SST; break;
-            case KEY_4: set_menu(MENULEVEL_APP, MENU_BASE);
+            case KEY_4: print_menu_trace("BASE", 4);
+                        set_menu(MENULEVEL_APP, MENU_BASE);
                         if (mode_appmenu == MENU_BASE) {
                             set_appmenu_exitcallback(2);
                             baseapp = 1;
                         }
                         break;
-            case KEY_5: set_plainmenu(MENU_CONVERT1); break;
-            case KEY_6: set_plainmenu(MENU_FLAGS); break;
-            case KEY_MUL: set_plainmenu(MENU_PROB); break;
-            case KEY_2: set_plainmenu(MENU_CUSTOM1); break;
-            case KEY_3: set_plainmenu(MENU_PGM_FCN1); break;
-            case KEY_SUB: set_plainmenu(MENU_PRINT1); break;
-            case KEY_0: set_plainmenu(MENU_TOP_FCN); break;
+            case KEY_5: set_plainmenu(MENU_CONVERT1, "CONVERT", 7); break;
+            case KEY_6: set_plainmenu(MENU_FLAGS, "FLAGS", 5); break;
+            case KEY_MUL: set_plainmenu(MENU_PROB, "PROB", 4); break;
+            case KEY_2: set_plainmenu(MENU_NONE, NULL, 0);
+                        if (flags.f.prgm_mode) {
+                            pending_command = CMD_CUSTOM;
+                            return;
+                        } else {
+                            command = CMD_CUSTOM;
+                            break;
+                        }
+            case KEY_3: set_plainmenu(MENU_PGM_FCN1, "PGM.FCN", 7); break;
+            case KEY_SUB: set_plainmenu(MENU_PRINT1, "PRINT", 5); break;
+            case KEY_0: set_plainmenu(MENU_TOP_FCN, "TOP.FCN", 7); break;
             case KEY_DOT: show();
                             pending_command = CMD_LINGER1;
                             shell_request_timeout3(2000);
                             return;
-            case KEY_ADD: set_plainmenu(MENU_CATALOG); break;
+            case KEY_ADD: set_plainmenu(MENU_CATALOG, "CATALOG", 7); break;
             default: command = key >= 2048 ? key - 2048 : CMD_NONE; break;
         }
     }
@@ -2073,6 +2179,11 @@ void keydown_normal_mode(int shift, int key) {
         /* Entering number entry mode */
         if (deferred_print)
             print_command(CMD_NULL, NULL);
+        if (flags.f.prgm_mode && prgms[current_prgm].locked) {
+            display_error(ERR_PROGRAM_LOCKED);
+            redisplay();
+            return;
+        }
         cmdline_length = 0;
         if (get_front_menu() != MENU_NONE)
             cmdline_row = 0;
@@ -2091,7 +2202,7 @@ void keydown_normal_mode(int shift, int key) {
             if (!flags.f.stack_lift_disable) {
                 if (flags.f.big_stack) {
                     if (!ensure_stack_capacity(1)) {
-                        display_error(ERR_INSUFFICIENT_MEMORY, false);
+                        display_error(ERR_INSUFFICIENT_MEMORY);
                         return;
                     }
                     sp++;
@@ -2119,11 +2230,22 @@ void keydown_normal_mode(int shift, int key) {
         int4 line = pc2line(pc);
         if (line == 0)
             return;
-        if (current_prgm != prgms_count - 1
-                || !prgms[current_prgm].is_end(pc))
+        if (current_prgm == prgms_count - 1
+                && prgms[current_prgm].is_end(pc)) {
+            // .END.
+            pc = line2pc(line - 1);
+            prgm_highlight_row = 0;
+        } else if (prgms[current_prgm].locked) {
+            display_error(ERR_PROGRAM_LOCKED);
+        } else if (current_prgm < prgms_count - 1
+                && prgms[current_prgm].is_end(pc)
+                && prgms[current_prgm + 1].locked) {
+            display_error(ERR_NEXT_PROGRAM_LOCKED);
+        } else {
             delete_command(pc);
-        pc = line2pc(line - 1);
-        prgm_highlight_row = 0;
+            pc = line2pc(line - 1);
+            prgm_highlight_row = 0;
+        }
         redisplay();
         return;
     }
@@ -2201,6 +2323,15 @@ void keydown_normal_mode(int shift, int key) {
                                 break;
                             case 2: /* Integrator */
                                 if (mode_varmenu) {
+                                    if ((flags.f.trace_print || flags.f.normal_print) && flags.f.printer_exists) {
+                                        char buf[9];
+                                        int ptr = 0;
+                                        char2buf(buf, 9, &ptr, '"');
+                                        string2buf(buf, 9, &ptr, varmenu_labeltext[menukey],
+                                                                 varmenu_labellength[menukey]);
+                                        char2buf(buf, 9, &ptr, '"');
+                                        print_right(NULL, 0, buf, ptr);
+                                    }
                                     set_integ_var(varmenu_labeltext[menukey],
                                                   varmenu_labellength[menukey]);
                                     set_menu(MENULEVEL_APP, MENU_INTEG_PARAMS);
@@ -2237,6 +2368,7 @@ void keydown_normal_mode(int shift, int key) {
                     pending_command_arg.type = ARGTYPE_STR;
                     pending_command_arg.length = 0;
                 } else {
+                    print_menu_trace("EXIT", 4);
                     pending_command = CMD_CANCELLED;
                 }
                 return;
@@ -2303,7 +2435,7 @@ void keydown_normal_mode(int shift, int key) {
                                 return;
                             } else if (cmd == CMD_CLV || cmd == CMD_PRV || cmd == CMD_LCLV) {
                                 if (!flags.f.prgm_mode && vars_count == 0) {
-                                    display_error(ERR_NO_VARIABLES, false);
+                                    display_error(ERR_NO_VARIABLES);
                                     pending_command = CMD_NONE;
                                     redisplay();
                                     return;
@@ -2354,39 +2486,44 @@ void keydown_normal_mode(int shift, int key) {
                 if (catsect == CATSECT_TOP) {
                     switch (menukey) {
                         case 0:
+                            print_menu_trace("FCN", 3);
                             set_cat_section(CATSECT_FCN);
                             move_cat_row(0);
                             break;
                         case 1:
+                            print_menu_trace("PGM", 3);
                             set_cat_section(CATSECT_PGM);
                             move_cat_row(0);
                             break;
                         case 2:
+                            print_menu_trace("REAL", 4);
                             if (vars_exist(CATSECT_REAL)) {
                                 set_cat_section(CATSECT_REAL);
                                 move_cat_row(0);
                             } else {
-                                display_error(ERR_NO_REAL_VARIABLES, false);
+                                display_error(ERR_NO_REAL_VARIABLES);
                                 flush_display();
                                 return;
                             }
                             break;
                         case 3:
+                            print_menu_trace("CPX", 3);
                             if (vars_exist(CATSECT_CPX)) {
                                 set_cat_section(CATSECT_CPX);
                                 move_cat_row(0);
                             } else {
-                                display_error(ERR_NO_COMPLEX_VARIABLES, false);
+                                display_error(ERR_NO_COMPLEX_VARIABLES);
                                 flush_display();
                                 return;
                             }
                             break;
                         case 4:
+                            print_menu_trace("MAT", 3);
                             if (vars_exist(CATSECT_MAT)) {
                                 set_cat_section(CATSECT_MAT);
                                 move_cat_row(0);
                             } else {
-                                display_error(ERR_NO_MATRIX_VARIABLES, false);
+                                display_error(ERR_NO_MATRIX_VARIABLES);
                                 flush_display();
                                 return;
                             }
@@ -2401,18 +2538,37 @@ void keydown_normal_mode(int shift, int key) {
                     return;
                 } else if (catsect == CATSECT_EXT_1) {
                     switch (menukey) {
-                        case 0: set_cat_section(CATSECT_EXT_TIME); break;
-                        case 1: set_cat_section(CATSECT_EXT_XFCN); break;
-                        case 2: set_cat_section(CATSECT_EXT_BASE); break;
-                        case 3: set_cat_section(CATSECT_EXT_PRGM); break;
-                        case 4: set_cat_section(CATSECT_EXT_STR); break;
-                        case 5: set_cat_section(CATSECT_EXT_STK); break;
+                        case 0:
+                            print_menu_trace("TIME", 4);
+                            set_cat_section(CATSECT_EXT_TIME);
+                            break;
+                        case 1:
+                            print_menu_trace("XFCN", 4);
+                            set_cat_section(CATSECT_EXT_XFCN);
+                            break;
+                        case 2:
+                            print_menu_trace("BASE", 4);
+                            set_cat_section(CATSECT_EXT_BASE);
+                            break;
+                        case 3:
+                            print_menu_trace("PRGM", 4);
+                            set_cat_section(CATSECT_EXT_PRGM);
+                            break;
+                        case 4:
+                            print_menu_trace("STR", 3);
+                            set_cat_section(CATSECT_EXT_STR);
+                            break;
+                        case 5:
+                            print_menu_trace("STK", 3);
+                            set_cat_section(CATSECT_EXT_STK);
+                            break;
                     }
                     move_cat_row(0);
                     redisplay();
                     return;
                 } else if (catsect == CATSECT_EXT_2) {
                     if (menukey == 0) {
+                        print_menu_trace("MISC", 4);
                         set_cat_section(CATSECT_EXT_MISC);
                         move_cat_row(0);
                         redisplay();
@@ -2429,7 +2585,7 @@ void keydown_normal_mode(int shift, int key) {
                     }
                     if (flags.f.prgm_mode
                                     && labels[labelindex].length == 0) {
-                        display_error(ERR_RESTRICTED_OPERATION, false);
+                        display_error(ERR_RESTRICTED_OPERATION);
                         flush_display();
                         pending_command = CMD_NONE;
                         return;
@@ -2482,6 +2638,7 @@ void keydown_normal_mode(int shift, int key) {
                             return;
                         }
                     } else if (cmd < 0) {
+                        print_menu_trace(cmd == -2 ? "0?" : "X?", 2);
                         set_cat_section(cmd == -2 ? CATSECT_EXT_0_CMP : CATSECT_EXT_X_CMP);
                         move_cat_row(0);
                         redisplay();
@@ -2569,6 +2726,7 @@ void keydown_normal_mode(int shift, int key) {
                 int cmd_id = mi->menuid;
                 if ((cmd_id & 0x3000) == 0) {
                     set_menu(level, cmd_id);
+                    print_menu_trace(mi->title, mi->title_length);
                     redisplay();
                     return;
                 }
@@ -2621,6 +2779,7 @@ void keydown_normal_mode(int shift, int key) {
         }
 
         if (key == KEY_EXIT) {
+            print_menu_trace("EXIT", 4);
             if (menu == MENU_CATALOG) {
                 int catsect = get_cat_section();
                 if (catsect == CATSECT_FCN
@@ -2647,7 +2806,7 @@ void keydown_normal_mode(int shift, int key) {
                     int err = docmd_stoel(NULL);
                     if (err != ERR_NONE && err != ERR_NONEXISTENT) {
                         // Nonexistent happens with empty lists
-                        display_error(err, false);
+                        display_error(err);
                         flush_display();
                         return;
                     }
@@ -2659,7 +2818,7 @@ void keydown_normal_mode(int shift, int key) {
                     flags.f.stack_lift_disable = true;
                 int err = docmd_rclel(NULL);
                 if (err != ERR_NONE)
-                    display_error(err, false);
+                    display_error(err);
                 redisplay();
                 return;
             } else {
@@ -2676,11 +2835,13 @@ void keydown_normal_mode(int shift, int key) {
             print_command(CMD_NULL, NULL);
         mode_alpha_entry = false;
         set_menu(MENULEVEL_ALPHA, MENU_ALPHA1);
+        print_menu_trace("ALPHA", 5);
         redisplay();
         return;
     }
 
     if (key == KEY_EXIT && flags.f.prgm_mode) {
+        print_menu_trace("EXIT", 4);
         flags.f.prgm_mode = 0;
         pending_command = CMD_CANCELLED;
         return;
@@ -2720,6 +2881,7 @@ void keydown_normal_mode(int shift, int key) {
             case KEY_MUL: command = basekeys() ? CMD_BASEMUL : CMD_MUL; break;
             case KEY_SUB: command = basekeys() ? CMD_BASESUB : CMD_SUB; break;
             case KEY_EXIT:
+                print_menu_trace("EXIT", 4);
                 input_length = 0;
                 pending_command = CMD_CANCELLED;
                 return;
@@ -2747,38 +2909,47 @@ void keydown_normal_mode(int shift, int key) {
             case KEY_COS: command = CMD_ACOS; break;
             case KEY_TAN: command = CMD_ATAN; break;
             case KEY_SWAP: command = CMD_LASTX; break;
-            case KEY_CHS: set_plainmenu(MENU_MODES1); return;
-            case KEY_E: set_plainmenu(MENU_DISP); return;
-            case KEY_BSP: set_plainmenu(MENU_CLEAR1); return;
+            case KEY_CHS: set_plainmenu(MENU_MODES1, "MODES", 5); return;
+            case KEY_E: set_plainmenu(MENU_DISP, "DISP", 4); return;
+            case KEY_BSP: set_plainmenu(MENU_CLEAR1, "CLEAR", 5); return;
             case KEY_7: set_solve_integ(1); return;
             case KEY_8: set_solve_integ(0); return;
-            case KEY_9: set_menu(MENULEVEL_APP, MENU_MATRIX1);
+            case KEY_9: print_menu_trace("MATRIX", 6);
+                        set_menu(MENULEVEL_APP, MENU_MATRIX1);
                         redisplay();
                         return;
-            case KEY_DIV: set_menu(MENULEVEL_APP, MENU_STAT1);
+            case KEY_DIV: print_menu_trace("STAT", 4);
+                          set_menu(MENULEVEL_APP, MENU_STAT1);
                           redisplay();
                           return;
             case KEY_DOWN: command = CMD_SST; break;
-            case KEY_4: set_menu(MENULEVEL_APP, MENU_BASE);
+            case KEY_4: print_menu_trace("BASE", 4);
+                        set_menu(MENULEVEL_APP, MENU_BASE);
                         if (mode_appmenu == MENU_BASE) {
                             set_appmenu_exitcallback(2);
                             baseapp = 1;
                             redisplay();
                         }
                         return;
-            case KEY_5: set_plainmenu(MENU_CONVERT1); return;
-            case KEY_6: set_plainmenu(MENU_FLAGS); return;
-            case KEY_MUL: set_plainmenu(MENU_PROB); return;
+            case KEY_5: set_plainmenu(MENU_CONVERT1, "CONVERT", 7); return;
+            case KEY_6: set_plainmenu(MENU_FLAGS, "FLAGS", 5); return;
+            case KEY_MUL: set_plainmenu(MENU_PROB, "PROB", 4); return;
             case KEY_1: command = CMD_ASSIGNa; break;
-            case KEY_2: set_plainmenu(MENU_CUSTOM1); return;
-            case KEY_3: set_plainmenu(MENU_PGM_FCN1); return;
-            case KEY_SUB: set_plainmenu(MENU_PRINT1); return;
+            case KEY_2: if (flags.f.prgm_mode) {
+                            pending_command = CMD_CUSTOM;
+                            return;
+                        } else {
+                            command = CMD_CUSTOM;
+                            break;
+                        }
+            case KEY_3: set_plainmenu(MENU_PGM_FCN1, "PGM.FCN", 7); return;
+            case KEY_SUB: set_plainmenu(MENU_PRINT1, "PRINT", 5); return;
             case KEY_DOT: show();
                             pending_command = CMD_LINGER1;
                             shell_request_timeout3(2000);
                             return;
-            case KEY_0: set_plainmenu(MENU_TOP_FCN); return;
-            case KEY_ADD: set_plainmenu(MENU_CATALOG); return;
+            case KEY_0: set_plainmenu(MENU_TOP_FCN, "TOP.FCN", 7); return;
+            case KEY_ADD: set_plainmenu(MENU_CATALOG, "CATALOG", 7); return;
             default: command = key >= 2048 ? key - 2048 : CMD_NONE; break;
         }
     }

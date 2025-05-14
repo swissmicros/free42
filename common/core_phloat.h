@@ -1,6 +1,6 @@
 /*****************************************************************************
  * Free42 -- an HP-42S calculator simulator
- * Copyright (C) 2004-2024  Thomas Okken
+ * Copyright (C) 2004-2025  Thomas Okken
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2,
@@ -18,6 +18,8 @@
 #ifndef CORE_PHLOAT_H
 #define CORE_PHLOAT_H 1
 
+
+#include <stddef.h>
 
 #include "free42.h"
 #ifdef BCD_MATH
