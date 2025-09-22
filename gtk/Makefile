@@ -21,13 +21,8 @@ CXX_FOR_BUILD ?= $(CXX)
 CFLAGS += -MMD \
 	 -Wall \
 	 -Wno-parentheses \
-	 -Wno-write-strings \
 	 -Wno-sign-compare \
-	 -Wno-narrowing \
-	 -Wno-constant-conversion \
-	 -Wno-sometimes-uninitialized \
 	 -Wno-format-truncation \
-	 -Wno-class-memaccess \
 	 -Wno-unknown-warning-option \
 	 -Wno-unknown-pragmas \
 	 -g \
@@ -39,7 +34,8 @@ CFLAGS += -MMD \
 	 -DDECIMAL_GLOBAL_ROUNDING=1 \
 	 -DDECIMAL_GLOBAL_ROUNDING_ACCESS_FUNCTIONS=1 \
 	 -DDECIMAL_GLOBAL_EXCEPTION_FLAGS=1 \
-	 -DDECIMAL_GLOBAL_EXCEPTION_FLAGS_ACCESS_FUNCTIONS=1
+	 -DDECIMAL_GLOBAL_EXCEPTION_FLAGS_ACCESS_FUNCTIONS=1 \
+	 -DHAVE_SINCOS=1
 
 CXXFLAGS = $(CFLAGS) \
 	 -fno-exceptions \
@@ -101,7 +97,7 @@ ifdef AUDIO_ALSA
 # the executable is defined in the corresponding *.la file, in the 'dlname'
 # property. I suppose it would be better to grab it from there at build time,
 # rather than hard-coding it into the Makefile like this, but as long as the
-# build environment doesn't change (currently Ubuntu 12.04), this is fine.
+# build environment doesn't change (currently Ubuntu 16.04), this is fine.
 CXXFLAGS += -DAUDIO_ALSA -DALSALIB="\"libasound.so.2\""
 SRCS += audio_alsa.cc
 OBJS += audio_alsa.o

@@ -239,7 +239,7 @@ int APIENTRY WinMain(HINSTANCE hInstance,
 
     Quit();
     GdiplusShutdown(gdiplusToken);
-    return msg.wParam;
+    return (int) msg.wParam;
 }
 
 
@@ -337,13 +337,13 @@ static BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     // TODO - handle memory allocation failure
     FILE *printfile = _wfopen(printfilename, L"rb");
     if (printfile != NULL) {
-        int n = fread(&printout_bottom, 1, sizeof(int), printfile);
+        size_t n = fread(&printout_bottom, 1, sizeof(int), printfile);
         if (n == sizeof(int)) {
-            int bytes = printout_bottom * PRINT_BYTESPERLINE;
+            size_t bytes = printout_bottom * PRINT_BYTESPERLINE;
             n = fread(printout, 1, bytes, printfile);
             if (n == bytes) {
                 n = fread(&print_text_bottom, 1, sizeof(int), printfile);
-                int n2 = fread(&print_text_pixel_height, 1, sizeof(int), printfile);
+                size_t n2 = fread(&print_text_pixel_height, 1, sizeof(int), printfile);
                 if (n == sizeof(int) && n2 == sizeof(int)) {
                     n = fread(print_text, 1, print_text_bottom, printfile);
                     if (n != print_text_bottom) {
@@ -378,7 +378,7 @@ static BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     int init_mode;
     int4 version;
     wchar_t core_state_file_name[FILENAMELEN];
-    int core_state_file_offset;
+    size_t core_state_file_offset;
 
     statefile = _wfopen(statefilename, L"rb");
     if (statefile != NULL) {
@@ -435,7 +435,7 @@ static BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     skin_set_window(hMainWnd);
 
     char *csfn = wide2utf(core_state_file_name);
-    core_init(init_mode, version, csfn, core_state_file_offset);
+    core_init(init_mode, version, csfn, (int) core_state_file_offset);
     free(csfn);
 
     if (state.mainPlacementValid) {
@@ -464,10 +464,10 @@ static BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     return TRUE;
 }
 
-static void shell_keydown() {
+static void shell_keydown(bool cshift) {
     if (ckey != 0) {
         if (skey == -1)
-            skey = skin_find_skey(ckey);
+            skey = skin_find_skey(ckey, cshift);
         skin_invalidate_key(skey);
     }
     if (timer != 0) {
@@ -622,6 +622,13 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT message, WPARAM wParam, LPAR
                 case IDM_SHORTCUTS:
                     toggle_keyboard_shortcuts();
                     break;
+                case IDM_EDIT_KEYMAP: {
+                    wchar_t keymapname[FILENAMELEN];
+                    get_home_dir(keymapname, FILENAMELEN);
+                    wcscat(keymapname, L"\\keymap.txt");
+                    ShellExecuteW(NULL, L"edit", keymapname, NULL, NULL, SW_SHOWNORMAL);
+                    break;
+                }
                 case IDM_ABOUT:
                     DialogBoxW(hInst, (LPCWSTR)IDD_ABOUTBOX, hWnd, (DLGPROC)About);
                     break;
@@ -667,6 +674,8 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT message, WPARAM wParam, LPAR
             RECT windowRect, clientRect;
             GetWindowRect(hWnd, &windowRect);
             GetClientRect(hWnd, &clientRect);
+            if (IsRectEmpty(&clientRect))
+                return DefWindowProc(hWnd, message, wParam, lParam);
             int vBorder = (windowRect.bottom - windowRect.top) - (clientRect.bottom - clientRect.top);
             int hBorder = (windowRect.right - windowRect.left) - (clientRect.right - clientRect.left);
 
@@ -739,7 +748,8 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT message, WPARAM wParam, LPAR
         case WM_SIZE: {
             int w = LOWORD(lParam);
             int h = HIWORD(lParam);
-            skin_set_window_size(w, h);
+            if (w != 0 && h != 0)
+                skin_set_window_size(w, h);
             goto do_default;
         }
         case WM_PAINT: {
@@ -753,7 +763,7 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT message, WPARAM wParam, LPAR
                 skin_find_key(x, y, ann_shift != 0, &skey, &ckey);
                 if (ckey != 0) {
                     macro = skin_find_macro(ckey, &macro_type);
-                    shell_keydown();
+                    shell_keydown(ann_shift != 0);
                     mouse_key = true;
                 }
             }
@@ -845,7 +855,7 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT message, WPARAM wParam, LPAR
                         ckey = 1024 + keyChar;
                         skey = -1;
                         macro = NULL;
-                        shell_keydown();
+                        shell_keydown(false);
                         mouse_key = false;
                         active_keycode = virtKey;
                         break;
@@ -857,7 +867,7 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT message, WPARAM wParam, LPAR
                             ckey = keyChar - 'A' + 1;
                         skey = -1;
                         macro = NULL;
-                        shell_keydown();
+                        shell_keydown(false);
                         mouse_key = false;
                         active_keycode = virtKey;
                         break;
@@ -877,7 +887,7 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT message, WPARAM wParam, LPAR
                                 ckey = which;
                                 skey = -1;
                                 macro = NULL;
-                                shell_keydown();
+                                shell_keydown(false);
                                 mouse_key = false;
                                 active_keycode = virtKey;
                                 break;
@@ -896,11 +906,14 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT message, WPARAM wParam, LPAR
                     // means no skin key will be highlighted.
                     ckey = -10;
                     skey = -1;
+                    bool skin_shift = cshift_down;
                     if (key_macro[0] != 0)
                         if (key_macro[1] == 0)
                             ckey = key_macro[0];
-                        else if (key_macro[2] == 0 && key_macro[0] == 28)
+                        else if (key_macro[2] == 0 && key_macro[0] == 28) {
                             ckey = key_macro[1];
+                            skin_shift = true;
+                        }
                     bool needs_expansion = false;
                     for (int j = 0; key_macro[j] != 0; j++)
                         if (key_macro[j] > 37) {
@@ -927,7 +940,7 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT message, WPARAM wParam, LPAR
                         macro = key_macro;
                         macro_type = 0;
                     }
-                    shell_keydown();
+                    shell_keydown(skin_shift);
                     mouse_key = false;
                     active_keycode = virtKey;
                     break;
@@ -950,7 +963,7 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT message, WPARAM wParam, LPAR
                     ckey = 28;
                     skey = -1;
                     macro = NULL;
-                    shell_keydown();
+                    shell_keydown(false);
                     shell_keyup();
                 }
                 goto do_default;
@@ -1278,7 +1291,7 @@ static LRESULT CALLBACK ExportProgram(HWND hDlg, UINT message, WPARAM wParam, LP
                 int count = ((buf[0] & 255) << 24) | ((buf[1] & 255) << 16) | ((buf[2] & 255) << 8) | (buf[3] & 255);
                 char *p = buf + 4;
                 for (int i = 0; i < count; i++) {
-                    int len = strlen(p) + 1;
+                    int len = (int) strlen(p) + 1;
                     int wlen = MultiByteToWideChar(CP_UTF8, 0, p, len, NULL, 0);
                     wchar_t *wbuf = (wchar_t *) malloc(wlen * 2);
                     if (wbuf == NULL) {
@@ -1299,7 +1312,7 @@ static LRESULT CALLBACK ExportProgram(HWND hDlg, UINT message, WPARAM wParam, LP
             switch (cmd) {
                 case IDOK: {
                     HWND list = GetDlgItem(hDlg, IDC_LIST1);
-                    sel_prog_count = SendMessage(list, LB_GETSELCOUNT, 0, 0);
+                    sel_prog_count = (int) SendMessage(list, LB_GETSELCOUNT, 0, 0);
                     if (sel_prog_count > 0) {
                         sel_prog_list = (int *) malloc(sel_prog_count * sizeof(int));
                         // TODO - handle memory allocation failure
@@ -1389,7 +1402,7 @@ static LRESULT CALLBACK Preferences(HWND hDlg, UINT message, WPARAM wParam, LPAR
                     ctl = GetDlgItem(hDlg, IDC_LOCALIZED_COPY_PASTE);
                     core_settings.localized_copy_paste = SendMessage(ctl, BM_GETCHECK, 0, 0) != 0;
                     ctl = GetDlgItem(hDlg, IDC_ALWAYSONTOP);
-                    BOOL alwaysOnTop = SendMessage(ctl, BM_GETCHECK, 0, 0);
+                    BOOL alwaysOnTop = SendMessage(ctl, BM_GETCHECK, 0, 0) != 0;
                     if (alwaysOnTop != state.alwaysOnTop) {
                         state.alwaysOnTop = alwaysOnTop;
                         SetWindowPos(hMainWnd, alwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
@@ -1398,10 +1411,10 @@ static LRESULT CALLBACK Preferences(HWND hDlg, UINT message, WPARAM wParam, LPAR
                     }
 
                     ctl = GetDlgItem(hDlg, IDC_PRINTER_TXT);
-                    state.printerToTxtFile = SendMessage(ctl, BM_GETCHECK, 0, 0);
+                    state.printerToTxtFile = SendMessage(ctl, BM_GETCHECK, 0, 0) != 0;
                     wchar_t buf[FILENAMELEN];
                     GetDlgItemTextW(hDlg, IDC_PRINTER_TXT_NAME, buf, FILENAMELEN - 1);
-                    int len = wcslen(buf);
+                    int len = (int) wcslen(buf);
                     if (len > 0 && (len < 4 || _wcsicmp(buf + len - 4, L".txt") != 0))
                         wcscat(buf, L".txt");
                     if (print_txt != NULL && (!state.printerToTxtFile
@@ -1411,12 +1424,12 @@ static LRESULT CALLBACK Preferences(HWND hDlg, UINT message, WPARAM wParam, LPAR
                     }
                     wcscpy(state.printerTxtFileName, buf);
                     ctl = GetDlgItem(hDlg, IDC_PRINTER_GIF);
-                    state.printerToGifFile = SendMessage(ctl, BM_GETCHECK, 0, 0);
+                    state.printerToGifFile = SendMessage(ctl, BM_GETCHECK, 0, 0) != 0;
                     BOOL success;
                     int maxlen = (int) GetDlgItemInt(hDlg, IDC_PRINTER_GIF_HEIGHT, &success, TRUE);
                     state.printerGifMaxLength = !success ? 256 : maxlen < 16 ? 16 : maxlen > 32767 ? 32767 : maxlen;
                     GetDlgItemTextW(hDlg, IDC_PRINTER_GIF_NAME, buf, FILENAMELEN - 1);
-                    len = wcslen(buf);
+                    len = (int) wcslen(buf);
                     if (len > 0 && (len < 4 || _wcsicmp(buf + len - 4, L".gif") != 0))
                         wcscat(buf, L".gif");
                     if (print_gif != NULL && (!state.printerToGifFile
@@ -1467,7 +1480,7 @@ static LRESULT CALLBACK Preferences(HWND hDlg, UINT message, WPARAM wParam, LPAR
 
 int browse_file(HWND owner, wchar_t *title, int save, wchar_t *filter, wchar_t *defExt, char *buf, int buflen) {
     wchar_t wbuf[FILENAMELEN];
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, buf, strlen(buf), wbuf, FILENAMELEN - 1);
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, buf, (int) strlen(buf), wbuf, FILENAMELEN - 1);
     wbuf[wlen] = 0;
 
     OPENFILENAMEW ofn;
@@ -1486,7 +1499,7 @@ int browse_file(HWND owner, wchar_t *title, int save, wchar_t *filter, wchar_t *
 
     int ret = save ? GetSaveFileNameW(&ofn) : GetOpenFileNameW(&ofn);
 
-    int len = WideCharToMultiByte(CP_UTF8, 0, wbuf, wcslen(wbuf), buf, buflen - 1, NULL, NULL);
+    int len = WideCharToMultiByte(CP_UTF8, 0, wbuf, (int) wcslen(wbuf), buf, buflen - 1, NULL, NULL);
     buf[len] = 0;
     return ret;
 }
@@ -1514,7 +1527,7 @@ static void move_state_file(wchar_t *olddir, wchar_t *newdir, wchar_t *filename)
     wchar_t newfile[FILENAMELEN];
     char buf[1024];
     FILE *in, *out;
-    int n;
+    size_t n;
 
     wcscpy(oldfile, olddir);
     wcscat(oldfile, L"\\");
@@ -1603,7 +1616,7 @@ static void copy() {
     char *buf = core_copy();
     if (buf == NULL)
         goto fail1;
-    int len = strlen(buf);
+    int len = (int) strlen(buf);
     if (len == 0)
         goto fail2;
     int wlen = MultiByteToWideChar(CP_UTF8, 0, buf, len + 1, NULL, 0);
@@ -1631,7 +1644,7 @@ static void paste() {
     if (h != NULL) {
         wchar_t *wbuf = (wchar_t *) GlobalLock(h);
         if (wbuf != NULL) {
-            int wlen = GlobalSize(h) / 2;
+            int wlen = (int) GlobalSize(h) / 2;
             int len = WideCharToMultiByte(CP_UTF8, 0, wbuf, wlen, NULL, 0, NULL, NULL);
             if (len != 0) {
                 char *buf = (char *) malloc(len + 1);
@@ -1650,7 +1663,7 @@ static void paste() {
 
 static void Quit() {
     FILE *printfile;
-    int n, length;
+    size_t n, length;
     
     printfile = _wfopen(printfilename, L"wb");
     if (printfile != NULL) {
@@ -1858,7 +1871,7 @@ static void export_program() {
             char *closing_quote = strchr(p + 1, '"');
             if (closing_quote != NULL) {
                 *closing_quote = 0;
-                int len = strlen(p + 1);
+                int len = (int) strlen(p + 1);
                 for (int i = 0; i < len; i++) {
                     char c = p[i + 1];
                     if (strchr("<>:\"/\\|?*\n", c) != NULL)
@@ -1980,7 +1993,7 @@ static void copy_print_as_text() {
     }
     tbwriter("\0", 1);
 
-    len = strlen(tb);
+    len = (int) strlen(tb);
     if (len == 0)
         goto fail;
     int wlen = MultiByteToWideChar(CP_UTF8, 0, tb, len + 1, NULL, 0);
@@ -2031,9 +2044,9 @@ static void copy_print_as_image() {
         *bmbuf++ = 0;
         *bmbuf++ = 0;
         *bmbuf++ = 0;
-        *bmbuf++ = 255;
-        *bmbuf++ = 255;
-        *bmbuf++ = 255;
+        *bmbuf++ = (char) 255;
+        *bmbuf++ = (char) 255;
+        *bmbuf++ = (char) 255;
         *bmbuf++ = 0;
 
         if (empty) {
@@ -2045,15 +2058,15 @@ static void copy_print_as_image() {
                     vv -= PRINT_LINES;
                 char *src = printout + vv * PRINT_BYTESPERLINE;
                 for (int i = 0; i < 4; i++)
-                    *bmbuf++ = 255;
-                char pc = 255;
+                    *bmbuf++ = (char) 255;
+                char pc = (char) 255;
                 for (int h = 0; h <= 36; h++) {
                     char c = h == 36 ? 255 : src[h];
                     *bmbuf++ = ((c & 240) >> 4) | ((pc & 15) << 4);
                     pc = c;
                 }
                 for (int i = 0; i < 7; i++)
-                    *bmbuf++ = 255;
+                    *bmbuf++ = (char) 255;
             }
         }
 
@@ -2387,9 +2400,9 @@ const char *shell_number_format() {
 int shell_date_format() {
     char fmt[80];
     GetLocaleInfo(LOCALE_USER_DEFAULT, LOCALE_SSHORTDATE, fmt, 80);
-    int y = strchr(fmt, 'y') - fmt;
-    int m = strchr(fmt, 'M') - fmt;
-    int d = strchr(fmt, 'd') - fmt;
+    int y = (int) (strchr(fmt, 'y') - fmt);
+    int m = (int) (strchr(fmt, 'M') - fmt);
+    int d = (int) (strchr(fmt, 'd') - fmt);
     if (d < m && m < y)
         return 1;
     else if (y < m && m < d)
@@ -2506,7 +2519,7 @@ void shell_print(const char *text, int length,
                 gif_seq = (gif_seq + 1) % 10000;
 
                 wcscpy(print_gif_name, state.printerGifFileName);
-                len = wcslen(print_gif_name);
+                len = (int) wcslen(print_gif_name);
 
                 /* Strip ".gif" extension, if present */
                 if (len >= 4 &&
@@ -2525,7 +2538,7 @@ void shell_print(const char *text, int length,
                 /* Make sure we have enough space for the ".nnnn.gif" */
                 p = FILENAMELEN - 10;
                 print_gif_name[p] = 0;
-                p = wcslen(print_gif_name);
+                p = (int) wcslen(print_gif_name);
                 swprintf(print_gif_name + p, L".%04d", gif_seq);
                 wcscat(print_gif_name, L".gif");
                 
@@ -2602,12 +2615,11 @@ static void read_key_map(const wchar_t *keymapfilename) {
 
     if (keymapfile == NULL) {
         /* Try to create default keymap file */
-        long n;
 
         keymapfile = _wfopen(keymapfilename, L"wb");
         if (keymapfile == NULL)
             return;
-        n = fwrite(keymap_filedata, 1, keymap_filesize, keymapfile);
+        size_t n = fwrite(keymap_filedata, 1, keymap_filesize, keymapfile);
         if (n != keymap_filesize) {
             int err = errno;
             fwprintf(stderr, L"Error writing \"%ls\": %hs (%d)\n",
@@ -2817,10 +2829,9 @@ static int write_shell_state() {
 /* Callbacks used by shell_print() and shell_spool_txt() / shell_spool_gif() */
 
 static void txt_writer(const char *text, int length) {
-    int n;
     if (print_txt == NULL)
         return;
-    n = fwrite(text, 1, length, print_txt);
+    size_t n = fwrite(text, 1, length, print_txt);
     if (n != length) {
         wchar_t buf[1000];
         state.printerToTxtFile = 0;
@@ -2852,10 +2863,9 @@ static void gif_seeker(int4 pos) {
 }
 
 static void gif_writer(const char *text, int length) {
-    int n;
     if (print_gif == NULL)
         return;
-    n = fwrite(text, 1, length, print_gif);
+    size_t n = fwrite(text, 1, length, print_gif);
     if (n != length) {
         wchar_t buf[1000];
         state.printerToGifFile = 0;
@@ -2882,7 +2892,7 @@ ci_string GetDlgItemTextLong(HWND hWnd, int item) {
     if (buf == NULL)
         return L"";
     while (true) {
-        GetDlgItemTextW(hWnd, item, buf, sz);
+        GetDlgItemTextW(hWnd, item, buf, (int) sz);
         if (wcslen(buf) < sz - 1) {
             ci_string retval(buf);
             free(buf);
@@ -2905,7 +2915,7 @@ ci_string to_ci_string(int i) {
 }
 
 char *wide2utf(const wchar_t *w) {
-    int wlen = wcslen(w);
+    int wlen = (int) wcslen(w);
     int slen = WideCharToMultiByte(CP_UTF8, 0, w, wlen, NULL, 0, NULL, NULL);
     char *s = (char *) malloc(slen + 1);
     WideCharToMultiByte(CP_UTF8, 0, w, wlen, s, slen, NULL, NULL);
@@ -2914,7 +2924,7 @@ char *wide2utf(const wchar_t *w) {
 }
 
 static wchar_t *utf2wide(const char *s) {
-    int slen = strlen(s);
+    int slen = (int) strlen(s);
     int wlen = MultiByteToWideChar(CP_UTF8, 0, s, slen, NULL, 0);
     wchar_t *w = (wchar_t *) malloc(wlen * 2 + 2);
     MultiByteToWideChar(CP_UTF8, 0, s, slen, w, wlen);

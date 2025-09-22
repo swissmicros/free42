@@ -270,6 +270,24 @@ int unary_two_results(vartype *x, vartype *y) {
     return ERR_NONE;
 }
 
+int unary_no_result() {
+    if (!flags.f.big_stack) {
+        vartype *t = dup_vartype(stack[REG_T]);
+        if (t == NULL)
+            return ERR_INSUFFICIENT_MEMORY;
+        free_vartype(lastx);
+        lastx = stack[REG_X];
+        stack[REG_X] = stack[REG_Y];
+        stack[REG_Y] = stack[REG_Z];
+        stack[REG_Z] = t;
+    } else {
+        free_vartype(lastx);
+        lastx = stack[sp];
+        sp--;
+    }
+    return ERR_NONE;
+}
+
 int binary_result(vartype *x) {
     vartype *t;
     if (!flags.f.big_stack) {
@@ -646,6 +664,77 @@ int anum(const char *text, int len, phloat *res) {
     return true;
 }
 
+void fix_thousands_separators(char *buf, int *bufptr) {
+    /* First, remove the old separators... */
+    int i, j = 0;
+    char dot = flags.f.decimal_point ? '.' : ',';
+    char sep = flags.f.decimal_point ? ',' : '.';
+    int intdigits = 0;
+    int counting_intdigits = 1;
+    int nsep;
+    for (i = 0; i < *bufptr; i++) {
+        char c = buf[i];
+        if (c != sep)
+            buf[j++] = c;
+        if (c == dot || c == 24)
+            counting_intdigits = 0;
+        else if (counting_intdigits && c >= '0' && c <= '9')
+            intdigits++;
+    }
+    /* Now, put 'em back... */
+    if (!flags.f.thousands_separators) {
+        *bufptr = j;
+        return;
+    }
+    nsep = (intdigits - 1) / 3;
+    if (nsep == 0) {
+        *bufptr = j;
+        return;
+    }
+    for (i = j - 1; i >= 0; i--)
+        buf[i + nsep] = buf[i];
+    j += nsep;
+    for (i = 0; i < j; i++) {
+        char c = buf[i + nsep];
+        buf[i] = c;
+        if (nsep > 0 && c >= '0' && c <= '9') {
+            if (intdigits % 3 == 1) {
+                buf[++i] = sep;
+                nsep--;
+            }
+            intdigits--;
+        }
+    }
+    *bufptr = j;
+}
+
+void fix_base_separators(char *buf, int *bufptr) {
+    /* First, remove the old separators... */
+    int digits = 0;
+    for (int i = 0; i < *bufptr; i++) {
+        char c = buf[i];
+        if (c != ' ')
+            buf[digits++] = c;
+    }
+    /* Now, put 'em back... */
+    *bufptr = digits;
+    switch (get_base()) {
+        case  2: if (!mode_bin_sep) return; else break;
+        case  8: if (!mode_oct_sep) return; else break;
+        case 10: if (!mode_dec_sep) return; else break;
+        case 16: if (!mode_hex_sep) return; else break;
+    }
+    int nsep = (digits - 1) / 4;
+    if (nsep == 0)
+        return;
+    *bufptr += nsep;
+    for (int i = digits - 1; i >= 0; i--) {
+        buf[i + nsep] = buf[i];
+        if (((digits - i) & 3) == 0 && i != 0)
+            buf[i + (--nsep)] = ' ';
+    }
+}
+
 #if (!defined(ANDROID) && !defined(IPHONE))
 static bool always_on = false;
 bool shell_always_on(int ao) {
@@ -822,7 +911,7 @@ void set_base(int base, bool a_thru_f) {
     flags.f.base_bit2 = (base & 4) != 0;
     flags.f.base_bit3 = (base & 8) != 0;
     if (!a_thru_f && mode_appmenu == MENU_BASE_A_THRU_F)
-        set_menu(MENULEVEL_APP, MENU_BASE);
+        set_menu(MENULEVEL_APP, MENU_BASE1);
 
     if (base != oldbase)
         print_trace();
@@ -1078,7 +1167,7 @@ void print_wide(const char *left, int leftlen, const char *right, int rightlen) 
 }
 
 static void print_command_2(const char *text, int len) {
-    shell_annunciators(-1, -1, 1, -1, -1, -1);
+    set_annunciators(-1, -1, 1, -1, -1, -1);
 
     if (deferred_print) {
         /* If the display mode is FIX n, and the user has not entered
@@ -1125,7 +1214,7 @@ static void print_command_2(const char *text, int len) {
     }
 
     deferred_print = 0;
-    shell_annunciators(-1, -1, 0, -1, -1, -1);
+    set_annunciators(-1, -1, 0, -1, -1, -1);
 }
 
 void print_command(int cmd, const arg_struct *arg) {
@@ -1378,7 +1467,7 @@ int dimension_array_ref(vartype *matrix, int4 rows, int4 columns) {
                 char *new_is_string = (char *) realloc(oldmatrix->array->is_string, size);
                 if (new_is_string != NULL)
                     oldmatrix->array->is_string = new_is_string;
-                phloat *new_data = (phloat *) realloc(oldmatrix->array->data, size * sizeof(phloat));
+                phloat *new_data = (phloat *) realloc((void *) oldmatrix->array->data, size * sizeof(phloat));
                 if (new_data != NULL)
                     oldmatrix->array->data = new_data;
                 oldmatrix->rows = rows;
@@ -1397,7 +1486,7 @@ int dimension_array_ref(vartype *matrix, int4 rows, int4 columns) {
             char *new_is_string = (char *) malloc(size);
             if (new_is_string == NULL)
                 return ERR_INSUFFICIENT_MEMORY;
-            phloat *new_data = (phloat *) realloc(oldmatrix->array->data, size * sizeof(phloat));
+            phloat *new_data = (phloat *) realloc((void *) oldmatrix->array->data, size * sizeof(phloat));
             if (new_data == NULL) {
                 free(new_is_string);
                 return ERR_INSUFFICIENT_MEMORY;
@@ -1476,7 +1565,7 @@ int dimension_array_ref(vartype *matrix, int4 rows, int4 columns) {
              */
             int4 i, oldsize;
             phloat *new_data = (phloat *)
-                    realloc(oldmatrix->array->data, 2 * size * sizeof(phloat));
+                    realloc((void *) oldmatrix->array->data, 2 * size * sizeof(phloat));
             if (new_data == NULL)
                 return ERR_INSUFFICIENT_MEMORY;
             oldsize = oldmatrix->rows * oldmatrix->columns;

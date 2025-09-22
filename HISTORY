@@ -1,3 +1,125 @@
+2025-07-19: release 3.3.8c (Android only)
+
+* Fixed "No Status" and "Full Screen" modes. These got broken in 3.3.8.
+
+2025-07-05: release 3.3.8b (Windows only)
+
+* The size of the main window would not be saved if the app was exited while
+  minimized. Fixed.
+
+2025-07-04: release 3.3.8a (Android only)
+
+* Fixed layout for Android 15 and later.
+
+2025-07-03: release 3.3.8
+
+* Fixed a couple of rare crashes.
+
+2025-06-29: release 3.3.7
+
+* Fixed pasting of 10^X without line number.
+* Android version: Fixed crash with skins with missing annunciators.
+* Linux version: Fixed state saving when the app is exited because of a logout,
+  reboot, or shutdown.
+
+2025-06-10: release 3.3.6a (Android only)
+
+* Fix for hang during audio playback.
+
+2025-06-05: release 3.3.6
+
+* Fixed potential crash on app restart.
+* Android version: fixed memory leak on app restart.
+
+2025-06-04: release 3.3.5f (Android only)
+
+* Fixed potential crash on app restart.
+
+2025-06-04: release 3.3.5e (Windows only)
+
+* When the main window was un-minimized, its width could be restored
+  incorrectly. Fixed.
+
+2025-06-03: release 3.3.5d (Android and iOS)
+
+* Fix for unreliable state file saving.
+
+2025-06-01: release 3.3.5c (Android only)
+
+* Fixed hang on Shift EXIT.
+
+2025-05-30: release 3.3.5b (Android and iOS)
+
+* Fix for certain rare crashes.
+
+2025-05-29: release 3.3.5a (Android only)
+
+* Fixed a couple of crashes.
+
+2025-05-21: release 3.3.5
+
+* Better handling of ACC=0 in INTEG.
+* More accurate C.E^X-1.
+
+2025-05-06: release 3.3.4
+
+* Fixed handling of shared matrices in PUTMI.
+* Fixed handling of subnormal complex numbers in 1/X.
+* Added SLN, SRN, and ASRN to CATALOG->BASE.
+* Fixed skin key highlighting for hardware keyboard keystrokes, when using
+  certain skins with complicated key mappings.
+
+2025-04-29: release 3.3.3
+
+* BASE menu: Implemented SLN, SRN, and ASRN. These functions are can be typed
+  as Shift-SL, Shift-SR, and Shift-ASR, respectively, and RJ can now be typed
+  as Shift-LJ.
+* More accurate DET, INVRT, and matrix division for 2x2 matrices.
+* When spelling out built-in function names, '-' is now accepted as an
+  alternative for '→', to make conversion functions easier to type.
+* Menu keys that execute different functions when pressed with Shift now show
+  their alternate function while Shift is active. (This behavior can be
+  disabled and enabled using the new STATIC and DYNAMIC settings in the new
+  MENUS submenu of the MODES menu.)
+* Decimal version: BS→N and BD→N were rounding their results to 16 digits.
+  Fixed.
+
+2025-04-25: release 3.3.2
+
+* RLN, RRN, RLCN, and RRCN did not drop the stack. Fixed.
+
+2025-04-24: release 3.3.1
+
+* BASE: Fixed DECINT behavior for -2^(WSIZE-1).
+
+2025-04-23: release 3.3
+
+* BASE enhancements: shift and rotate functions, bit manipulation functions,
+  floating-point conversions, and optional digit grouping. See the Free42 web
+  site for all the details.
+
+2025-04-10: release 3.2.8
+
+* Fixed crash in RCOMPLX/PCOMPLX when the stack is empty (NSTK mode).
+
+2025-03-29: release 3.2.7a (Linux only)
+
+* The "Edit Keyboard Map" menu item would show a check mark when selected,
+  which it shouldn't. That menu item launches a text editor, it doesn't toggle
+  a mode. Fixed.
+
+2025-03-17: release 3.2.7
+
+* Windows, MacOS, and Linux versions: Added "Edit Keyboard Map" option to the
+  Help menu. Also, added a section about keyboard map customization in the
+  README.txt file.
+* iOS version: More efficient sorting in file selector.
+* Android version: Now distributing optimized APKs.
+
+2025-03-11: release 3.2.6a (iOS only)
+
+* The file selector wasn't sorting the directory listing. Fixed.
+
 2025-03-09: release 3.2.6
 
 * Made ^ on hardware keyboards type ↑ again. This had changed to ^ when I added
@@ -233,7 +355,7 @@
 * Decimal version: In HMS+ and HMS-, fixed handling of cases where either or
   both of the arguments has a number of minutes or seconds >= 60. (The binary
   version did not have this bug.)
-* Binary version: max digits for SHOW increased to 17. This was necessary
+* Binary version: Max digits for SHOW increased to 17. This was necessary
   because 16 digits was actually never enough to begin with. For example, 5 1/X
   and 5 SQRT X^2 1/X both returned a result that looked like 0.2 in SHOW, even
   though they are different, as can be easily verified with X=Y? or by
@@ -357,7 +479,7 @@
 * L4STK didn't pad the stack to 4 levels when used without FUNC. Fixed.
 * Binary version: ROTXY and DATE+ rounded toward negative infinity instead of
   rounding toward zero. Fixed.
-* Windows version: comes in 64-bit and 32-bit versions now.
+* Windows version: Comes in 64-bit and 32-bit versions now.
 * Windows and Linux versions: Now support fractional display scaling.
 
 2022-01-27: release 3.0.10
@@ -2062,8 +2184,9 @@
 
 2009-02-22: release 1.4.46
 
-* UVEC returned Invalid Type for complex scalar arguments. Fixed; it now returns
-  z/|z| (same as the SIGN function for such arguments), like the real HP-42S.
+* UVEC returned Invalid Type for complex scalar arguments. Fixed; it now
+  returns z/|z| (same as the SIGN function for such arguments), like the real
+  HP-42S.
 * When functions with arguments, e.g. STO, FIX, etc., were entered into a
   program from the CUSTOM menu, they would get inserted before the current
   program line instead of after. Fixed.
@@ -2842,10 +2965,10 @@
   keycodes in the range 38..255; these keys are mapped using "Macro:"
   definitions in the same *.layout file. The macro is a sequence of zero or
   more standard key codes (1..37).
-* Windows & Motif versions: Key mappings can now be defined in the skin *.layout
-  file. The syntax is identical to that used in the keymap.txt/keymap file.
-  When the skin maps a key that is also mapped in the default keymap file, the
-  skin's mapping takes precedence.
+* Windows & Motif versions: Key mappings can now be defined in the skin
+  *.layout file. The syntax is identical to that used in the keymap.txt/keymap
+  file. When the skin maps a key that is also mapped in the default keymap
+  file, the skin's mapping takes precedence.
   Note that such customized *.layout files are OS-dependent, since the way PC
   keyboard keys are specified is different between Windows and Motif: Windows
   uses numeric key codes, while Motif uses X11 KeySyms.
@@ -3190,14 +3313,14 @@
   bogus directory length and a corrupted directory structure (which can be
   repaired by resetting the Palm while Free42 is running; when this happens,
   Free42 will rebuild the directory the next time it starts up). Fixed now.
-* Windows & Motif versions: GIF file names looked like foobar0000.gif, should be
-  foobar.0000.gif, like in the PalmOS version. Fixed.
-* Motif version: When the print window scrolls because of a print command, while
-  it is partially obscured, the region that is scrolled out from under the
-  obscuring window did not get painted. I added a GraphicsExpose event handler
-  that schedules a full repaint whenever that happens. Not pretty, but unless I
-  can find a way to handle those events synchronously (as they are caused by
-  the scroll operation), it's the best I can do.
+* Windows & Motif versions: GIF file names looked like foobar0000.gif, should
+  be foobar.0000.gif, like in the PalmOS version. Fixed.
+* Motif version: When the print window scrolls because of a print command,
+  while it is partially obscured, the region that is scrolled out from under
+  the obscuring window did not get painted. I added a GraphicsExpose event
+  handler that schedules a full repaint whenever that happens. Not pretty, but
+  unless I can find a way to handle those events synchronously (as they are
+  caused by the scroll operation), it's the best I can do.
 
 2005-01-17: release 1.1.1
 

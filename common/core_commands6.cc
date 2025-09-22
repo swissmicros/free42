@@ -19,6 +19,7 @@
 
 #include "core_commands6.h"
 #include "core_helpers.h"
+#include "core_main.h"
 #include "core_math2.h"
 #include "core_sto_rcl.h"
 #include "core_variables.h"
@@ -1017,7 +1018,7 @@ int docmd_stoflag(arg_struct *arg) {
     if (new_rad == old_rad)
         new_rad = -1;
     if (new_g != -1 || new_rad != -1)
-        shell_annunciators(-1, -1, -1, -1, new_g, new_rad);
+        set_annunciators(-1, -1, -1, -1, new_g, new_rad);
 
     if (b <= 30 && e >= 30 && ((lfs >> 30) & 1) == 1)
         mode_disable_stack_lift = true;

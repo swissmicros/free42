@@ -56,6 +56,7 @@ import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Insets;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.hardware.GeomagneticField;
@@ -90,6 +91,7 @@ import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.ImageView;
@@ -145,7 +147,7 @@ public class Free42Activity extends Activity {
     private Handler mainHandler;
     private boolean alwaysOn;
     
-    private SoundPool soundPool;
+    private SoundPipe soundPipe;
     private int[] soundIds;
     
     // Streams for reading and writing the state file
@@ -415,9 +417,29 @@ public class Free42Activity extends Activity {
         calcView.updateScale();
 
         nativeInit();
+        core_cleanup();
         core_init(init_mode, version.value, coreFileName, coreFileOffset);
         if (popupAlpha == 2 && core_alpha_menu())
             calcContainer.showAlphaKeyboard(true);
+
+        if (android.os.Build.VERSION.SDK_INT >= 35) {
+            View.OnApplyWindowInsetsListener wil = new View.OnApplyWindowInsetsListener() {
+                @NonNull
+                @Override
+                public WindowInsets onApplyWindowInsets(@NonNull View view, @NonNull WindowInsets windowInsets) {
+                    Insets insets = windowInsets.getInsets(WindowInsets.Type.systemBars());
+                    ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) view.getLayoutParams();
+                    mlp.topMargin = insets.top;
+                    mlp.leftMargin = insets.left;
+                    mlp.bottomMargin = insets.bottom;
+                    mlp.rightMargin = insets.right;
+                    view.setLayoutParams(mlp);
+                    return WindowInsets.CONSUMED;
+                }
+            };
+            calcContainer.setOnApplyWindowInsetsListener(wil);
+            printView.setOnApplyWindowInsetsListener(wil);
+        }
 
         lowBatteryReceiver = new BroadcastReceiver() {
             public void onReceive(Context ctx, Intent intent) {
@@ -435,7 +457,7 @@ public class Free42Activity extends Activity {
         if (preferredOrientation != this.getRequestedOrientation())
             setRequestedOrientation(preferredOrientation);
 
-        soundPool = new SoundPool(1, AudioManager.STREAM_SYSTEM, 0);
+        SoundPool soundPool = new SoundPool(1, AudioManager.STREAM_SYSTEM, 0);
         int[] soundResourceIds = {
                 R.raw.tone0, R.raw.tone1, R.raw.tone2, R.raw.tone3, R.raw.tone4,
                 R.raw.tone5, R.raw.tone6, R.raw.tone7, R.raw.tone8, R.raw.tone9,
@@ -446,6 +468,7 @@ public class Free42Activity extends Activity {
         soundIds = new int[soundResourceIds.length];
         for (int i = 0; i < soundResourceIds.length; i++)
             soundIds[i] = soundPool.load(this, soundResourceIds[i], 1);
+        soundPipe = new SoundPipe(soundPool);
     }
 
     @Override
@@ -497,7 +520,7 @@ public class Free42Activity extends Activity {
     }
 
     @Override
-    protected void onStop() {
+    protected void onPause() {
         // Write shell state
         stateFileOutputStream = null;
         try {
@@ -530,15 +553,18 @@ public class Free42Activity extends Activity {
             } catch (IOException e) {}
             printGifFile = null;
         }
-        super.onStop();
+        super.onPause();
     }
     
     @Override
     protected void onDestroy() {
-        // core_cleanup();
         if (lowBatteryReceiver != null) {
             unregisterReceiver(lowBatteryReceiver);
             lowBatteryReceiver = null;
+        }
+        if (soundPipe != null) {
+            soundPipe.interrupt();
+            soundPipe = null;
         }
         super.onDestroy();
     }
@@ -1571,13 +1597,13 @@ public class Free42Activity extends Activity {
             skin.repaint(canvas, shortcutsShowing);
         }
 
-        private void shell_keydown() {
+        private void shell_keydown(boolean cshift) {
             if (timeout3_active && (macroObj != null || ckey != 28 /* SHIFT */)) {
                 cancelTimeout3();
                 core_timeout3(false);
             }
             if (skey == -1)
-                skey = skin.find_skey(ckey);
+                skey = skin.find_skey(ckey, cshift);
             Rect inval = skin.set_active_key(skey);
             if (inval != null)
                 invalidateScaled(inval);
@@ -1682,7 +1708,8 @@ public class Free42Activity extends Activity {
                     macroObj = arr[0];
                     macroIsText = (Boolean) arr[1];
                 }
-                shell_keydown();
+                boolean cshift = skin.getAnnunciators()[1];
+                shell_keydown(cshift);
                 mouse_key = true;
             } else {
                 shell_keyup(e);
@@ -1798,7 +1825,7 @@ public class Free42Activity extends Activity {
                         ckey = 1024 + ch;
                         skey = -1;
                         macroObj = null;
-                        shell_keydown();
+                        shell_keydown(false);
                         mouse_key = false;
                         active_keycode = keyCode;
                         return true;
@@ -1810,7 +1837,7 @@ public class Free42Activity extends Activity {
                             ckey = ch - 'A' + 1;
                         skey = -1;
                         macroObj = null;
-                        shell_keydown();
+                        shell_keydown(false);
                         mouse_key = false;
                         active_keycode = keyCode;
                         return true;
@@ -1830,7 +1857,7 @@ public class Free42Activity extends Activity {
                                 ckey = which;
                                 skey = -1;
                                 macroObj = null;
-                                shell_keydown();
+                                shell_keydown(false);
                                 mouse_key = false;
                                 active_keycode = keyCode;
                                 return true;
@@ -1852,11 +1879,14 @@ public class Free42Activity extends Activity {
             // means no skin key will be highlighted.
             ckey = -10;
             skey = -1;
+            boolean skin_shift = cshift;
             if (key_macro.length > 0)
                 if (key_macro.length == 1)
                     ckey = key_macro[0];
-                else if (key_macro.length == 2 && key_macro[0] == 28)
+                else if (key_macro.length == 2 && key_macro[0] == 28) {
                     ckey = key_macro[1];
+                    skin_shift = true;
+                }
             boolean needs_expansion = false;
             for (int j = 0; j < key_macro.length; j++)
                 if ((key_macro[j] & 255) > 37) {
@@ -1894,7 +1924,7 @@ public class Free42Activity extends Activity {
             } else {
                 macroObj = key_macro;
             }
-            shell_keydown();
+            shell_keydown(skin_shift);
             mouse_key = false;
             active_keycode = keyCode;
             return true;
@@ -1910,7 +1940,7 @@ public class Free42Activity extends Activity {
                 ckey = 28;
                 skey = -1;
                 macroObj = null;
-                shell_keydown();
+                shell_keydown(false);
                 shell_keyup(null);
                 return true;
             } else if (!mouse_key && event.getKeyCode() == active_keycode) {
@@ -1943,7 +1973,7 @@ public class Free42Activity extends Activity {
             ckey = 1024 + c;
             skey = -1;
             macroObj = null;
-            shell_keydown();
+            shell_keydown(false);
             mouse_key = false;
             active_keycode = -1;
         }
@@ -1964,7 +1994,7 @@ public class Free42Activity extends Activity {
             skey = -1;
             macroObj = macro;
             macroIsText = false;
-            shell_keydown();
+            shell_keydown(false);
             mouse_key = false;
             active_keycode = -1;
         }
@@ -2740,7 +2770,7 @@ public class Free42Activity extends Activity {
     
     
     public void playSound(int index) {
-        soundPool.play(soundIds[index], 1f, 1f, 0, 0, 1f);
+        soundPipe.play(soundIds[index]);
     }
     
 
@@ -2886,6 +2916,8 @@ public class Free42Activity extends Activity {
                 prt_off = true;
             }
         }
+        if (skin == null)
+            return;
         Rect inval = skin.update_annunciators(updn, shf, prt, run, -1, g, rad);
         if (inval != null)
             calcView.postInvalidateScaled(inval.left, inval.top, inval.right, inval.bottom);
@@ -2946,13 +2978,17 @@ public class Free42Activity extends Activity {
      */
     public void shell_powerdown() {
         quit_flag = true;
-        if (android.os.Build.VERSION.SDK_INT < 21)
-            finish();
-        else
-            try {
-                Method m = Free42Activity.class.getMethod("finishAndRemoveTask");
-                m.invoke(this);
-            } catch (Exception e) {}
+        runOnUiThread(new Runnable() {
+            public void run() {
+                if (android.os.Build.VERSION.SDK_INT < 21)
+                    finish();
+                else
+                    try {
+                        Method m = Free42Activity.class.getMethod("finishAndRemoveTask");
+                        m.invoke(Free42Activity.this);
+                    } catch (Exception e) {}
+                }
+            });
     }
     
     private class AlwaysOnSetter implements Runnable {

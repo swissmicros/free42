@@ -77,6 +77,8 @@
 }
 
 - (IBAction) loadSkin {
+    if (skinName != nil)
+        return;
     NSString *url = [urlField text];
     NSArray *urls = [LoadSkinView skinUrlPair:url];
     if (urls == nil) {
@@ -108,6 +110,8 @@
 - (void) finishTask {
     if (task[0] != nil || task[1] != nil)
         return;
+    if (skinName == nil)
+        return;
     if (taskSuccess[0] && taskSuccess[1]) {
         char buf[FILENAMELEN];
         snprintf(buf, FILENAMELEN, "skins/%s.gif", [skinName UTF8String]);
@@ -123,6 +127,7 @@
             [RootViewController showMessage:@"Loading Skin Failed"];
     }
     [skinName release];
+    skinName = nil;
     [loadButton setEnabled:YES];
 }
 

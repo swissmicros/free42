@@ -59,11 +59,11 @@ static bool is_number_key(int shift, int key, bool *invalid) {
     return false;
 }
 
-static int basekeys() {
+static bool basekeys() {
     if (!baseapp)
-        return 0;
+        return false;
     int menu = get_front_menu();
-    return menu >= MENU_BASE && menu <= MENU_BASE_LOGIC;
+    return menu >= MENU_BASE1 && menu <= MENU_BASE_DISP;
 }
 
 static void set_solve_integ(int solve) {
@@ -210,7 +210,7 @@ void keydown(int shift, int key) {
             key = find_cmd_getkey_mapping(cmd);
             if (key == 0) {
                 squeak();
-                shell_annunciators(-1, -1, -1, 0, -1, -1);
+                set_annunciators(-1, -1, -1, 0, -1, -1);
                 return;
             }
         } else {
@@ -277,7 +277,7 @@ void keydown(int shift, int key) {
         mode_varmenu = false;
         if (flags.f.prgm_mode) {
             if (mode_appmenu == MENU_BASE_A_THRU_F)
-                set_menu(MENULEVEL_APP, MENU_BASE);
+                set_menu(MENULEVEL_APP, MENU_BASE1);
             else if (mode_plainmenu == MENU_PROGRAMMABLE)
                 set_menu(MENULEVEL_PLAIN, MENU_NONE);
             input_length = 0;
@@ -299,7 +299,7 @@ void keydown(int shift, int key) {
     flags.f.two_line_message = 0;
 
     if (mode_number_entry && get_base() == 16 && key == KEY_SIGMA
-            && get_front_menu() == MENU_BASE) {
+            && get_front_menu() == MENU_BASE1) {
         /* Special case -- entering the A...F menu while in base 16
          * does *not* cancel number entry mode (unlike all other menu
          * keys)... So we intercept and handle it before all the other
@@ -455,8 +455,11 @@ void keydown_number_entry(int shift, int key) {
 
     if (key == KEY_BSP) {
         cmdline_length--;
-        if (!flags.f.prgm_mode && base == 10)
-            fix_thousands_separators(cmdline, &cmdline_length);
+        if (!flags.f.prgm_mode)
+            if (base == 10)
+                fix_thousands_separators(cmdline, &cmdline_length);
+            else
+                fix_base_separators(cmdline, &cmdline_length);
         if (core_settings.auto_repeat) {
             repeating = 2;
             repeating_key = key;
@@ -616,23 +619,33 @@ void keydown_number_entry(int shift, int key) {
                 return;
             }
         } else {
-            int bits = base == 2 ? 1 : base == 8 ? 3 : 4;
-            int wsize = effective_wsize();
-            int maxchars = (wsize + bits - 1) / bits;
-            if (cmdline_length > maxchars) {
+            bool zero = true;
+            int bits = 0;
+            int bits_per_digit = base == 2 ? 1 : base == 8 ? 3 : 4;
+            for (int i = 0; i < cmdline_length; i++) {
+                char c = cmdline[i];
+                if (c == ' ')
+                    continue;
+                if (!zero) {
+                    bits += bits_per_digit;
+                    continue;
+                }
+                int d = c < 'A' ? c - '0' : c - 'A' + 10;
+                if (d >= 8)
+                    bits = 4;
+                else if (d >= 4)
+                    bits = 3;
+                else if (d >= 2)
+                    bits = 2;
+                else
+                    bits = d;
+                zero = false;
+            }
+            if (bits > effective_wsize()) {
                 cmdline_length--;
                 return;
             }
-            if (cmdline_length == maxchars) {
-                int slop = maxchars * bits - wsize;
-                int max = 1 << (bits - slop);
-                int d = cmdline[0];
-                d -= d <= '9' ? '0' : ('A' - 10);
-                if (d >= max) {
-                    cmdline_length--;
-                    return;
-                }
-            }
+            fix_base_separators(cmdline, &cmdline_length);
         }
     }
 
@@ -645,6 +658,8 @@ void keydown_number_entry(int shift, int key) {
         int i;
         for (i = 0; i < cmdline_length; i++) {
             char c = cmdline[i];
+            if (c == ' ')
+                continue;
             int digit = c <= '9' ? c - '0' : c - 'A' + 10;
             n = n * base + digit;
         }
@@ -1784,7 +1799,7 @@ void keydown_command_entry(int shift, int key) {
                 int catsect;
                 if (mode_commandmenu == MENU_NONE
                         || (mode_commandmenu == MENU_CATALOG
-                            && (catsect = get_cat_section()) == CATSECT_TOP
+                            && ((catsect = get_cat_section()) == CATSECT_TOP
                             || catsect == CATSECT_EXT_1
                             || catsect == CATSECT_EXT_2
                             || catsect == CATSECT_PGM_ONLY
@@ -1793,7 +1808,7 @@ void keydown_command_entry(int shift, int key) {
                             || catsect == CATSECT_LIST_STR_ONLY
                             || catsect == CATSECT_MAT_LIST_ONLY
                             || catsect == CATSECT_LIST_ONLY
-                            || catsect == CATSECT_VARS_ONLY)) {
+                            || catsect == CATSECT_VARS_ONLY))) {
                     set_menu(MENULEVEL_COMMAND, MENU_ALPHA1);
                     redisplay();
                     return;
@@ -2117,8 +2132,8 @@ void keydown_alpha_mode(int shift, int key) {
                           break;
             case KEY_DOWN: command = CMD_SST; break;
             case KEY_4: print_menu_trace("BASE", 4);
-                        set_menu(MENULEVEL_APP, MENU_BASE);
-                        if (mode_appmenu == MENU_BASE) {
+                        set_menu(MENULEVEL_APP, MENU_BASE1);
+                        if (mode_appmenu == MENU_BASE1) {
                             set_appmenu_exitcallback(2);
                             baseapp = 1;
                         }
@@ -2730,21 +2745,35 @@ void keydown_normal_mode(int shift, int key) {
                     redisplay();
                     return;
                 }
-                if (menu == MENU_TOP_FCN && shift) {
-                    switch (menukey) {
-                        case 0: cmd_id = CMD_SIGMASUB; break;
-                        case 1: cmd_id = CMD_Y_POW_X; break;
-                        case 2: cmd_id = CMD_SQUARE; break;
-                        case 3: cmd_id = CMD_10_POW_X; break;
-                        case 4: cmd_id = CMD_E_POW_X; break;
-                        case 5: cmd_id = CMD_GTO; break;
+                cmd_id &= 0xfff;
+                if (shift) {
+                    if (menu == MENU_TOP_FCN) {
+                        switch (menukey) {
+                            case 0: cmd_id = CMD_SIGMASUB; break;
+                            case 1: cmd_id = CMD_Y_POW_X; break;
+                            case 2: cmd_id = CMD_SQUARE; break;
+                            case 3: cmd_id = CMD_10_POW_X; break;
+                            case 4: cmd_id = CMD_E_POW_X; break;
+                            case 5: cmd_id = CMD_GTO; break;
+                        }
+                    } else if (menu == MENU_PGM_FCN1) {
+                        if (menukey == 5)
+                            cmd_id = CMD_GTO;
+                    } else if (menu == MENU_STAT1) {
+                        if (menukey == 0)
+                            cmd_id = CMD_SIGMASUB;
+                    } else if (menu == MENU_BASE2) {
+                        switch (menukey) {
+                            case 0: cmd_id = CMD_SLN; break;
+                            case 1: cmd_id = CMD_SRN; break;
+                        }
+                    } else if (menu == MENU_BASE3) {
+                        switch (menukey) {
+                            case 0: cmd_id = CMD_RJ; break;
+                            case 1: cmd_id = CMD_ASRN; break;
+                        }
                     }
-                } else if (menu == MENU_PGM_FCN1 && menukey == 5 && shift)
-                    cmd_id = CMD_GTO;
-                else if (menu == MENU_STAT1 && menukey == 0 && shift)
-                    cmd_id = CMD_SIGMASUB;
-                else
-                    cmd_id &= 0xfff;
+                }
                 if (level == MENULEVEL_TRANSIENT
                         || (level == MENULEVEL_PLAIN && !mode_plainmenu_sticky))
                     set_menu(level, MENU_NONE);
@@ -2924,8 +2953,8 @@ void keydown_normal_mode(int shift, int key) {
                           return;
             case KEY_DOWN: command = CMD_SST; break;
             case KEY_4: print_menu_trace("BASE", 4);
-                        set_menu(MENULEVEL_APP, MENU_BASE);
-                        if (mode_appmenu == MENU_BASE) {
+                        set_menu(MENULEVEL_APP, MENU_BASE1);
+                        if (mode_appmenu == MENU_BASE1) {
                             set_appmenu_exitcallback(2);
                             baseapp = 1;
                             redisplay();

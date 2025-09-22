@@ -602,9 +602,10 @@ int docmd_delr(arg_struct *arg) {
     return ERR_NONE;
 }
 
-static void det_completion(int error, vartype *det) {
+static int det_completion(int error, vartype *det) {
     if (error == ERR_NONE)
         unary_result(det);
+    return error;
 }
 
 int docmd_det(arg_struct *arg) {
@@ -1032,22 +1033,21 @@ static int mappable_e_pow_x_1_r(phloat x, phloat *y) {
 }
 
 static int mappable_e_pow_x_1_c(phloat xre, phloat xim, phloat *yre, phloat *yim) {
-    phloat k = expm1(xre);
-    phloat t = xim;
-    phloat s = sin(t);
-    t = sin(t / 2);
-    t = -2 * t * t;
-    s *= k + 1;
-    if (-t > fabs(k))
-        *yre = k + k * t + t;
-    else
-        *yre = t + k * t + k;
-    *yim = s;
-    if (p_isinf(*yre) || p_isinf(*yim)) {
-        if (flags.f.range_error_ignore) {
-            *yre = p_isnan(*yre) ? 0 : *yre < 0 ? NEG_HUGE_PHLOAT : POS_HUGE_PHLOAT;
-            *yim = p_isnan(*yim) ? 0 : *yim < 0 ? NEG_HUGE_PHLOAT : POS_HUGE_PHLOAT;
-        } else
+    phloat x = xre;
+    phloat y = exp(x);
+    phloat s = sin(xim / 2);
+    *yre = y - 1 - y * (log(y) - x + 2 * s * s);
+    *yim = y * sin(xim);
+    if (p_isinf(*yre)) {
+        if (flags.f.range_error_ignore)
+            *yre = *yre < 0 ? NEG_HUGE_PHLOAT : POS_HUGE_PHLOAT;
+        else
+            return ERR_OUT_OF_RANGE;
+    }
+    if (p_isinf(*yim)) {
+        if (flags.f.range_error_ignore)
+            *yim = *yim < 0 ? NEG_HUGE_PHLOAT : POS_HUGE_PHLOAT;
+        else
             return ERR_OUT_OF_RANGE;
     }
     return ERR_NONE;

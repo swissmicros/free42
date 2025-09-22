@@ -25,16 +25,17 @@ fi
 
 
 make clean
-echo "=== ARM_LIB=1 BCD_MATH=1"
-ARM_LIB=1 BCD_MATH=1 make $MAKEOPT libfree42.a
+echo "=== RELEASE=1 ARM_LIB=1 BCD_MATH=1"
+RELEASE=1 ARM_LIB=1 BCD_MATH=1 CXXFLAGS="-O2" make $MAKEOPT libfree42.a
 if [ $? != 0 ]; then
   echo "BUILD FAILED"
   exit 1
 fi
 mv libfree42.a libfree42_bcd.a
 
+
 make clean
-echo "=== RELEASE=1 ARM_LIB=1 BCD_MATH=1"
-RELEASE=1 ARM_LIB=1 BCD_MATH=1 make $MAKEOPT libfree42.a
+echo "=== RELEASE=1 ARM_LIB=1 BCD_MATH=1 OLDHW=1"
+RELEASE=1 ARM_LIB=1 BCD_MATH=1 CXXFLAGS="-Os -DDM42_OLDHW" make $MAKEOPT libfree42.a
 mv libfree42.a libfree42_bcd_rel.a
 

@@ -110,17 +110,19 @@ static int dirTypeCapacity = 0;
         [nameField setText:@""];
         dirName = @".";
     } else {
-        [dirName release];
         NSRange r = [dirName rangeOfString:@"/" options:NSBackwardsSearch];
         if (r.location == NSNotFound) {
             [nameField setText:dirName];
+            [dirName release];
             dirName = @".";
         } else {
             [nameField setText:[dirName substringFromIndex:r.location + 1]];
-            dirName = [dirName substringToIndex:r.location];
-            r = [dirName rangeOfString:@"./" options:NSAnchoredSearch];
+            NSString *newDirName = [dirName substringToIndex:r.location];
+            r = [newDirName rangeOfString:@"./" options:NSAnchoredSearch];
             if (r.location == NSNotFound)
-                dirName = [NSString stringWithFormat:@"./%@", dirName];
+                newDirName = [NSString stringWithFormat:@"./%@", newDirName];
+            [dirName release];
+            dirName = [newDirName retain];
         }
     }
     
@@ -177,12 +179,12 @@ static int dirTypeCapacity = 0;
             NSRange r = [dirName rangeOfString:@"/" options:NSBackwardsSearch];
             if (r.location == NSNotFound)
                 return nil;
-            newDirName = [[dirName substringToIndex:r.location] retain];
+            newDirName = [dirName substringToIndex:r.location];
         } else {
-            newDirName = [[NSString stringWithFormat:@"%@/%@", dirName, item] retain];
+            newDirName = [NSString stringWithFormat:@"%@/%@", dirName, item];
         }
         [dirName release];
-        dirName = newDirName;
+        dirName = [newDirName retain];
         [self performSelectorOnMainThread:@selector(typeChanged) withObject:nil waitUntilDone:NO];
     } else {
         // Selected item is a file
@@ -275,6 +277,34 @@ static int dirTypeCapacity = 0;
     [self typeChanged];
 }
 
+static int dirListCompare(int a, int b) {
+    if (dirType[a] != dirType[b])
+        // Directories always come first
+        return dirType[a] ? -1 : 1;
+    NSString *sa = [dirList objectAtIndex:a];
+    NSString *sb = [dirList objectAtIndex:b];
+    if (dirType[a]) {
+        if ([sa isEqualToString:@".."])
+            return -1;
+        else if ([sb isEqualToString:@".."])
+            return 1;
+    }
+    bool da = [sa characterAtIndex:0] == '.';
+    bool db = [sb characterAtIndex:0] == '.';
+    if (da != db)
+        return da ? -1 : 1;
+    return [sa caseInsensitiveCompare:sb];
+}
+
+static void dirListSwap(int a, int b) {
+    NSString *ts = [dirList objectAtIndex:a];
+    [dirList replaceObjectAtIndex:a withObject:[dirList objectAtIndex:b]];
+    [dirList replaceObjectAtIndex:b withObject:ts];
+    bool tb = dirType[a];
+    dirType[a] = dirType[b];
+    dirType[b] = tb;
+}
+
 - (IBAction) typeChanged {
     if (dirList == NULL)
         dirList = [[NSMutableArray arrayWithCapacity:10] retain];
@@ -297,11 +327,14 @@ static int dirTypeCapacity = 0;
     struct dirent *d;
     
     while ((d = readdir(dir)) != NULL) {
-        if (strcmp(d->d_name, ".") == 0)
+        if (strcmp(d->d_name, "..") == 0) {
+            if (strcmp(cDirName, ".") == 0)
+                // Don't show ".." in the top-level (Documents) directory
+                continue;
+        } else if (d->d_name[0] == '.') {
+            // Apart from '..', suppress everything that starts with '.'
             continue;
-        if (strcmp(d->d_name, "..") == 0 && strcmp(cDirName, ".") == 0)
-            // Don't show ".." in the top-level (Documents) directory
-            continue;
+        }
         char *p = (char *) malloc(strlen(cDirName) + strlen(d->d_name) + 2);
         strcpy(p, cDirName);
         strcat(p, "/");
@@ -329,6 +362,35 @@ static int dirTypeCapacity = 0;
         }
     }
     closedir(dir);
+
+    /* https://en.wikipedia.org/wiki/Heapsort#Standard_implementation */
+    int start = dirTypeLength / 2;
+    int end = dirTypeLength;
+    while (end > 1) {
+        if (start > 0) {    /* Heap construction */
+            start--;
+        } else {            /* Heap extraction */
+            end--;
+            dirListSwap(end, 0);
+        }
+
+        /* The following is siftDown(a, start, end) */
+        int root = start;
+        int child;
+        while ((child = root * 2 + 1) < end) {
+            /* If there is a right child and that child is greater */
+            if (child + 1 < end && dirListCompare(child, child + 1) < 0)
+                child++;
+
+            if (dirListCompare(root, child) < 0) {
+                dirListSwap(root, child);
+                root = child;         /* repeat to continue sifting down the child now */
+            } else {
+                break;                /* return to outer loop */
+            }
+        }
+    }
+
     [directoryListingView reloadData];
 }
 

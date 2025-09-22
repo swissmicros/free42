@@ -63,7 +63,7 @@ class Tracer {
 /* Some stuff to help native->java callbacks. */
 /**********************************************/
 
-static jobject g_activity;
+static jobject g_activity = NULL;
 static JavaVM *vm;
 
 extern "C" void
@@ -72,6 +72,8 @@ Java_com_thomasokken_free42_Free42Activity_nativeInit(JNIEnv *env, jobject thiz)
      * Java methods. The JNIEnv pointer is thread-local, so I don't cache it;
      * use the getJniEnv() function, defined below, to retrieve it when needed.
      */
+    if (g_activity != NULL)
+        env->DeleteGlobalRef(g_activity);
     g_activity = env->NewGlobalRef(thiz);
     env->GetJavaVM(&vm);
 }

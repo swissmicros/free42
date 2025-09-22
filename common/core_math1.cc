@@ -340,12 +340,12 @@ void put_shadow(const char *name, int length, phloat value) {
     solve.shadow_value[i] = value;
 }
 
-int get_shadow(const char *name, int length, phloat *value) {
+bool get_shadow(const char *name, int length, phloat *value) {
     int i = find_shadow(name, length);
     if (i == -1)
-        return 0;
+        return false;
     *value = solve.shadow_value[i];
-    return 1;
+    return true;
 }
 
 void remove_shadow(const char *name, int length) {
@@ -1119,8 +1119,18 @@ int start_integ(const char *name, int length) {
         return ERR_INVALID_TYPE;
     else
         integ.acc = ((vartype_real *) v)->x;
-    if (integ.acc < 0)
-        integ.acc = 0;
+    if (integ.acc > 1)
+        integ.acc = 1;
+    else {
+        phloat eps = phloat(1) - nextafter(phloat(1), phloat(0));
+        #ifdef BCD_MATH
+            eps *= 10;
+        #else
+            eps *= 8;
+        #endif
+        if (integ.acc < eps)
+            integ.acc = eps;
+    }
     string_copy(integ.var_name, &integ.var_length, name, length);
     string_copy(integ.active_prgm_name, &integ.active_prgm_length,
                 integ.prgm_name, integ.prgm_length);

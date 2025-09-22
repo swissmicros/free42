@@ -360,29 +360,29 @@ vartype *dup_vartype(const vartype *v) {
     }
 }
 
-int disentangle(vartype *v) {
+bool disentangle(vartype *v) {
     switch (v->type) {
         case TYPE_REALMATRIX: {
             vartype_realmatrix *rm = (vartype_realmatrix *) v;
             if (rm->array->refcount == 1)
-                return 1;
+                return true;
             else {
                 realmatrix_data *md = (realmatrix_data *)
                                         malloc(sizeof(realmatrix_data));
                 if (md == NULL)
-                    return 0;
+                    return false;
                 int4 sz = rm->rows * rm->columns;
                 int4 i;
                 md->data = (phloat *) malloc(sz * sizeof(phloat));
                 if (md->data == NULL) {
                     free(md);
-                    return 0;
+                    return false;
                 }
                 md->is_string = (char *) malloc(sz);
                 if (md->is_string == NULL) {
                     free(md->data);
                     free(md);
-                    return 0;
+                    return false;
                 }
                 for (i = 0; i < sz; i++) {
                     md->is_string[i] = rm->array->is_string[i];
@@ -395,7 +395,7 @@ int disentangle(vartype *v) {
                             free(md->is_string);
                             free(md->data);
                             free(md);
-                            return 0;
+                            return false;
                         }
                         memcpy(dp, sp, len);
                         *(int4 **) &md->data[i] = dp;
@@ -406,45 +406,45 @@ int disentangle(vartype *v) {
                 md->refcount = 1;
                 rm->array->refcount--;
                 rm->array = md;
-                return 1;
+                return true;
             }
         }
         case TYPE_COMPLEXMATRIX: {
             vartype_complexmatrix *cm = (vartype_complexmatrix *) v;
             if (cm->array->refcount == 1)
-                return 1;
+                return true;
             else {
                 complexmatrix_data *md = (complexmatrix_data *)
                                             malloc(sizeof(complexmatrix_data));
                 if (md == NULL)
-                    return 0;
+                    return false;
                 int4 sz = cm->rows * cm->columns * 2;
                 int4 i;
                 md->data = (phloat *) malloc(sz * sizeof(phloat));
                 if (md->data == NULL) {
                     free(md);
-                    return 0;
+                    return false;
                 }
                 for (i = 0; i < sz; i++)
                     md->data[i] = cm->array->data[i];
                 md->refcount = 1;
                 cm->array->refcount--;
                 cm->array = md;
-                return 1;
+                return true;
             }
         }
         case TYPE_LIST: {
             vartype_list *list = (vartype_list *) v;
             if (list->array->refcount == 1)
-                return 1;
+                return true;
             else {
                 list_data *ld = (list_data *) malloc(sizeof(list_data));
                 if (ld == NULL)
-                    return 0;
+                    return false;
                 ld->data = (vartype **) malloc(list->size * sizeof(vartype *));
                 if (ld->data == NULL && list->size != 0) {
                     free(ld);
-                    return 0;
+                    return false;
                 }
                 for (int4 i = 0; i < list->size; i++) {
                     vartype *vv = list->array->data[i];
@@ -455,7 +455,7 @@ int disentangle(vartype *v) {
                                 free_vartype(ld->data[j]);
                             free(ld->data);
                             free(ld);
-                            return 0;
+                            return false;
                         }
                     }
                     ld->data[i] = vv;
@@ -463,14 +463,14 @@ int disentangle(vartype *v) {
                 ld->refcount = 1;
                 list->array->refcount--;
                 list->array = ld;
-                return 1;
+                return true;
             }
         }
         case TYPE_REAL:
         case TYPE_COMPLEX:
         case TYPE_STRING:
         default:
-            return 1;
+            return true;
     }
 }
 
@@ -683,7 +683,7 @@ int matrix_copy(vartype *dst, const vartype *src) {
             int4 size = s->rows * s->columns;
             free_long_strings(d->array->is_string, d->array->data, size);
             memset(d->array->is_string, 0, size);
-            memcpy(d->array->data, s->array->data, size * sizeof(phloat));
+            memcpy((void *) d->array->data, (const void *) s->array->data, size * sizeof(phloat));
             return ERR_NONE;
         } else if (dst->type == TYPE_COMPLEXMATRIX) {
             vartype_complexmatrix *d = (vartype_complexmatrix *) dst;
@@ -706,7 +706,7 @@ int matrix_copy(vartype *dst, const vartype *src) {
         if (s->rows != d->rows || s->columns != d->columns)
             return ERR_DIMENSION_ERROR;
         int4 size = s->rows * s->columns * 2;
-        memcpy(d->array->data, s->array->data, size * sizeof(phloat));
+        memcpy((void *) d->array->data, (const void *) s->array->data, size * sizeof(phloat));
         return ERR_NONE;
     } else
         return ERR_INVALID_TYPE;

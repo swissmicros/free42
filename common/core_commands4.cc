@@ -251,9 +251,10 @@ int docmd_insr(arg_struct *arg) {
     return ERR_NONE;
 }
 
-static void invrt_completion(int error, vartype *res) {
+static int invrt_completion(int error, vartype *res) {
     if (error == ERR_NONE)
         unary_result(res);
+    return error;
 }
 
 int docmd_invrt(arg_struct *arg) {
@@ -553,7 +554,7 @@ int docmd_rclel(arg_struct *arg) {
         int4 n = matedit_i * cm->columns + matedit_j;
         v = new_complex(cm->array->data[2 * n],
                         cm->array->data[2 * n + 1]);
-    } else if (m->type == TYPE_LIST) {
+    } else {
         vartype_list *list = (vartype_list *) m;
         if (list->size == 0)
             return ERR_NONEXISTENT;

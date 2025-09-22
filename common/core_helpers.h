@@ -36,6 +36,7 @@ int recall_result(vartype *v);
 int recall_two_results(vartype *x, vartype *y);
 void unary_result(vartype *x);
 int unary_two_results(vartype *x, vartype *y);
+int unary_no_result();
 int binary_result(vartype *x);
 void binary_two_results(vartype *x, vartype *y);
 int ternary_result(vartype *x);
@@ -52,6 +53,8 @@ bool string_equals(const char *s1, int s1len, const char *s2, int s2len);
 int string_pos(const char *ntext, int nlen, const vartype *hs, int startpos);
 bool vartype_equals(const vartype *v1, const vartype *v2);
 int anum(const char *text, int len, phloat *res);
+void fix_thousands_separators(char *buf, int *bufptr);
+void fix_base_separators(char *buf, int *bufptr);
 
 #define undefined_char(c) ((c) >= 139)
 

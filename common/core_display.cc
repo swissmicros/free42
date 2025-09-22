@@ -33,13 +33,6 @@
 /* HP-42S font data */
 /********************/
 
-#if defined(WINDOWS) && !defined(__GNUC__)
-/* Disable warnings:
- * C4838: conversion from 'int' to 'const char' requires a narrowing conversion
- */
-#pragma warning(push)
-#pragma warning(disable:4838)
-#endif
 
 #include <string.h>
 #include <stdio.h>
@@ -187,7 +180,7 @@ static const unsigned char bigchars[138][5] =
         { 0x22, 0x14, 0x2a, 0x14, 0x08 },
     };
 
-static const char smallchars[454] =
+static const unsigned char smallchars[454] =
     {
         0x00, 0x00, 0x00,
         0x5c,
@@ -327,7 +320,7 @@ static const char smallchars[454] =
         0x44, 0x28, 0x54, 0x28, 0x10,
     };
 
-static short smallchars_offset[137] =
+static const short smallchars_offset[137] =
     {
           0,
           3,
@@ -468,7 +461,7 @@ static short smallchars_offset[137] =
         454,
     };
 
-static char smallchars_map[138] =
+static const unsigned char smallchars_map[138] =
     {
         /*   0 */  70,
         /*   1 */  71,
@@ -609,11 +602,6 @@ static char smallchars_map[138] =
         /* 136 */ 134,
         /* 137 */ 135,
     };
-
-#if defined(WINDOWS) && !defined(__GNUC__)
-#pragma warning(pop)
-#endif
-
 
 
 static char display[272];
@@ -1073,7 +1061,7 @@ int prgmline2buf(char *buf, int len, int4 line, int highlight,
         if (line < 10)
             char2buf(buf, len, &bufptr, '0');
         bufptr += int2string(line, buf + bufptr, len - bufptr);
-        char h = highlight == 0 ? ' ' : highlight == 2 && prgms[current_prgm].locked ? 135 : 6;
+        char h = highlight == 0 ? ' ' : highlight == 2 && prgms[current_prgm].locked ? (char) 135 : 6;
         char2buf(buf, len, &bufptr, h);
     }
 
@@ -1198,7 +1186,7 @@ void tb_print_current_program(textbuf *tb) {
         char *buf2 = xstr == NULL ? buf : xstr;
         for (int i = 0; i < len; i++)
             if (buf2[i] == 10)
-                buf2[i] = 138;
+                buf2[i] = (char) 138;
         int off = 0;
         while (len > 0) {
             int slen = len <= 100 ? len : 100;
@@ -1216,7 +1204,7 @@ void tb_print_current_program(textbuf *tb) {
 void display_prgm_line(int row, int line_offset) {
     int4 tmppc = pc;
     int4 tmpline = pc2line(pc);
-    int cmd;
+    int cmd = CMD_NONE;
     arg_struct arg;
     char buf[44];
     int bufptr;
@@ -1338,7 +1326,7 @@ void display_incomplete_command(int row) {
         if (line < 10)
             char2buf(buf, 40, &bufptr, '0');
         bufptr += int2string(line, buf + bufptr, 40 - bufptr);
-        char2buf(buf, 40, &bufptr, prgms[current_prgm].locked ? 135 : 6);
+        char2buf(buf, 40, &bufptr, prgms[current_prgm].locked ? (char) 135 : 6);
     }
 
     if (incomplete_command == CMD_ASSIGNb) {
@@ -1563,7 +1551,7 @@ void draw_varmenu() {
     varmenu_rows = (num_mvars + 5) / 6;
     if (varmenu_row >= varmenu_rows)
         varmenu_row = varmenu_rows - 1;
-    shell_annunciators(varmenu_rows > 1, -1, -1, -1, -1, -1);
+    set_annunciators(varmenu_rows > 1, -1, -1, -1, -1, -1);
 
     row = 0;
     key = 0;
@@ -1646,7 +1634,15 @@ static int ext_xfcn_cat[] = {
 };
 
 static int ext_base_cat[] = {
-    CMD_BRESET, CMD_BSIGNED, CMD_BWRAP, CMD_WSIZE, CMD_WSIZE_T, CMD_A_THRU_F_2
+    CMD_SL,      CMD_SR,      CMD_RL,      CMD_RR,      CMD_RLC,     CMD_RRC,
+    CMD_LJ,      CMD_ASR,     CMD_RLN,     CMD_RRN,     CMD_RLCN,    CMD_RRCN,
+    CMD_SB,      CMD_CB,      CMD_B_T,     CMD_NUM_B,   CMD_MASKL,   CMD_MASKR,
+    CMD_SC,      CMD_CC,      CMD_C_T,     CMD_NULL,    CMD_NULL,    CMD_NULL,
+    CMD_SLN,     CMD_SRN,     CMD_ASRN,    CMD_RJ,      CMD_NULL,    CMD_NULL,
+    CMD_N_TO_BS, CMD_BS_TO_N, CMD_N_TO_BD, CMD_BD_TO_N, CMD_N_TO_BQ, CMD_BQ_TO_N,
+    CMD_N_TO_DS, CMD_DS_TO_N, CMD_N_TO_DD, CMD_DD_TO_N, CMD_N_TO_DQ, CMD_DQ_TO_N,
+    CMD_BRESET,  CMD_BSIGNED, CMD_BWRAP,   CMD_WSIZE,   CMD_WSIZE_T, CMD_A_THRU_F_2,
+    CMD_DECINT,  CMD_NULL,    CMD_HEXSEP,  CMD_DECSEP,  CMD_OCTSEP,  CMD_BINSEP
 };
 
 static int ext_prgm_cat[] = {
@@ -1672,37 +1668,38 @@ static int ext_stk_cat[] = {
 #if defined(ANDROID) || defined(IPHONE)
 #ifdef FREE42_FPTEST
 static int ext_misc_cat[] = {
-    CMD_A2LINE,  CMD_A2PLINE, CMD_CAPS,   CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_FMA,
-    CMD_GETLI,   CMD_GETMI,   CMD_HEIGHT, CMD_IDENT,    CMD_LOCK,        CMD_MIXED,
-    CMD_PCOMPLX, CMD_PRREG,   CMD_PUTLI,  CMD_PUTMI,    CMD_RCOMPLX,     CMD_STRACE,
-    CMD_UNLOCK,  CMD_WIDTH,   CMD_X2LINE, CMD_ACCEL,    CMD_LOCAT,       CMD_HEADING,
-    CMD_FPTEST,  CMD_NULL,    CMD_NULL,   CMD_NULL,     CMD_NULL,        CMD_NULL
+    CMD_A2LINE, CMD_A2PLINE, CMD_CAPS,   CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_DYNAMIC,
+    CMD_FMA,    CMD_GETLI,   CMD_GETMI,  CMD_HEIGHT,   CMD_IDENT,       CMD_LOCK,
+    CMD_MIXED,  CMD_PCOMPLX, CMD_PRREG,  CMD_PUTLI,    CMD_PUTMI,       CMD_RCOMPLX,
+    CMD_STATIC, CMD_STRACE,  CMD_UNLOCK, CMD_WIDTH,    CMD_X2LINE,      CMD_ACCEL,
+    CMD_LOCAT,  CMD_HEADING, CMD_FPTEST, CMD_NULL,     CMD_NULL,        CMD_NULL
 };
 #define MISC_CAT_ROWS 5
 #else
 static int ext_misc_cat[] = {
-    CMD_A2LINE,  CMD_A2PLINE, CMD_CAPS,   CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_FMA,
-    CMD_GETLI,   CMD_GETMI,   CMD_HEIGHT, CMD_IDENT,    CMD_LOCK,        CMD_MIXED,
-    CMD_PCOMPLX, CMD_PRREG,   CMD_PUTLI,  CMD_PUTMI,    CMD_RCOMPLX,     CMD_STRACE,
-    CMD_UNLOCK,  CMD_WIDTH,   CMD_X2LINE, CMD_ACCEL,    CMD_LOCAT,       CMD_HEADING
+    CMD_A2LINE, CMD_A2PLINE, CMD_CAPS,   CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_DYNAMIC,
+    CMD_FMA,    CMD_GETLI,   CMD_GETMI,  CMD_HEIGHT,   CMD_IDENT,       CMD_LOCK,
+    CMD_MIXED,  CMD_PCOMPLX, CMD_PRREG,  CMD_PUTLI,    CMD_PUTMI,       CMD_RCOMPLX,
+    CMD_STATIC, CMD_STRACE,  CMD_UNLOCK, CMD_WIDTH,    CMD_X2LINE,      CMD_ACCEL,
+    CMD_LOCAT,  CMD_HEADING, CMD_NULL,   CMD_NULL,     CMD_NULL,        CMD_NULL
 };
-#define MISC_CAT_ROWS 4
+#define MISC_CAT_ROWS 5
 #endif
 #else
 #ifdef FREE42_FPTEST
 static int ext_misc_cat[] = {
-    CMD_A2LINE,  CMD_A2PLINE, CMD_CAPS,   CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_FMA,
-    CMD_GETLI,   CMD_GETMI,   CMD_HEIGHT, CMD_IDENT,    CMD_LOCK,        CMD_MIXED,
-    CMD_PCOMPLX, CMD_PRREG,   CMD_PUTLI,  CMD_PUTMI,    CMD_RCOMPLX,     CMD_STRACE,
-    CMD_UNLOCK,  CMD_WIDTH,   CMD_X2LINE, CMD_FPTEST,   CMD_NULL,        CMD_NULL
+    CMD_A2LINE, CMD_A2PLINE, CMD_CAPS,   CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_DYNAMIC,
+    CMD_FMA,    CMD_GETLI,   CMD_GETMI,  CMD_HEIGHT,   CMD_IDENT,       CMD_LOCK,
+    CMD_MIXED,  CMD_PCOMPLX, CMD_PRREG,  CMD_PUTLI,    CMD_PUTMI,       CMD_RCOMPLX,
+    CMD_STATIC, CMD_STRACE,  CMD_UNLOCK, CMD_WIDTH,    CMD_X2LINE,      CMD_FPTEST
 };
 #define MISC_CAT_ROWS 4
 #else
 static int ext_misc_cat[] = {
-    CMD_A2LINE,  CMD_A2PLINE, CMD_CAPS,   CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_FMA,
-    CMD_GETLI,   CMD_GETMI,   CMD_HEIGHT, CMD_IDENT,    CMD_LOCK,        CMD_MIXED,
-    CMD_PCOMPLX, CMD_PRREG,   CMD_PUTLI,  CMD_PUTMI,    CMD_RCOMPLX,     CMD_STRACE,
-    CMD_UNLOCK,  CMD_WIDTH,   CMD_X2LINE, CMD_NULL,     CMD_NULL,        CMD_NULL
+    CMD_A2LINE, CMD_A2PLINE, CMD_CAPS,   CMD_C_LN_1_X, CMD_C_E_POW_X_1, CMD_DYNAMIC,
+    CMD_FMA,    CMD_GETLI,   CMD_GETMI,  CMD_HEIGHT,   CMD_IDENT,       CMD_LOCK,
+    CMD_MIXED,  CMD_PCOMPLX, CMD_PRREG,  CMD_PUTLI,    CMD_PUTMI,       CMD_RCOMPLX,
+    CMD_STATIC, CMD_STRACE,  CMD_UNLOCK, CMD_WIDTH,    CMD_X2LINE,      CMD_NULL
 };
 #define MISC_CAT_ROWS 4
 #endif
@@ -1728,7 +1725,7 @@ static void draw_catalog() {
         draw_key(4, 0, 0, "MAT", 3);
         draw_key(5, 0, 0, "MEM", 3);
         mode_updown = true;
-        shell_annunciators(1, -1, -1, -1, -1, -1);
+        set_annunciators(1, -1, -1, -1, -1, -1);
     } else if (catsect == CATSECT_EXT_1) {
         draw_key(0, 0, 0, "TIME", 4);
         draw_key(1, 0, 0, "XFCN", 4);
@@ -1737,7 +1734,7 @@ static void draw_catalog() {
         draw_key(4, 0, 0, "STR", 3);
         draw_key(5, 0, 0, "STK", 3);
         mode_updown = true;
-        shell_annunciators(1, -1, -1, -1, -1, -1);
+        set_annunciators(1, -1, -1, -1, -1, -1);
     } else if (catsect == CATSECT_EXT_2) {
         draw_key(0, 0, 0, "MISC", 4);
         draw_key(1, 0, 0, "", 0);
@@ -1746,7 +1743,7 @@ static void draw_catalog() {
         draw_key(4, 0, 0, "", 0);
         draw_key(5, 0, 0, "", 0);
         mode_updown = true;
-        shell_annunciators(1, -1, -1, -1, -1, -1);
+        set_annunciators(1, -1, -1, -1, -1, -1);
     } else if (catsect == CATSECT_PGM
             || catsect == CATSECT_PGM_ONLY
             || catsect == CATSECT_PGM_SOLVE
@@ -1772,7 +1769,7 @@ static void draw_catalog() {
             catalogmenu_row[catindex] = catalogmenu_rows[catindex] - 1;
         j = -1;
         for (i = labels_count - 1; i >= 0; i--) {
-            int show_this_label;
+            bool show_this_label;
             if (catsect == CATSECT_PGM || catsect == CATSECT_PGM_ONLY) {
                 show_this_label = labels[i].length > 0 || i == 0
                                     || labels[i - 1].prgm != labels[i].prgm;
@@ -1802,7 +1799,7 @@ static void draw_catalog() {
             catalogmenu_item[catindex][k] = -1;
         }
         mode_updown = catalogmenu_rows[catindex] > 1;
-        shell_annunciators(mode_updown, -1, -1, -1, -1, -1);
+        set_annunciators(mode_updown, -1, -1, -1, -1, -1);
     } else if (catsect == CATSECT_FCN
             || catsect >= CATSECT_EXT_TIME && catsect <= CATSECT_EXT_X_CMP) {
         int *subcat;
@@ -1811,7 +1808,7 @@ static void draw_catalog() {
             case CATSECT_FCN: subcat = fcn_cat; subcat_rows = 43; break;
             case CATSECT_EXT_TIME: subcat = ext_time_cat; subcat_rows = 3; break;
             case CATSECT_EXT_XFCN: subcat = ext_xfcn_cat; subcat_rows = 1; break;
-            case CATSECT_EXT_BASE: subcat = ext_base_cat; subcat_rows = 1; break;
+            case CATSECT_EXT_BASE: subcat = ext_base_cat; subcat_rows = 9; break;
             case CATSECT_EXT_PRGM: subcat = ext_prgm_cat; subcat_rows = 4; break;
             case CATSECT_EXT_STR: subcat = ext_str_cat; subcat_rows = 4; break;
             case CATSECT_EXT_STK: subcat = ext_stk_cat; subcat_rows = 3; break;
@@ -1836,7 +1833,7 @@ static void draw_catalog() {
         }
         catalogmenu_rows[catindex] = subcat_rows;
         mode_updown = subcat_rows > 1;
-        shell_annunciators(mode_updown ? 1 : 0, -1, -1, -1, -1, -1);
+        set_annunciators(mode_updown ? 1 : 0, -1, -1, -1, -1, -1);
     } else {
         int vcount = 0;
         int i, j, k = -1;
@@ -1942,7 +1939,7 @@ static void draw_catalog() {
             catalogmenu_item[catindex][k] = -1;
         }
         mode_updown = catalogmenu_rows[catindex] > 1;
-        shell_annunciators(mode_updown, -1, -1, -1, -1, -1);
+        set_annunciators(mode_updown, -1, -1, -1, -1, -1);
     }
 }
 
@@ -2213,10 +2210,10 @@ void redisplay() {
         if (flags.f.local_label
                 && !(mode_command_entry && incomplete_argtype == ARG_CKEY)) {
             for (i = 0; i < 5; i++) {
-                char c = (r == 0 ? 'A' : 'F') + i;
+                char c = (r == 0 ? (mode_menu_caps || mode_menu_static || !mode_shift ? 'A' : 'a') : 'F') + i;
                 draw_key(i, 0, 0, &c, 1);
             }
-            draw_key(5, 0, 0, "XEQ", 3);
+            draw_key(5, 0, 0, mode_menu_static || !mode_shift ? "XEQ" : "GTO", 3);
         } else {
             for (i = 0; i < 6; i++) {
                 draw_key(i, 0, 1, custommenu_label[r][i],
@@ -2302,6 +2299,21 @@ void redisplay() {
                         case CMD_BWRAP:
                             is_flag = flags.f.base_wrap;
                             break;
+                        case CMD_DECINT:
+                            is_flag = mode_dec_int;
+                            break;
+                        case CMD_BINSEP:
+                            is_flag = mode_bin_sep;
+                            break;
+                        case CMD_OCTSEP:
+                            is_flag = mode_oct_sep;
+                            break;
+                        case CMD_DECSEP:
+                            is_flag = mode_dec_sep;
+                            break;
+                        case CMD_HEXSEP:
+                            is_flag = mode_hex_sep;
+                            break;
                         case CMD_MDY:
                             is_flag = !flags.f.ymd && !flags.f.dmy;
                             break;
@@ -2328,6 +2340,12 @@ void redisplay() {
                             break;
                         case CMD_MIXED:
                             is_flag = !mode_menu_caps;
+                            break;
+                        case CMD_STATIC:
+                            is_flag = mode_menu_static;
+                            break;
+                        case CMD_DYNAMIC:
+                            is_flag = !mode_menu_static;
                             break;
                         case CMD_PON:
                             is_flag = flags.f.printer_exists;
@@ -2389,7 +2407,50 @@ void redisplay() {
                             break;
                     }
                 }
-                draw_key(i, is_flag, 1, cmd->name, cmd->name_length);
+                int scmd = CMD_NONE;
+                if (!mode_menu_static && mode_shift) {
+                    switch (menu_id) {
+                        case MENU_TOP_FCN: {
+                            switch (i) {
+                                case 0: scmd = CMD_SIGMASUB; break;
+                                case 1: scmd = CMD_Y_POW_X; break;
+                                case 2: scmd = CMD_SQUARE; break;
+                                case 3: scmd = CMD_10_POW_X; break;
+                                case 4: scmd = CMD_E_POW_X; break;
+                                case 5: scmd = CMD_GTO; break;
+                            }
+                            break;
+                        }
+                        case MENU_PGM_FCN1: {
+                            if (i == 5)
+                                scmd = CMD_GTO;
+                            break;
+                        }
+                        case MENU_STAT1: {
+                            if (i == 0)
+                                scmd = CMD_SIGMASUB;
+                            break;
+                        }
+                        case MENU_BASE2: {
+                            if (i == 0)
+                                scmd = CMD_SLN;
+                            else if (i == 1)
+                                scmd = CMD_SRN;
+                            break;
+                        }
+                        case MENU_BASE3: {
+                            if (i == 0)
+                                scmd = CMD_RJ;
+                            else if (i == 1)
+                                scmd = CMD_ASRN;
+                            break;
+                        }
+                    }
+                }
+                if (scmd == CMD_NONE)
+                    draw_key(i, is_flag, 1, cmd->name, cmd->name_length);
+                else
+                    draw_key(i, is_flag, 1, cmd_array[scmd].name, cmd_array[scmd].name_length);
             }
         }
         avail_rows = 1;
@@ -2501,7 +2562,7 @@ int print_program(int prgm_index, int4 pc, int4 lines, bool normal) {
     if (dat == NULL)
         return ERR_INSUFFICIENT_MEMORY;
 
-    shell_annunciators(-1, -1, 1, -1, -1, -1);
+    set_annunciators(-1, -1, 1, -1, -1, -1);
     dat->len = 0;
     dat->saved_prgm = current_prgm;
     dat->cmd = CMD_NONE;
@@ -2650,7 +2711,7 @@ static int print_program_worker(bool interrupted) {
     done:
     current_prgm = dat->saved_prgm;
     free(dat);
-    shell_annunciators(-1, -1, 0, -1, -1, -1);
+    set_annunciators(-1, -1, 0, -1, -1, -1);
     return ERR_STOP;
 }
 
@@ -2852,7 +2913,7 @@ int set_menu_return_err(int level, int menuid, bool exitall) {
         }
     } else
         mode_updown = false;
-    shell_annunciators(mode_updown, -1, -1, -1, -1, -1);
+    set_annunciators(mode_updown, -1, -1, -1, -1, -1);
     return ERR_NONE;
 }
 
@@ -2878,7 +2939,7 @@ void set_plainmenu(int menuid, const char *name, int length) {
         mode_plainmenu_sticky = 1;
         redisplay();
         mode_updown = 1;
-        shell_annunciators(1, -1, -1, -1, -1, -1);
+        set_annunciators(1, -1, -1, -1, -1, -1);
     } else {
         /* Even if it's a different menu than the current one, it should
          * still stick if it belongs to the same group.
@@ -2917,7 +2978,7 @@ void set_plainmenu(int menuid, const char *name, int length) {
         mode_updown = mode_plainmenu == MENU_CATALOG
                 || mode_plainmenu != MENU_NONE
                         && menus[mode_plainmenu].next != MENU_NONE;
-        shell_annunciators(mode_updown, -1, -1, -1, -1, -1);
+        set_annunciators(mode_updown, -1, -1, -1, -1, -1);
     }
 }
 

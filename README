@@ -23,7 +23,7 @@ Building on Raspbian 10
 
 # apt install libgtk-3-dev
 # apt install libasound2-dev
-$ git clone https://github.com/thomasokken/free42.git
+$ git clone https://codeberg.org/thomasokken/free42.git
 $ cd free42/gtk
 $ make BCD_MATH=1 AUDIO_ALSA=1
 
@@ -56,6 +56,28 @@ Now, some more stuff:
 
 pkg install devel/pkgconf
 pkg install devel/gmake
+
+
+-------------------------------------------------------------------------------
+Creating Free42 build environment in Solaris
+
+Create VirtualBox VM (using VirtualBox 7.0.24)
+Install Solaris 11.4 using sol-11_4-vbox.ova from Oracle, and configure it
+per the instructions at
+https://www.oracle.com/it-infrastructure/technologies/handsonlab-solaris11-on-vm-virtualbox.html
+
+then:
+
+# pkgadd -d http://get.opencsw.org/now
+# /opt/csw/bin/pkgutil -U
+# /opt/csw/bin/pkgutil -y -i git
+# /opt/csw/bin/pkgutil -y -i pkgconfig
+# pkg install gcc
+
+Add this to your .profile:
+
+export PATH=$PATH:/opt/csw/bin
+export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:/usr/lib/amd64/pkgconfig:/usr/share/pkgconfig
 
 
 -------------------------------------------------------------------------------
@@ -156,7 +178,7 @@ XEQ 117, XEQ 118.
 These commands do actually work, but entering the corresponding labels into a
 program is a bit tricky...
 
-->POL and ->REC with a real number in X reject a string in Y (good), accept a
+→POL and →REC with a real number in X reject a string in Y (good), accept a
 real number in Y (good), accept a complex number in Y but only use its real
 part (undocumented and not very useful), and accept real and complex matrices
 in Y with weird results. I'd say the complex and matrix cases are all bugs,

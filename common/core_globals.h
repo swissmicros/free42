@@ -162,7 +162,7 @@ extern const error_spec errors[];
 #define MENU_MODES2        23
 #define MENU_MODES3        24
 #define MENU_MODES4        25
-#define MENU_MODES5        26
+#define MENU_MODES_MENUS   26
 #define MENU_DISP          27
 #define MENU_CLEAR1        28
 #define MENU_CLEAR2        29
@@ -197,12 +197,20 @@ extern const error_spec errors[];
 #define MENU_MATRIX_SIMQ   58
 #define MENU_MATRIX_EDIT1  59
 #define MENU_MATRIX_EDIT2  60
-#define MENU_BASE          61
-#define MENU_BASE_A_THRU_F 62
-#define MENU_BASE_LOGIC    63
-#define MENU_SOLVE         64
-#define MENU_INTEG         65
-#define MENU_INTEG_PARAMS  66
+#define MENU_BASE1         61
+#define MENU_BASE2         62
+#define MENU_BASE3         63
+#define MENU_BASE4         64
+#define MENU_BASE5         65
+#define MENU_BASE_A_THRU_F 66
+#define MENU_BASE_LOGIC    67
+#define MENU_BASE_FLOAT1   68
+#define MENU_BASE_FLOAT2   69
+#define MENU_BASE_MODES    70
+#define MENU_BASE_DISP     71
+#define MENU_SOLVE         72
+#define MENU_INTEG         73
+#define MENU_INTEG_PARAMS  74
 
 
 struct menu_item_spec {
@@ -412,7 +420,14 @@ extern int mode_goose;
 extern bool mode_time_clktd;
 extern bool mode_time_clk24;
 extern int mode_wsize;
+extern bool mode_carry;
+extern bool mode_dec_int;
+extern bool mode_bin_sep;
+extern bool mode_oct_sep;
+extern bool mode_dec_sep;
+extern bool mode_hex_sep;
 extern bool mode_menu_caps;
+extern bool mode_menu_static;
 #if defined(ANDROID) || defined(IPHONE)
 extern bool mode_popup_unknown;
 #endif
@@ -532,8 +547,8 @@ int clear_prgm(const arg_struct *arg);
 int clear_prgm_by_index(int prgm_index);
 void clear_prgm_lines(int4 count);
 void goto_dot_dot(bool force_new);
-int mvar_prgms_exist();
-int label_has_mvar(int lblindex);
+bool mvar_prgms_exist();
+bool label_has_mvar(int lblindex);
 int get_command_length(int prgm, int4 pc);
 void get_next_command(int4 *pc, int *command, arg_struct *arg, int find_target, const char **num_str);
 void rebuild_label_table();
@@ -548,8 +563,8 @@ int4 line2pc(int4 line);
 int4 global_pc2line(int prgm, int4 pc);
 int4 global_line2pc(int prgm, int4 line);
 int4 find_local_label(const arg_struct *arg);
-int find_global_label(const arg_struct *arg, int *prgm, int4 *pc);
-int find_global_label_index(const arg_struct *arg, int *idx);
+bool find_global_label(const arg_struct *arg, int *prgm, int4 *pc);
+bool find_global_label_index(const arg_struct *arg, int *idx);
 int push_rtn_addr(int prgm, int4 pc);
 int push_indexed_matrix();
 void maybe_pop_indexed_matrix(const char *name, int len);

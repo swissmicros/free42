@@ -428,7 +428,7 @@ void skin_load(wchar_t *skinname, const wchar_t *basedir, long *width, long *hei
             if (quot1 != NULL) {
                 char *quot2 = strchr(quot1 + 1, '"');
                 if (quot2 != NULL) {
-                    long len = quot2 - quot1 - 1;
+                    long len = (long) (quot2 - quot1 - 1);
                     if (len > SKIN_MAX_HALF_MACRO_LENGTH)
                         len = SKIN_MAX_HALF_MACRO_LENGTH;
                     int n;
@@ -446,7 +446,7 @@ void skin_load(wchar_t *skinname, const wchar_t *basedir, long *width, long *hei
                         if (quot1 != NULL) {
                             quot2 = strchr(quot1 + 1, *quot1);
                             if (quot2 != NULL) {
-                                len = quot2 - quot1 - 1;
+                                len = (long) (quot2 - quot1 - 1);
                                 if (len > SKIN_MAX_HALF_MACRO_LENGTH)
                                     len = SKIN_MAX_HALF_MACRO_LENGTH;
                                 memcpy(macro->macro2, quot1 + 1, len);
@@ -578,8 +578,8 @@ void skin_load(wchar_t *skinname, const wchar_t *basedir, long *width, long *hei
     disp_bitmap->SetPalette(&pal.pal);
 }
 
-int skin_init_image(int type, int ncolors, const SkinColor *colors,
-                    int width, int height) {
+bool skin_init_image(int type, int ncolors, const SkinColor *colors,
+                     int width, int height) {
     if (skin_bitmap != NULL) {
         delete skin_bitmap;
         skin_bitmap = NULL;
@@ -609,7 +609,7 @@ int skin_init_image(int type, int ncolors, const SkinColor *colors,
             skin_bytesperline = (width * 3 + 3) & ~3;
             break;
         default:
-            return 0;
+            return false;
     }
 
     skin_data = (unsigned char *) malloc(skin_bytesperline * height);
@@ -1090,12 +1090,15 @@ void skin_find_key(int x, int y, bool cshift, int *skey, int *ckey) {
     *ckey = 0;
 }
 
-int skin_find_skey(int ckey) {
-    int i;
-    for (i = 0; i < nkeys; i++)
+int skin_find_skey(int ckey, bool cshift) {
+    int fuzzy_match = -1;
+    for (int i = 0; i < nkeys; i++)
         if (keylist[i].code == ckey || keylist[i].shifted_code == ckey)
-            return i;
-    return -1;
+            if ((cshift ? keylist[i].shifted_code : keylist[i].code) == ckey)
+                return i;
+            else if (fuzzy_match == -1)
+                fuzzy_match = i;
+    return fuzzy_match;
 }
 
 unsigned char *skin_find_macro(int ckey, int *type) {

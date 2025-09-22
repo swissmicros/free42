@@ -56,13 +56,16 @@ int my_remove(const char *name);
 static void set_shift(bool state) {
     if (mode_shift != state) {
         mode_shift = state;
-        shell_annunciators(-1, state, -1, -1, -1, -1);
+        set_annunciators(-1, state, -1, -1, -1, -1);
     }
 }
 
+static bool initialized = false;
+bool quitting = false;
+
 static void continue_running();
 static void stop_interruptible();
-static int handle_error(int error);
+static bool handle_error(int error);
 
 int repeating = 0;
 int repeating_shift;
@@ -137,6 +140,9 @@ void core_init(int read_saved_state, int4 version, const char *state_file_name, 
     }
 #endif
 
+    initialized = true;
+    quitting = false;
+
     repaint_display();
     #if defined(ANDROID) || defined(IPHONE)
     mode_popup_unknown = true;
@@ -183,6 +189,10 @@ void core_save_state(const char *state_file_name) {
 }
 
 void core_cleanup() {
+    if (!initialized)
+        return;
+
+    initialized = false;
     for (int i = 0; i <= sp; i++)
         free_vartype(stack[i]);
     sp = -1;
@@ -201,7 +211,17 @@ void core_cleanup() {
     clean_vartype_pools();
 }
 
+void set_annunciators(int updn, int shf, int prt, int run, int g, int rad) {
+    if (!initialized || quitting)
+        return;
+
+    shell_annunciators(updn, shf, prt, run, g, rad);
+}
+
 void core_repaint_display() {
+    if (!initialized || quitting)
+        return;
+
     repaint_display();
 }
 
@@ -293,22 +313,32 @@ static bool core_keydown_2(int key, bool *enqueued, int *repeat) {
     *enqueued = 0;
     *repeat = 0;
 
+    if (!initialized || quitting)
+        return false;
+
     if (key != 0)
         no_keystrokes_yet = false;
 
     if (key == KEY_SHIFT) {
         set_shift(!mode_shift);
+        if (!mode_menu_static) {
+            int menuid = get_front_menu();
+            if (menuid == MENU_TOP_FCN || menuid == MENU_PGM_FCN1 || menuid == MENU_STAT1
+                    || menuid == MENU_BASE2 || menuid == MENU_BASE3
+                    || menuid == MENU_CUSTOM1 || menuid == MENU_CUSTOM2 || menuid == MENU_CUSTOM3)
+                redisplay();
+        }
         return (mode_running && !mode_getkey && !mode_pause) || keybuf_head != keybuf_tail;
     }
 
     if (mode_pause) {
         if (key == 0)
-            return 0;
+            return false;
         mode_pause = false;
         set_running(false);
         if (!mode_shift && (key == KEY_RUN || key == KEY_EXIT)) {
             redisplay();
-            return 0;
+            return false;
         }
     }
 
@@ -317,7 +347,8 @@ static bool core_keydown_2(int key, bool *enqueued, int *repeat) {
          * (e.g., INVRT, PRP); queue up any keystrokes and invoke
          * the appropriate callback to keep the function moving along
          */
-        int error, keep_running;
+        int error;
+        bool keep_running;
         if (key != 0) {
             /* Enqueue... */
             *enqueued = 1;
@@ -325,7 +356,7 @@ static bool core_keydown_2(int key, bool *enqueued, int *repeat) {
                     (mode_stoppable && !mode_shift && key == KEY_RUN)) {
                 keybuf_tail = keybuf_head;
                 stop_interruptible();
-                return 0;
+                return false;
             } else {
                 if (((keybuf_head + 1) & 15) != keybuf_tail) {
                     if (mode_shift)
@@ -339,21 +370,21 @@ static bool core_keydown_2(int key, bool *enqueued, int *repeat) {
         error = mode_interruptible(false);
         if (error == ERR_INTERRUPTIBLE)
             /* Still not done */
-            return 1;
+            return true;
         mode_interruptible = NULL;
         keep_running = handle_error(error);
         if (mode_running) {
             if (!keep_running)
                 set_running(false);
         } else {
-            shell_annunciators(-1, -1, -1, 0, -1, -1);
+            set_annunciators(-1, -1, -1, 0, -1, -1);
             pending_command = CMD_NONE;
         }
         if (mode_running || keybuf_tail != keybuf_head)
-            return 1;
+            return true;
         else {
             redisplay();
-            return 0;
+            return false;
         }
     }
 
@@ -367,7 +398,7 @@ static bool core_keydown_2(int key, bool *enqueued, int *repeat) {
                 set_shift(false);
                 set_running(false);
                 pending_command = CMD_CANCELLED;
-                return 0;
+                return false;
             }
             /* Enqueue... */
             *enqueued = 1;
@@ -375,7 +406,7 @@ static bool core_keydown_2(int key, bool *enqueued, int *repeat) {
                 keybuf_tail = keybuf_head;
                 set_running(false);
                 redisplay();
-                return 0;
+                return false;
             }
             if (((keybuf_head + 1) & 15) != keybuf_tail) {
                 if (mode_shift)
@@ -387,7 +418,7 @@ static bool core_keydown_2(int key, bool *enqueued, int *repeat) {
         }
         continue_running();
         if ((mode_running && !mode_getkey && !mode_pause) || keybuf_tail != keybuf_head)
-            return 1;
+            return true;
         else {
             if (mode_getkey)
                 /* Technically, the program is still running, but we turn
@@ -395,10 +426,10 @@ static bool core_keydown_2(int key, bool *enqueued, int *repeat) {
                  * cue that they may now type. (Actually, I'm doing it
                  * purely because the HP-42S does it, too!)
                  */
-                shell_annunciators(-1, -1, -1, 0, -1, -1);
+                set_annunciators(-1, -1, -1, 0, -1, -1);
             else if (!mode_pause)
                 redisplay();
-            return 0;
+            return false;
         }
     }
 
@@ -422,7 +453,7 @@ static bool core_keydown_2(int key, bool *enqueued, int *repeat) {
          * We now turn it back on since program execution resumes.
          */
         if (mode_getkey && mode_running)
-            shell_annunciators(-1, -1, -1, 1, -1, -1);
+            set_annunciators(-1, -1, -1, 1, -1, -1);
         /* Feed the dequeued key to the usual suspects */
         keydown(oldshift, oldkey);
         core_keyup();
@@ -449,7 +480,7 @@ static bool core_keydown_2(int key, bool *enqueued, int *repeat) {
         int shift = mode_shift;
         set_shift(false);
         if (mode_getkey && mode_running)
-            shell_annunciators(-1, -1, -1, 1, -1, -1);
+            set_annunciators(-1, -1, -1, 1, -1, -1);
         keydown(shift, key);
         if (repeating != 0) {
             *repeat = repeating;
@@ -459,7 +490,7 @@ static bool core_keydown_2(int key, bool *enqueued, int *repeat) {
     }
 
     /* Nothing going on at all! */
-    return 0;
+    return false;
 }
 
 int dequeue_key() {
@@ -481,6 +512,9 @@ int dequeue_key() {
 }
 
 int core_repeat() {
+    if (!initialized || quitting)
+        return 0;
+
     keydown(repeating_shift, repeating_key);
     int rpt = repeating;
     repeating = 0;
@@ -488,6 +522,9 @@ int core_repeat() {
 }
 
 void core_keytimeout1() {
+    if (!initialized || quitting)
+        return;
+
     if (pending_command == CMD_LINGER1 || pending_command == CMD_LINGER2)
         return;
     if (pending_command == CMD_RUN || pending_command == CMD_SST
@@ -518,6 +555,9 @@ void core_keytimeout1() {
 }
 
 void core_keytimeout2() {
+    if (!initialized || quitting)
+        return;
+
     if (pending_command == CMD_LINGER1 || pending_command == CMD_LINGER2)
         return;
     remove_program_catalog = 0;
@@ -535,6 +575,9 @@ void core_keytimeout2() {
 }
 
 bool core_timeout3(bool repaint) {
+    if (!initialized || quitting)
+        return false;
+
     if (mode_pause) {
         if (repaint) {
             /* The PSE ended normally */
@@ -558,6 +601,9 @@ bool core_timeout3(bool repaint) {
 }
 
 bool core_keyup() {
+    if (!initialized || quitting)
+        return false;
+
     if (mode_pause) {
         /* The only way this can happen is if they key in question was Shift */
         return false;
@@ -574,6 +620,7 @@ bool core_keyup() {
 #ifdef IPHONE
         if (off_enabled()) {
             shell_always_on(0);
+            quitting = true;
             shell_powerdown();
         } else {
             set_running(false);
@@ -581,6 +628,7 @@ bool core_keyup() {
         }
 #else
         shell_always_on(0);
+        quitting = true;
         shell_powerdown();
 #endif
         pending_command = CMD_NONE;
@@ -693,8 +741,11 @@ bool core_keyup() {
         mode_pause = false;
     }
 
+    if (quitting)
+        return false;
+
     if (error == ERR_INTERRUPTIBLE) {
-        shell_annunciators(-1, -1, -1, 1, -1, -1);
+        set_annunciators(-1, -1, -1, 1, -1, -1);
         pending_command = CMD_NONE;
         return true;
     }
@@ -1160,7 +1211,7 @@ static void export_hp42s(int index) {
                     int i;
                     if ((code_name & 0x80) == 0) {
                         cmdbuf[cmdlen++] = 0xf0 + arg.length + 2;
-                        cmdbuf[cmdlen++] = 0xa7;
+                        cmdbuf[cmdlen++] = (char) 0xa7;
                     } else {
                         cmdbuf[cmdlen++] = 0xf0 + arg.length + 1;
                     }
@@ -1172,8 +1223,8 @@ static void export_hp42s(int index) {
                     unsigned char suffix;
                     if (code_std_1 != 0) {
                         if (code_std_1 == 0xf2 && (code_std_2 & 0x80) == 0) {
-                            cmdbuf[cmdlen++] = 0xf3;
-                            cmdbuf[cmdlen++] = 0xa7;
+                            cmdbuf[cmdlen++] = (char) 0xf3;
+                            cmdbuf[cmdlen++] = (char) 0xa7;
                         } else {
                             cmdbuf[cmdlen++] = code_std_1;
                         }
@@ -1324,7 +1375,7 @@ int4 core_program_size(int prgm_index) {
                         p = orig_num;
                     else
                         p = phloat2program(arg.val_d);
-                    size += strlen(p) + 1;
+                    size += (int4) strlen(p) + 1;
                 } else if (cmd == CMD_STRING) {
                     size += arg.length + 1;
                 } else if (cmd >= CMD_ASGN01 && cmd <= CMD_ASGN18) {
@@ -2149,7 +2200,7 @@ static void decode_string(unsigned char *buf, int *cmd, arg_struct *arg, char **
     int pos = 0;
     int byte1 = buf[pos++];
     int byte2 = buf[pos++];
-    int str_len;
+    int str_len = 0;
     bool extra_extension = false;
     bool assign = false;
     
@@ -2169,7 +2220,7 @@ static void decode_string(unsigned char *buf, int *cmd, arg_struct *arg, char **
             arg->val.text[i] = buf[pos++];
         if (extra_extension) {
             memmove(arg->val.text + 1, arg->val.text, str_len);
-            arg->val.text[0] = 0xa7;
+            arg->val.text[0] = (char) 0xa7;
             str_len++;
         }
         arg->length = str_len;
@@ -2246,6 +2297,7 @@ static void decode_string(unsigned char *buf, int *cmd, arg_struct *arg, char **
             int suffix = buf[pos++];
             decode_suffix(*cmd, suffix, arg);
         } else if (flag == 3) {
+            int key;
             if (byte2 == 0xc0) {
                 /* ASSIGN */
                 str_len = byte1 - 0xf2;
@@ -2261,7 +2313,6 @@ static void decode_string(unsigned char *buf, int *cmd, arg_struct *arg, char **
                     goto xrom_string;
                 *cmd = byte2 == 0xc2 || byte2 == 0xca
                         ? CMD_KEY1X : CMD_KEY1G;
-                int key;
                 key = buf[pos++];
                 if (key < 1 || key > 9) {
                     /* Treat as plain string. Alas, it is
@@ -2287,7 +2338,7 @@ static void decode_string(unsigned char *buf, int *cmd, arg_struct *arg, char **
                 /* KEYG/KEYX suffix */
                 if (byte1 != 0xf3)
                     goto xrom_string;
-                int key = buf[pos++];
+                key = buf[pos++];
                 if (key < 1 || key > 9)
                     goto bad_keyg_keyx;
                 *cmd = byte2 == 0xe2 ? CMD_KEY1X : CMD_KEY1G;
@@ -2549,7 +2600,21 @@ void core_import_programs(int num_progs, const char *raw_file_name) {
 }
 
 static int real2buf(char *buf, phloat x, const char *format = NULL, bool force_decimal = true) {
+    bool saved_binsep, saved_octsep, saved_decsep, saved_hexsep;
+    if (!force_decimal) {
+        saved_binsep = mode_bin_sep;
+        saved_octsep = mode_oct_sep;
+        saved_decsep = mode_dec_sep;
+        saved_hexsep = mode_hex_sep;
+        mode_bin_sep = mode_oct_sep = mode_dec_sep = mode_hex_sep = false;
+    }
     int bufptr = phloat2string(x, buf, 49, force_decimal ? 0 : 1, 0, 3, 0, MAX_MANT_DIGITS, format);
+    if (!force_decimal) {
+        mode_bin_sep = saved_binsep;
+        mode_oct_sep = saved_octsep;
+        mode_dec_sep = saved_decsep;
+        mode_hex_sep = saved_hexsep;
+    }
     /* Convert small-caps 'E' to regular 'e' */
     for (int i = 0; i < bufptr; i++)
         if (buf[i] == 24)
@@ -3373,6 +3438,8 @@ static vartype *parse_base(const char *buf, int len) {
     }
     while (i < len && bits < 64) {
         char c = buf[i++];
+        if (c == ' ')
+            continue;
         int d;
         if (base == 16) {
             if (c >= '0' && c <= '9')
@@ -3683,7 +3750,8 @@ static void paste_programs(const char *buf) {
                     arg.type = ARGTYPE_NONE;
                     goto store;
                 } else if ((len == 4 || len > 4 && hpbuf[prev_hppos + 4] == ' ')
-                        && strncmp(hpbuf + prev_hppos, "10^X", 4) == 0) {
+                        && (strncmp(hpbuf + prev_hppos, "10^X", 4) == 0
+                         || strncmp(hpbuf + prev_hppos, "10\36X", 4) == 0)) {
                     cmd = CMD_10_POW_X;
                     arg.type = ARGTYPE_NONE;
                     goto store;
@@ -4665,7 +4733,7 @@ void core_paste(const char *buf) {
                                 free(is_string);
                                 is_string = NULL;
                                 phloat *newdata;
-                                newdata = (phloat *) realloc(data, 2 * n * sizeof(phloat));
+                                newdata = (phloat *) realloc((void *) data, 2 * n * sizeof(phloat));
                                 if (newdata == NULL) {
                                     nomem:
                                     free(data);
@@ -4830,7 +4898,7 @@ void core_get_char_pixels(const char *ch, char *pixels) {
     int hplen = ascii2hp(hpbuf, 1, ch);
     if (hplen == 0)
         hpbuf[0] = ' ';
-    const char *bits = get_char(hpbuf[0]);
+    const unsigned char *bits = get_char(hpbuf[0]);
     for (int i = 0; i < 5; i++)
         pixels[i] = bits[i];
 }
@@ -4844,7 +4912,7 @@ void set_alpha_entry(bool state) {
 void set_running(bool state) {
     if (mode_running != state) {
         mode_running = state;
-        shell_annunciators(-1, -1, -1, state, -1, -1);
+        set_annunciators(-1, -1, -1, state, -1, -1);
     }
     if (state) {
         /* Cancel any pending INPUT command */
@@ -4975,6 +5043,8 @@ static void continue_running() {
             shell_request_timeout3(1000);
             return;
         }
+        if (quitting)
+            return;
         if (error == ERR_INTERRUPTIBLE)
             return;
         if (!handle_error(error))
@@ -5031,11 +5101,6 @@ static synonym_spec hp41_synonyms[] =
     { "SST\16", true,  4, CMD_SST     },
     { "X>=0?",  false, 5, CMD_X_GE_0  },
     { "X>=Y?",  false, 5, CMD_X_GE_Y  },
-    { "S-N",    false, 3, CMD_S_TO_N  },
-    { "N-S",    false, 3, CMD_N_TO_S  },
-    { "NN-S",   false, 4, CMD_NN_TO_S },
-    { "C-N",    false, 3, CMD_C_TO_N  },
-    { "N-C",    false, 3, CMD_N_TO_C  },
     { "X<>?",   false, 4, CMD_X_NE_NN },
     { "X#?",    false, 3, CMD_X_NE_NN },
     { "X<=?",   false, 4, CMD_X_LE_NN },
@@ -5048,26 +5113,25 @@ static synonym_spec hp41_synonyms[] =
 };
 
 int find_builtin(const char *name, int namelen) {
-    int i, j;
-
-    for (i = 0; hp41_synonyms[i].cmd_id != CMD_NONE; i++) {
+    for (int i = 0; hp41_synonyms[i].cmd_id != CMD_NONE; i++) {
         if (namelen != hp41_synonyms[i].namelen)
             continue;
-        for (j = 0; j < namelen; j++)
+        for (int j = 0; j < namelen; j++)
             if (name[j] != hp41_synonyms[i].name[j])
                 goto nomatch1;
         return hp41_synonyms[i].cmd_id;
         nomatch1:;
     }
 
-    for (i = 0; true; i++) {
-        if (i == CMD_SENTINEL)
-            break;
+    int fuzzy_match = CMD_NONE;
+
+    for (int i = 0; i < CMD_SENTINEL; i++) {
         if ((cmd_array[i].flags & FLAG_HIDDEN) != 0)
             continue;
         if (cmd_array[i].name_length != namelen)
             continue;
-        for (j = 0; j < namelen; j++) {
+        bool exact = true;
+        for (int j = 0; j < namelen; j++) {
             unsigned char c1, c2;
             c1 = name[j];
             if (undefined_char(c1))
@@ -5080,12 +5144,18 @@ int find_builtin(const char *name, int namelen) {
             else if (c2 == 30)
                 c2 = 94;
             if (c1 != c2)
-                goto nomatch2;
+                if (c1 == '-' && c2 == '\17')
+                    exact = false;
+                else
+                    goto nomatch2;
         }
-        return i;
+        if (exact)
+            return i;
+        else
+            fuzzy_match = i;
         nomatch2:;
     }
-    return CMD_NONE;
+    return fuzzy_match;
 }
 
 void sst() {
@@ -5110,50 +5180,6 @@ void bst() {
         pc = line2pc(line - 1);
         prgm_highlight_row = 0;
     }
-}
-
-void fix_thousands_separators(char *buf, int *bufptr) {
-    /* First, remove the old separators... */
-    int i, j = 0;
-    char dot = flags.f.decimal_point ? '.' : ',';
-    char sep = flags.f.decimal_point ? ',' : '.';
-    int intdigits = 0;
-    int counting_intdigits = 1;
-    int nsep;
-    for (i = 0; i < *bufptr; i++) {
-        char c = buf[i];
-        if (c != sep)
-            buf[j++] = c;
-        if (c == dot || c == 24)
-            counting_intdigits = 0;
-        else if (counting_intdigits && c >= '0' && c <= '9')
-            intdigits++;
-    }
-    /* Now, put 'em back... */
-    if (!flags.f.thousands_separators) {
-        *bufptr = j;
-        return;
-    }
-    nsep = (intdigits - 1) / 3;
-    if (nsep == 0) {
-        *bufptr = j;
-        return;
-    }
-    for (i = j - 1; i >= 0; i--)
-        buf[i + nsep] = buf[i];
-    j += nsep;
-    for (i = 0; i < j; i++) {
-        char c = buf[i + nsep];
-        buf[i] = c;
-        if (nsep > 0 && c >= '0' && c <= '9') {
-            if (intdigits % 3 == 1) {
-                buf[++i] = sep;
-                nsep--;
-            }
-            intdigits--;
-        }
-    }
-    *bufptr = j;
 }
 
 int find_menu_key(int key) {
@@ -5425,7 +5451,7 @@ static void stop_interruptible() {
     if (mode_running)
         set_running(false);
     else
-        shell_annunciators(-1, -1, -1, false, -1, -1);
+        set_annunciators(-1, -1, -1, false, -1, -1);
     pending_command = CMD_NONE;
     redisplay();
 }
@@ -5443,7 +5469,7 @@ static void set_last_err(int error) {
     }
 }
 
-static int handle_error(int error) {
+static bool handle_error(int error) {
     if (mode_running) {
         if (error == ERR_RUN)
             error = ERR_NONE;
@@ -5457,7 +5483,7 @@ static int handle_error(int error) {
             if (pc >= prgms[current_prgm].size)
                 pc = -1;
             set_running(false);
-            return 0;
+            return false;
         } else if (error == ERR_NUMBER_TOO_LARGE
                 || error == ERR_NUMBER_TOO_SMALL) {
             // Handling these separately because they shouldn't be
@@ -5467,7 +5493,7 @@ static int handle_error(int error) {
             if (flags.f.error_ignore && error != ERR_SUSPICIOUS_OFF) {
                 flags.f.error_ignore = 0;
                 set_last_err(error);
-                return 1;
+                return true;
             }
             if (solve_active() && (error == ERR_OUT_OF_RANGE
                                         || error == ERR_DIVIDE_BY_0
@@ -5478,15 +5504,15 @@ static int handle_error(int error) {
                 if (error == ERR_STOP)
                     set_running(false);
                 if (error == ERR_NONE || error == ERR_RUN || error == ERR_STOP)
-                    return 0;
+                    return false;
             }
             handle_it:
             pc = oldpc;
             display_error(error);
             set_running(false);
-            return 0;
+            return false;
         }
-        return 1;
+        return true;
     } else if (pending_command == CMD_SST || pending_command == CMD_SST_RT) {
         if (error == ERR_RUN)
             error = ERR_NONE;
@@ -5526,7 +5552,7 @@ static int handle_error(int error) {
             pc = oldpc;
             display_error(error);
         }
-        return 0;
+        return false;
     } else {
         if (error == ERR_RUN) {
             set_running(true);
@@ -5542,7 +5568,7 @@ static int handle_error(int error) {
         }
         if (error != ERR_NONE && error != ERR_STOP)
             display_error(error);
-        return 0;
+        return false;
     }
 }
 

@@ -34,8 +34,8 @@ struct SkinColor {
 
 int skin_getchar();
 void skin_rewind();
-int skin_init_image(int type, int ncolors, const SkinColor *colors,
-                    int width, int height);
+bool skin_init_image(int type, int ncolors, const SkinColor *colors,
+                     int width, int height);
 void skin_put_pixels(unsigned const char *data);
 void skin_finish_image();
 
@@ -45,7 +45,7 @@ void skin_draw_keyboard_shortcuts(cairo_t *cr);
 void skin_make_darker(cairo_t *cr);
 void skin_invalidate_annunciator(GdkWindow *win, int which);
 void skin_find_key(int x, int y, bool cshift, int *key, int *code);
-int skin_find_skey(int ckey);
+int skin_find_skey(int ckey, bool cshift);
 unsigned char *skin_find_macro(int ckey, int *type);
 unsigned char *skin_keymap_lookup(guint keyval, bool printable,
                                   bool ctrl, bool alt, bool shift, bool cshift,

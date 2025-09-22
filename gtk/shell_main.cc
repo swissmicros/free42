@@ -37,8 +37,12 @@
 #include "shell_spool.h"
 #include "core_main.h"
 #include "core_display.h"
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wwrite-strings"
 #include "icon-128x128.xpm"
 #include "icon-48x48.xpm"
+#pragma GCC diagnostic pop
 
 #ifndef _POSIX_HOST_NAME_MAX
 #define _POSIX_HOST_NAME_MAX 255
@@ -125,6 +129,7 @@ static guint reminder_id = 0;
 static FILE *statefile = NULL;
 static char statefilename[FILENAMELEN];
 static char printfilename[FILENAMELEN];
+static char keymapfilename[FILENAMELEN];
 
 int ann_updown = 0;
 int ann_shift = 0;
@@ -172,13 +177,14 @@ static void copyPrintAsTextCB();
 static void copyPrintAsImageCB();
 static void clearPrintOutCB();
 static void preferencesCB();
-static void appendSuffix(char *path, char *suffix);
+static void appendSuffix(char *path, const char *suffix);
 static void copyCB();
 static void pasteCB();
 static void documentationCB();
 static void websiteCB();
 static void otherWebsiteCB();
 static void keyboardShortcutsCB();
+static void editKeymapCB();
 static void aboutCB();
 static gboolean delete_cb(GtkWidget *w, GdkEventAny *ev);
 static gboolean delete_print_cb(GtkWidget *w, GdkEventAny *ev);
@@ -354,13 +360,22 @@ static const char *mainWindowXml =
                       "</object>"
                     "</child>"
                     "<child>"
+                      "<object class='GtkSeparatorMenuItem' id='sep_6'>"
+                      "</object>"
+                    "</child>"
+                    "<child>"
                       "<object class='GtkCheckMenuItem' id='keyboard_shortcuts_item'>"
                         "<property name='label'>Keyboard Shortcuts</property>"
                         "<accelerator key='K' signal='activate' modifiers='GDK_CONTROL_MASK'/>"
                       "</object>"
                     "</child>"
                     "<child>"
-                      "<object class='GtkSeparatorMenuItem' id='sep_6'>"
+                      "<object class='GtkMenuItem' id='edit_keymap_item'>"
+                        "<property name='label'>Edit Keyboard Map</property>"
+                      "</object>"
+                    "</child>"
+                    "<child>"
+                      "<object class='GtkSeparatorMenuItem' id='sep_7'>"
                       "</object>"
                     "</child>"
                     "<child>"
@@ -421,8 +436,20 @@ int main(int argc, char *argv[]) {
     GtkApplication *app;
     int status;
     app = gtk_application_new("com.thomasokken.free42", G_APPLICATION_FLAGS_NONE);
+
+    GValue gv = G_VALUE_INIT;
+    g_value_init(&gv, G_TYPE_BOOLEAN);
+    g_value_set_boolean(&gv, true);
+    g_object_set_property(G_OBJECT(app), "register-session", &gv);
+
     g_signal_connect(app, "activate", G_CALLBACK(activate), NULL);
     status = g_application_run(G_APPLICATION(app), 0, NULL);
+
+    // We'll only get here if the app is being shut down
+    // by the session manager. Note that the quit() call
+    // does not return.
+    quit();
+
     g_object_unref(app);
     return status;
 }
@@ -479,8 +506,6 @@ static void activate(GtkApplication *theApp, gpointer userData) {
     /*************************************************************/
     /***** Try to create the $XDG_DATA_HOME/free42 directory *****/
     /*************************************************************/
-
-    char keymapfilename[FILENAMELEN];
 
     char *xdg_data_home = getenv("XDG_DATA_HOME");
     char *home = getenv("HOME");
@@ -564,7 +589,15 @@ static void activate(GtkApplication *theApp, gpointer userData) {
     dir_done:
     snprintf(statefilename, FILENAMELEN, "%s/state", free42dirname);
     snprintf(printfilename, FILENAMELEN, "%s/print", free42dirname);
-    snprintf(keymapfilename, FILENAMELEN, "%s/keymap", free42dirname);
+    snprintf(keymapfilename, FILENAMELEN, "%s/keymap.txt", free42dirname);
+
+    if (!file_exists(keymapfilename)) {
+        char oldkeymapfilename[FILENAMELEN];
+        strcpy(oldkeymapfilename, keymapfilename);
+        oldkeymapfilename[strlen(oldkeymapfilename) - 4] = 0;
+        if (file_exists(oldkeymapfilename))
+            rename(oldkeymapfilename, keymapfilename);
+    }
 
     
     /****************************/
@@ -581,7 +614,7 @@ static void activate(GtkApplication *theApp, gpointer userData) {
     int4 version;
     int init_mode;
     char core_state_file_name[FILENAMELEN];
-    int core_state_file_offset;
+    int core_state_file_offset = 0;
 
     statefile = fopen(statefilename, "r");
     if (statefile != NULL) {
@@ -701,6 +734,8 @@ static void activate(GtkApplication *theApp, gpointer userData) {
     g_signal_connect(G_OBJECT(item), "activate", G_CALLBACK(otherWebsiteCB), NULL);
     keyboardShortcutsMenuItem = GTK_CHECK_MENU_ITEM(gtk_builder_get_object(builder, "keyboard_shortcuts_item"));
     g_signal_connect(G_OBJECT(keyboardShortcutsMenuItem), "activate", G_CALLBACK(keyboardShortcutsCB), NULL);
+    item = GTK_MENU_ITEM(gtk_builder_get_object(builder, "edit_keymap_item"));
+    g_signal_connect(G_OBJECT(item), "activate", G_CALLBACK(editKeymapCB), NULL);
     item = GTK_MENU_ITEM(gtk_builder_get_object(builder, "about_item"));
     g_signal_connect(G_OBJECT(item), "activate", G_CALLBACK(aboutCB), NULL);
 
@@ -2496,7 +2531,7 @@ static void preferencesCB() {
     gtk_widget_hide(GTK_WIDGET(dialog));
 }
 
-static void appendSuffix(char *path, char *suffix) {
+static void appendSuffix(char *path, const char *suffix) {
     int len = strlen(path);
     int slen = strlen(suffix);
     if (len == 0 || len >= FILENAMELEN - slen)
@@ -2579,6 +2614,12 @@ static void keyboardShortcutsCB() {
     gtk_check_menu_item_set_active(keyboardShortcutsMenuItem, keyboardShortcutsShowing);
     GdkWindow *win = gtk_widget_get_window(calc_widget);
     gdk_window_invalidate_rect(win, NULL, FALSE);
+}
+
+static void editKeymapCB() {
+    char cmd[FILENAMELEN + 12];
+    snprintf(cmd, FILENAMELEN + 12, "xdg-open '%s'", keymapfilename);
+    system(cmd);
 }
 
 static void aboutCB() {
@@ -2745,13 +2786,13 @@ static gboolean print_key_cb(GtkWidget *w, GdkEventKey *event, gpointer cd) {
     return TRUE;
 }
 
-static void shell_keydown() {
+static void shell_keydown(bool cshift) {
     GdkWindow *win = gtk_widget_get_window(calc_widget);
 
     int repeat;
     bool keep_running;
     if (skey == -1)
-        skey = skin_find_skey(ckey);
+        skey = skin_find_skey(ckey, cshift);
     skin_invalidate_key(win, skey);
     if (timeout3_id != 0 && (macro != NULL || ckey != 28 /* KEY_SHIFT */)) {
         g_source_remove(timeout3_id);
@@ -2836,7 +2877,7 @@ static gboolean button_cb(GtkWidget *w, GdkEventButton *event, gpointer cd) {
             skin_find_key(x, y, ann_shift != 0, &skey, &ckey);
             if (ckey != 0) {
                 macro = skin_find_macro(ckey, &macro_type);
-                shell_keydown();
+                shell_keydown(ann_shift != 0);
                 mouse_key = true;
             }
         }
@@ -2908,7 +2949,7 @@ static gboolean key_cb(GtkWidget *w, GdkEventKey *event, gpointer cd) {
                         ckey = 1024 + c;
                         skey = -1;
                         macro = NULL;
-                        shell_keydown();
+                        shell_keydown(false);
                         mouse_key = false;
                         active_keycode = event->hardware_keycode;
                         return TRUE;
@@ -2920,7 +2961,7 @@ static gboolean key_cb(GtkWidget *w, GdkEventKey *event, gpointer cd) {
                             ckey = c - 'A' + 1;
                         skey = -1;
                         macro = NULL;
-                        shell_keydown();
+                        shell_keydown(false);
                         mouse_key = false;
                         active_keycode = event->hardware_keycode;
                         return TRUE;
@@ -2942,7 +2983,7 @@ static gboolean key_cb(GtkWidget *w, GdkEventKey *event, gpointer cd) {
                                 ckey = which;
                                 skey = -1;
                                 macro = NULL;
-                                shell_keydown();
+                                shell_keydown(false);
                                 mouse_key = false;
                                 active_keycode = event->hardware_keycode;
                                 return TRUE;
@@ -2962,11 +3003,14 @@ static gboolean key_cb(GtkWidget *w, GdkEventKey *event, gpointer cd) {
                 // means no skin key will be highlighted.
                 ckey = -10;
                 skey = -1;
+                bool skin_shift = cshift;
                 if (key_macro[0] != 0)
                     if (key_macro[1] == 0)
                         ckey = key_macro[0];
-                    else if (key_macro[2] == 0 && key_macro[0] == 28)
+                    else if (key_macro[2] == 0 && key_macro[0] == 28) {
                         ckey = key_macro[1];
+                        skin_shift = true;
+                    }
                 bool needs_expansion = false;
                 for (int j = 0; key_macro[j] != 0; j++)
                     if (key_macro[j] > 37) {
@@ -2993,7 +3037,7 @@ static gboolean key_cb(GtkWidget *w, GdkEventKey *event, gpointer cd) {
                     macro = key_macro;
                     macro_type = 0;
                 }
-                shell_keydown();
+                shell_keydown(skin_shift);
                 mouse_key = false;
                 active_keycode = event->hardware_keycode;
             }
@@ -3005,7 +3049,7 @@ static gboolean key_cb(GtkWidget *w, GdkEventKey *event, gpointer cd) {
                 ckey = 28;
                 skey = -1;
                 macro = NULL;
-                shell_keydown();
+                shell_keydown(false);
                 shell_keyup();
             }
         } else {
@@ -3193,12 +3237,11 @@ void shell_blitter(const char *bits, int bytesperline, int x, int y,
     }
 }
 
-const int tone_freqs[] = { 165, 220, 247, 277, 294, 330, 370, 415, 440, 554, 1865 };
-
 void shell_beeper(int tone) {
 #ifdef AUDIO_ALSA
     const char *display_name = gdk_display_get_name(gdk_display_get_default());
     if (display_name == NULL || display_name[0] == ':') {
+        const int tone_freqs[] = { 165, 220, 247, 277, 294, 330, 370, 415, 440, 554, 1865 };
         int frequency = tone_freqs[tone];
         int duration = tone == 10 ? 125 : 250;
         if (!alsa_beeper(frequency, duration))

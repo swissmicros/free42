@@ -37,7 +37,7 @@ keymap_entry *parse_keymap_entry(char *line, int lineno);
 void skin_repaint(NSRect *rect, bool shortcuts);
 void skin_update_annunciator(int which, int state);
 void skin_find_key(int x, int y, bool cshift, int *key, int *code);
-int skin_find_skey(int ckey);
+int skin_find_skey(int ckey, bool cshift);
 unsigned char *skin_find_macro(int ckey, int *type);
 unsigned char *skin_keymap_lookup(unsigned short keychar, bool printable,
                   bool ctrl, bool alt, bool numpad, bool shift, bool cshift,
@@ -61,8 +61,8 @@ struct SkinColor {
 
 int skin_getchar();
 void skin_rewind();
-int skin_init_image(int type, int ncolors, const SkinColor *colors,
-                    int width, int height);
+bool skin_init_image(int type, int ncolors, const SkinColor *colors,
+                     int width, int height);
 void skin_put_pixels(unsigned const char *data);
 void skin_finish_image();
 

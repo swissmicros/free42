@@ -17,6 +17,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 
 #include "core_globals.h"
 #include "core_commands2.h"
@@ -73,7 +74,7 @@ const error_spec errors[] = {
     { /* INTERRUPTIBLE */          NULL,                       0 },
     { /* NO_VARIABLES */           "No Variables",            12 },
     { /* INSUFFICIENT_MEMORY */    "Insufficient Memory",     19 },
-    { /* NOT_YET_IMPLEMENTED */    "Not Yet Implemented",     19 },
+    { /* NOT_YET_IMPLEMENTED */    "Function not avail.",     19 },
     { /* INTERNAL_ERROR */         "Internal Error",          14 },
     { /* SUSPICIOUS_OFF */         "Suspicious OFF",          14 },
     { /* RTN_STACK_FULL */         "RTN Stack Full",          14 },
@@ -242,7 +243,7 @@ const menu_spec menus[] = {
                         { MENU_NONE, 0, "" },
                         { MENU_NONE, 0, "" },
                         { MENU_NONE, 0, "" } } },
-    { /* MENU_MODES1 */ MENU_NONE, MENU_MODES2, MENU_MODES5,
+    { /* MENU_MODES1 */ MENU_NONE, MENU_MODES2, MENU_MODES4,
                       { { 0x2000 + CMD_DEG,   0, "" },
                         { 0x2000 + CMD_RAD,   0, "" },
                         { 0x2000 + CMD_GRAD,  0, "" },
@@ -257,24 +258,24 @@ const menu_spec menus[] = {
                         { 0x2000 + CMD_KEYASN,  0, "" },
                         { 0x2000 + CMD_LCLBL,   0, "" } } },
     { /* MENU_MODES3 */ MENU_NONE, MENU_MODES4, MENU_MODES2,
-                      { { 0x1000 + CMD_WSIZE,   0, "" },
-                        { 0x1000 + CMD_WSIZE_T, 0, "" },
-                        { 0x2000 + CMD_BSIGNED, 0, "" },
-                        { 0x2000 + CMD_BWRAP,   0, "" },
-                        { 0x1000 + CMD_NULL,    0, "" },
-                        { 0x1000 + CMD_BRESET,  0, "" } } },
-    { /* MENU_MODES4 */ MENU_NONE, MENU_MODES5, MENU_MODES3,
                       { { 0x2000 + CMD_MDY,     0, "" },
                         { 0x2000 + CMD_DMY,     0, "" },
                         { 0x2000 + CMD_YMD,     0, "" },
                         { 0x1000 + CMD_NULL,    0, "" },
                         { 0x2000 + CMD_CLK12,   0, "" },
                         { 0x2000 + CMD_CLK24,   0, "" } } },
-    { /* MENU_MODES5 */ MENU_NONE, MENU_MODES1, MENU_MODES4,
-                      { { 0x2000 + CMD_4STK,    0, "" },
-                        { 0x2000 + CMD_NSTK,    0, "" },
-                        { 0x2000 + CMD_CAPS,    0, "" },
+    { /* MENU_MODES4 */ MENU_NONE, MENU_MODES1, MENU_MODES3,
+                      { { 0x2000 + CMD_4STK, 0, ""      },
+                        { 0x2000 + CMD_NSTK, 0, ""      },
+                        { 0x1000 + CMD_NULL, 0, ""      },
+                        { 0x1000 + CMD_NULL, 0, ""      },
+                        { 0x1000 + CMD_NULL, 0, ""      },
+                        { MENU_MODES_MENUS,  5, "MENUS" } } },
+    { /* MENU_MODES_MENUS */ MENU_MODES4, MENU_NONE, MENU_NONE,
+                      { { 0x2000 + CMD_CAPS,    0, "" },
                         { 0x2000 + CMD_MIXED,   0, "" },
+                        { 0x2000 + CMD_STATIC,  0, "" },
+                        { 0x2000 + CMD_DYNAMIC, 0, "" },
                         { 0x1000 + CMD_NULL,    0, "" },
                         { 0x1000 + CMD_NULL,    0, "" } } },
     { /* MENU_DISP */ MENU_NONE, MENU_NONE, MENU_NONE,
@@ -515,27 +516,83 @@ const menu_spec menus[] = {
                         { 0x1000 + CMD_NULL, 0, "" },
                         { 0x2000 + CMD_WRAP, 0, "" },
                         { 0x2000 + CMD_GROW, 0, "" } } },
-    { /* MENU_BASE */ MENU_NONE, MENU_NONE, MENU_NONE,
+    { /* MENU_BASE1 */ MENU_NONE, MENU_BASE2, MENU_BASE5,
                       { { 0x1000 + CMD_A_THRU_F, 0, ""      },
                         { 0x2000 + CMD_HEXM,     0, ""      },
                         { 0x2000 + CMD_DECM,     0, ""      },
                         { 0x2000 + CMD_OCTM,     0, ""      },
                         { 0x2000 + CMD_BINM,     0, ""      },
                         { MENU_BASE_LOGIC,       5, "LOGIC" } } },
-    { /* MENU_BASE_A_THRU_F */ MENU_BASE, MENU_NONE, MENU_NONE,
+    { /* MENU_BASE2 */ MENU_NONE, MENU_BASE3, MENU_BASE1,
+                      { { 0x1000 + CMD_SL,  0, "" },
+                        { 0x1000 + CMD_SR,  0, "" },
+                        { 0x1000 + CMD_RL,  0, "" },
+                        { 0x1000 + CMD_RR,  0, "" },
+                        { 0x1000 + CMD_RLC, 0, "" },
+                        { 0x1000 + CMD_RRC, 0, "" } } },
+    { /* MENU_BASE3 */ MENU_NONE, MENU_BASE4, MENU_BASE2,
+                      { { 0x1000 + CMD_LJ,   0, "" },
+                        { 0x1000 + CMD_ASR,  0, "" },
+                        { 0x1000 + CMD_RLN,  0, "" },
+                        { 0x1000 + CMD_RRN,  0, "" },
+                        { 0x1000 + CMD_RLCN, 0, "" },
+                        { 0x1000 + CMD_RRCN, 0, "" } } },
+    { /* MENU_BASE4 */ MENU_NONE, MENU_BASE5, MENU_BASE3,
+                      { { 0x1000 + CMD_SB,    0, "" },
+                        { 0x1000 + CMD_CB,    0, "" },
+                        { 0x1000 + CMD_B_T,   0, "" },
+                        { 0x1000 + CMD_NUM_B, 0, "" },
+                        { 0x1000 + CMD_MASKL, 0, "" },
+                        { 0x1000 + CMD_MASKR, 0, "" } } },
+    { /* MENU_BASE5 */ MENU_NONE, MENU_BASE1, MENU_BASE4,
+                      { { 0x1000 + CMD_SC,  0, ""      },
+                        { 0x1000 + CMD_CC,  0, ""      },
+                        { 0x1000 + CMD_C_T, 0, ""      },
+                        { MENU_BASE_FLOAT1, 5, "FLOAT" },
+                        { MENU_BASE_MODES,  5, "MODES" },
+                        { MENU_BASE_DISP,   4, "DISP"  } } },
+    { /* MENU_BASE_A_THRU_F */ MENU_BASE1, MENU_NONE, MENU_NONE,
                       { { 0, 1, "A" },
                         { 0, 1, "B" },
                         { 0, 1, "C" },
                         { 0, 1, "D" },
                         { 0, 1, "E" },
                         { 0, 1, "F" } } },
-    { /* MENU_BASE_LOGIC */ MENU_BASE, MENU_NONE, MENU_NONE,
+    { /* MENU_BASE_LOGIC */ MENU_BASE1, MENU_NONE, MENU_NONE,
                       { { 0x1000 + CMD_AND,   0, "" },
                         { 0x1000 + CMD_OR,    0, "" },
                         { 0x1000 + CMD_XOR,   0, "" },
                         { 0x1000 + CMD_NOT,   0, "" },
                         { 0x1000 + CMD_BIT_T, 0, "" },
                         { 0x1000 + CMD_ROTXY, 0, "" } } },
+    { /* MENU_BASE_FLOAT1 */ MENU_BASE5, MENU_BASE_FLOAT2, MENU_BASE_FLOAT2,
+                      { { 0x1000 + CMD_N_TO_BS, 0, "" },
+                        { 0x1000 + CMD_BS_TO_N, 0, "" },
+                        { 0x1000 + CMD_N_TO_BD, 0, "" },
+                        { 0x1000 + CMD_BD_TO_N, 0, "" },
+                        { 0x1000 + CMD_N_TO_BQ, 0, "" },
+                        { 0x1000 + CMD_BQ_TO_N, 0, "" } } },
+    { /* MENU_BASE_FLOAT2 */ MENU_BASE5, MENU_BASE_FLOAT1, MENU_BASE_FLOAT1,
+                      { { 0x1000 + CMD_N_TO_DS, 0, "" },
+                        { 0x1000 + CMD_DS_TO_N, 0, "" },
+                        { 0x1000 + CMD_N_TO_DD, 0, "" },
+                        { 0x1000 + CMD_DD_TO_N, 0, "" },
+                        { 0x1000 + CMD_N_TO_DQ, 0, "" },
+                        { 0x1000 + CMD_DQ_TO_N, 0, "" } } },
+    { /* MENU_BASE_MODES */ MENU_BASE5, MENU_NONE, MENU_NONE,
+                      { { 0x1000 + CMD_WSIZE,   0, "" },
+                        { 0x1000 + CMD_WSIZE_T, 0, "" },
+                        { 0x2000 + CMD_BSIGNED, 0, "" },
+                        { 0x2000 + CMD_BWRAP,   0, "" },
+                        { 0x1000 + CMD_NULL,    0, "" },
+                        { 0x1000 + CMD_BRESET,  0, "" } } },
+    { /* MENU_BASE_DISP */ MENU_BASE5, MENU_NONE, MENU_NONE,
+                      { { 0x2000 + CMD_DECINT, 0, "" },
+                        { 0x1000 + CMD_NULL,   0, "" },
+                        { 0x2000 + CMD_HEXSEP, 0, "" },
+                        { 0x2000 + CMD_DECSEP, 0, "" },
+                        { 0x2000 + CMD_OCTSEP, 0, "" },
+                        { 0x2000 + CMD_BINSEP, 0, "" } } },
     { /* MENU_SOLVE */ MENU_NONE, MENU_NONE, MENU_NONE,
                       { { 0x1000 + CMD_MVAR,   0, "" },
                         { 0x1000 + CMD_NULL,   0, "" },
@@ -632,7 +689,14 @@ int mode_goose;
 bool mode_time_clktd;
 bool mode_time_clk24;
 int mode_wsize;
+bool mode_carry;
+bool mode_dec_int;
+bool mode_bin_sep;
+bool mode_oct_sep;
+bool mode_dec_sep;
+bool mode_hex_sep;
 bool mode_menu_caps;
+bool mode_menu_static;
 #if defined(ANDROID) || defined(IPHONE)
 bool mode_popup_unknown = true;
 #endif
@@ -746,8 +810,12 @@ bool no_keystrokes_yet;
  * Version 47: 3.1    Back-port of Plus42 RTN stack; FUNC stack hiding
  * Version 48: 3.1    Matrix editor nested lists
  * Version 49: 3.1.13 Program locking
+ * Version 50: 3.3    Move BASE settings from MODES to BASE
+ * Version 51: 3.3    BASE enhancements (menu additions)
+ * Version 52: 3.3    BASE enhancements (carry; display modes)
+ * Version 53: 3.3.3  STATIC/DYNAMIC for menus
  */
-#define FREE42_VERSION 49
+#define FREE42_VERSION 53
 
 
 /*******************/
@@ -1297,7 +1365,21 @@ static bool persist_globals() {
         goto done;
     if (!write_int(mode_wsize))
         goto done;
+    if (!write_bool(mode_carry))
+        goto done;
+    if (!write_bool(mode_dec_int))
+        goto done;
+    if (!write_bool(mode_bin_sep))
+        goto done;
+    if (!write_bool(mode_oct_sep))
+        goto done;
+    if (!write_bool(mode_dec_sep))
+        goto done;
+    if (!write_bool(mode_hex_sep))
+        goto done;
     if (!write_bool(mode_menu_caps))
+        goto done;
+    if (!write_bool(mode_menu_static))
         goto done;
     if (fwrite(&flags, 1, sizeof(flags_struct), gfile) != sizeof(flags_struct))
         goto done;
@@ -1445,6 +1527,15 @@ static bool unpersist_globals() {
         mode_wsize = 36;
         goto done;
     }
+    mode_carry = mode_dec_int = mode_bin_sep = mode_oct_sep = mode_dec_sep = mode_hex_sep = false;
+    if (ver >= 52) {
+        if (!read_bool(&mode_carry)) goto done;
+        if (!read_bool(&mode_dec_int)) goto done;
+        if (!read_bool(&mode_bin_sep)) goto done;
+        if (!read_bool(&mode_oct_sep)) goto done;
+        if (!read_bool(&mode_dec_sep)) goto done;
+        if (!read_bool(&mode_hex_sep)) goto done;
+    }
     if (ver >= 42) {
         if (!read_bool(&mode_menu_caps)) {
             mode_menu_caps = false;
@@ -1452,6 +1543,13 @@ static bool unpersist_globals() {
         }
     } else
         mode_menu_caps = false;
+    if (ver >= 53) {
+        if (!read_bool(&mode_menu_static)) {
+            mode_menu_static = false;
+            goto done;
+        }
+    } else
+        mode_menu_static = false;
     if (fread(&flags, 1, sizeof(flags_struct), gfile)
             != sizeof(flags_struct))
         goto done;
@@ -1703,7 +1801,7 @@ int clear_prgm(const arg_struct *arg) {
     int prgm_index;
     if (arg->type == ARGTYPE_LBLINDEX)
         prgm_index = labels[arg->val.num].prgm;
-    else if (arg->type == ARGTYPE_STR) {
+    else { // arg->type == ARGTYPE_STR
         if (arg->length == 0) {
             if (current_prgm < 0 || current_prgm >= prgms_count)
                 return ERR_INTERNAL_ERROR;
@@ -1838,21 +1936,21 @@ void goto_dot_dot(bool force_new) {
     pc = -1;
 }
 
-int mvar_prgms_exist() {
+bool mvar_prgms_exist() {
     int i;
     for (i = 0; i < labels_count; i++)
         if (label_has_mvar(i))
-            return 1;
-    return 0;
+            return true;
+    return false;
 }
 
-int label_has_mvar(int lblindex) {
+bool label_has_mvar(int lblindex) {
     int saved_prgm;
     int4 pc;
     int command;
     arg_struct arg;
     if (labels[lblindex].length == 0)
-        return 0;
+        return false;
     saved_prgm = current_prgm;
     current_prgm = labels[lblindex].prgm;
     pc = labels[lblindex].pc;
@@ -2282,6 +2380,7 @@ bool store_command(int4 pc, int command, arg_struct *arg, const char *num_str) {
         new_prgm = prgm + 1;
         new_prgm->size = prgm->size - pc;
         new_prgm->capacity = (new_prgm->size + 511) & ~511;
+        new_prgm->locked = false;
         new_prgm->text = (unsigned char *) mallocU(new_prgm->capacity);
         // TODO - handle memory allocation failure
         for (i = pc; i < prgm->size; i++)
@@ -2653,7 +2752,7 @@ int4 find_local_label(const arg_struct *arg) {
     return -2;
 }
 
-static int find_global_label_2(const arg_struct *arg, int *prgm, int4 *pc, int *idx) {
+static bool find_global_label_2(const arg_struct *arg, int *prgm, int4 *pc, int *idx) {
     int i;
     const char *name = arg->val.text;
     int namelen = arg->length;
@@ -2672,17 +2771,17 @@ static int find_global_label_2(const arg_struct *arg, int *prgm, int4 *pc, int *
             *pc = labels[i].pc;
         if (idx != NULL)
             *idx = i;
-        return 1;
+        return true;
         nomatch:;
     }
-    return 0;
+    return false;
 }
 
-int find_global_label(const arg_struct *arg, int *prgm, int4 *pc) {
+bool find_global_label(const arg_struct *arg, int *prgm, int4 *pc) {
     return find_global_label_2(arg, prgm, pc, NULL);
 }
 
-int find_global_label_index(const arg_struct *arg, int *idx) {
+bool find_global_label_index(const arg_struct *arg, int *idx) {
     return find_global_label_2(arg, NULL, NULL, idx);
 }
 
@@ -3701,6 +3800,21 @@ bool write_arg(const arg_struct *arg) {
     }
 }
 
+static void menu_adjust(int from1, int to1, int offset1,
+                        int from2 = INT_MIN, int to2 = INT_MIN, int offset2 = INT_MIN,
+                        int from3 = INT_MIN, int to3 = INT_MIN, int offset3 = INT_MIN) {
+    static int *menuptr[] = { &mode_appmenu, &mode_plainmenu, &mode_transientmenu, &mode_alphamenu, &mode_commandmenu };
+    for (int i = 0; i < 5; i++) {
+        int *menu = menuptr[i];
+        if (*menu >= from1 && *menu <= to1)
+            *menu += offset1;
+        else if (*menu >= from2 && *menu <= to2)
+            *menu += offset2;
+        else if (*menu >= from3 && *menu <= to3)
+            *menu += offset3;
+    }
+}
+
 static bool load_state2(bool *clear, bool *too_new) {
     int4 magic;
     int4 version;
@@ -3771,18 +3885,14 @@ static bool load_state2(bool *clear, bool *too_new) {
     if (!read_int(&mode_transientmenu)) return false;
     if (!read_int(&mode_alphamenu)) return false;
     if (!read_int(&mode_commandmenu)) return false;
-    if (ver < 33) {
-        if (mode_appmenu > MENU_MODES3)
-            mode_appmenu += 2;
-        if (mode_plainmenu > MENU_MODES3)
-            mode_plainmenu += 2;
-        if (mode_transientmenu > MENU_MODES3)
-            mode_transientmenu += 2;
-        if (mode_alphamenu > MENU_MODES3)
-            mode_alphamenu += 2;
-        if (mode_commandmenu > MENU_MODES3)
-            mode_commandmenu += 2;
-    }
+    if (ver < 33)
+        menu_adjust(24, INT_MAX, 2);
+    if (ver < 50)
+        menu_adjust(24, 24, 37, 25, 61, -1);
+    if (ver < 51)
+        menu_adjust(61, 61, 7, 62, 63, 3, 64, INT_MAX, 7);
+    if (ver < 53)
+        menu_adjust(26, INT_MAX, 1);
     if (!read_bool(&mode_running)) return false;
     if (ver < 46)
         mode_caller_stack_lift_disabled = false;
@@ -4212,7 +4322,14 @@ void hard_reset(int reason) {
     mode_time_clktd = false;
     mode_time_clk24 = shell_clk24();
     mode_wsize = 36;
+    mode_carry = false;
+    mode_dec_int = false;
+    mode_bin_sep = false;
+    mode_oct_sep = false;
+    mode_dec_sep = false;
+    mode_hex_sep = false;
     mode_menu_caps = false;
+    mode_menu_static = false;
 
     reset_math();
 

@@ -821,43 +821,6 @@ int docmd_lxasto(arg_struct *arg) {
     return err;
 }
 
-int docmd_wsize(arg_struct *arg) {
-    phloat x = ((vartype_real *) stack[sp])->x;
-#ifdef BCD_MATH
-    if (x >= 65 || x < 1)
-#else
-    if (x >= 54 || x < 1)
-#endif
-        return ERR_INVALID_DATA;
-    mode_wsize = to_int(x);
-    print_trace();
-    return ERR_NONE;
-}
-
-int docmd_wsize_t(arg_struct *arg) {
-    vartype *new_x = new_real(effective_wsize());
-    if (new_x == NULL)
-        return ERR_INSUFFICIENT_MEMORY;
-    return recall_result(new_x);
-}
-
-int docmd_bsigned(arg_struct *arg) {
-    flags.f.base_signed = !flags.f.base_signed;
-    return ERR_NONE;
-}
-
-int docmd_bwrap(arg_struct *arg) {
-    flags.f.base_wrap = !flags.f.base_wrap;
-    return ERR_NONE;
-}
-
-int docmd_breset(arg_struct *arg) {
-    mode_wsize = 36;
-    flags.f.base_signed = 1;
-    flags.f.base_wrap = 0;
-    return ERR_NONE;
-}
-
 ////////////////////////////////////////////////////////
 ///// The NOP that's been missing since the HP-41C /////
 ////////////////////////////////////////////////////////
@@ -1055,6 +1018,16 @@ int docmd_mixed(arg_struct *arg) {
     return ERR_NONE;
 }
 
+int docmd_static(arg_struct *arg) {
+    mode_menu_static = true;
+    return ERR_NONE;
+}
+
+int docmd_dynamic(arg_struct *arg) {
+    mode_menu_static = false;
+    return ERR_NONE;
+}
+
 int docmd_skip(arg_struct *arg) {
     return ERR_NO;
 }
@@ -1181,6 +1154,8 @@ int docmd_putmi(arg_struct *arg) {
         return ERR_DIMENSION_ERROR;
     if (!dim_to_int4(stack[sp - 1], &col) || col >= cols)
         return ERR_DIMENSION_ERROR;
+    if (!disentangle(v))
+        return ERR_INSUFFICIENT_MEMORY;
 
     int4 n = row * cols + col;
     if (v->type == TYPE_REALMATRIX) {
@@ -1570,7 +1545,7 @@ int docmd_pgmvar(arg_struct *arg) {
         if (command != CMD_MVAR)
             break;
         if (!found) {
-            shell_annunciators(-1, -1, 1, -1, -1, -1);
+            set_annunciators(-1, -1, 1, -1, -1, -1);
             print_text(NULL, 0, true);
             found = true;
         }
@@ -1602,7 +1577,7 @@ int docmd_pgmvar(arg_struct *arg) {
     }
     current_prgm = saved_prgm;
     if (found)
-        shell_annunciators(-1, -1, 0, -1, -1, -1);
+        set_annunciators(-1, -1, 0, -1, -1, -1);
     else
         return ERR_NO_MENU_VARIABLES;
     return ERR_NONE;

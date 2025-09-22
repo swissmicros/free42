@@ -36,9 +36,9 @@ int hp2ascii(char *dst, const char *src, int srclen) {
             // Escape sequence: euro sign plus two hex digits.
             // In hp2ascii(), only used for undefined characters;
             // in ascii2hp(), accepted for everything.
-            dst[d++] = 0xe2;
-            dst[d++] = 0x82;
-            dst[d++] = 0xac;
+            dst[d++] = (char) 0xe2;
+            dst[d++] = (char) 0x82;
+            dst[d++] = (char) 0xac;
             dst[d++] = "0123456789abcdef"[c >> 4];
             dst[d++] = "0123456789abcdef"[c & 15];
             continue;
@@ -175,7 +175,7 @@ struct gif_data {
 static gif_data *g;
 
 
-int shell_start_gif(file_writer writer, int width, int provisional_height) {
+bool shell_start_gif(file_writer writer, int width, int provisional_height) {
     char buf[29];
     char *p = buf, c;
     int height = provisional_height;
@@ -240,7 +240,7 @@ int shell_start_gif(file_writer writer, int width, int provisional_height) {
     if (g == NULL) {
         g = (gif_data *) malloc(sizeof(gif_data));
         if (g == NULL)
-            return 0;
+            return false;
     }
 
     g->codesize = 2;
@@ -270,7 +270,7 @@ int shell_start_gif(file_writer writer, int width, int provisional_height) {
     c = g->codesize;
     writer(&c, 1);
 
-    return 1;
+    return true;
 }
 
 void shell_spool_gif(const char *bits, int bytesperline,

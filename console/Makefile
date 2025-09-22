@@ -39,7 +39,7 @@ CXXFLAGS += -MMD \
 	    -DDECIMAL_GLOBAL_ROUNDING_ACCESS_FUNCTIONS=1 \
 	    -DDECIMAL_GLOBAL_EXCEPTION_FLAGS=1 \
 	    -DDECIMAL_GLOBAL_EXCEPTION_FLAGS_ACCESS_FUNCTIONS=1 \
-	    -D_WCHAR_T_DEFINED -O2 -fdata-sections -ffunction-sections -Wl,--gc-sections -ggdb
+	    -D_WCHAR_T_DEFINED  -fdata-sections -ffunction-sections -Wl,--gc-sections -ggdb
 
 
 

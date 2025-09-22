@@ -108,6 +108,8 @@ public class SkinLayout {
             this.ann_state = new boolean[7];
         else
             this.ann_state = ann_state;
+        for (int i = 0; i < 7; i++)
+            annunciators[i] = new SkinAnnunciator();
         
         InputStream is = null;
         try {
@@ -321,8 +323,7 @@ public class SkinLayout {
                         int act_x = Integer.parseInt(tok.nextToken());
                         int act_y = Integer.parseInt(tok.nextToken());
                         if (annnum >= 1 && annnum <= 7) {
-                            SkinAnnunciator ann = new SkinAnnunciator();
-                            annunciators[annnum - 1] = ann;
+                            SkinAnnunciator ann = annunciators[annnum - 1];
                             ann.disp_rect.x = disp_x;
                             ann.disp_rect.y = disp_y;
                             ann.disp_rect.width = disp_width;
@@ -440,12 +441,15 @@ public class SkinLayout {
         ckey.value = 0;
     }
 
-    public int find_skey(int ckey) {
-        int i;
-        for (i = 0; i < keylist.length; i++)
+    public int find_skey(int ckey, boolean cshift) {
+        int fuzzy_match = -1;
+        for (int i = 0; i < keylist.length; i++)
             if (keylist[i].code == ckey || keylist[i].shifted_code == ckey)
-                return i;
-        return -1;
+                if ((cshift ? keylist[i].shifted_code : keylist[i].code) == ckey)
+                    return i;
+                else if (fuzzy_match == -1)
+                    fuzzy_match = i;
+        return fuzzy_match;
     }
 
     public Object find_macro(int ckey) {
