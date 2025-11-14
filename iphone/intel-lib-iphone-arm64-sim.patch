@@ -14,8 +14,8 @@
   _CFLAGS_CONFIG := 
   _CFLAGS_OS     := $(call HostOsTypeSelect, -DLINUX, -DWINDOWS)
   _CFLAGS_ARCH   := $(call HostArchTypeSelect,-Dia32,-DITANIUM -Dia64, -Defi2)
-! _CFLAGS_CC     := -fsigned-char -DBID_SIZE_LONG=4
-! _CFLAGS_OPT    := -fPIC -mfpu=vfpv3-d16
+! _CFLAGS_CC     := -fsigned-char -DBID_SIZE_LONG=8
+! _CFLAGS_OPT    := -arch arm64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk
       
   ifeq ($(BID_BIG_ENDIAN),true)
       _CFLAGS_CONFIG += -DBID_BIG_ENDIAN=1
@@ -79,7 +79,7 @@
 ! #        $(error Don't know how to determine architecture for $(IML_HOST_OS))
 ! #    endif
 ! #endif
-! _HOST_ARCH := x86
+! _HOST_ARCH := x86_64
   
   ARCH_ALIAS := x86  ia64 EM64T x86_64 i686 amd64 Intel64 sun4u
   ARCH_LIST  := IA32 IA64 EFI2  EFI2   IA32 EFI2  EFI2    EFI2
@@ -102,25 +102,6 @@
   #   define DPML_SIGNAL(p)	 raise(SIGFPE)
   
   #else
-*** orig/LIBRARY/src/bid_functions.h	2016-06-05 16:33:11.000000000 -0400
---- LIBRARY/src/bid_functions.h	2016-06-05 16:33:53.000000000 -0400
-***************
-*** 150,156 ****
-  ///////////////////////////////////////////////////////
-  //  This section may move to fenv_support.h
-  
-! #if !defined(__FENV_H_INCLUDED) && !defined (_FENV_H) && !defined(_FENV_INCLUDED)          /* Otherwise we already defined fexcept_t type */
-  #if defined(__ECL) || defined(__ECC)            /* Intel(R) Itanium(R) architecture */
-  /* Default 64-bit Floating Point Status Register   */
-  #if defined(__linux__)
---- 150,156 ----
-  ///////////////////////////////////////////////////////
-  //  This section may move to fenv_support.h
-  
-! #if !defined(__FENV_H_INCLUDED) && !defined (_FENV_H) && !defined (_FENV_H_) && !defined(_FENV_INCLUDED) && !defined(FE_DFL_ENV)          /* Otherwise we already defined fexcept_t type */
-  #if defined(__ECL) || defined(__ECC)            /* Intel(R) Itanium(R) architecture */
-  /* Default 64-bit Floating Point Status Register   */
-  #if defined(__linux__)
 *** orig/TESTS/readtest.c	2016-05-21 10:44:20.000000000 -0400
 --- TESTS/readtest.c	2016-05-21 11:58:37.000000000 -0400
 ***************
@@ -1772,25 +1753,6 @@
   }
   
 + #endif /* FREE42_FPTEST */
-*** orig/TESTS/test_bid_functions.h	2011-07-11 19:47:24.000000000 -0400
---- TESTS/test_bid_functions.h	2017-03-25 19:19:57.000000000 -0400
-***************
-*** 156,162 ****
-  ///////////////////////////////////////////////////////
-  //  This section may move to fenv_support.h
-  
-! #if !defined(__FENV_H_INCLUDED) && !defined (_FENV_H) && !defined(_FENV_INCLUDED)          /* Otherwise we already defined fexcept_t type */
-  #if defined(__ECL) || defined(__ECC)            /* Intel(R) Itanium(R) architecture */
-  /* Default 64-bit Floating Point Status Register   */
-  #if defined(__linux__)
---- 156,162 ----
-  ///////////////////////////////////////////////////////
-  //  This section may move to fenv_support.h
-  
-! #if !defined(__FENV_H_INCLUDED) && !defined (_FENV_H_) && !defined(_FENV_INCLUDED) && !defined(FE_DFL_ENV)          /* Otherwise we already defined fexcept_t type */
-  #if defined(__ECL) || defined(__ECC)            /* Intel(R) Itanium(R) architecture */
-  /* Default 64-bit Floating Point Status Register   */
-  #if defined(__linux__)
 *** orig/LIBRARY/src/bid128_hypot.c	2011-06-29 14:33:00.000000000 -0400
 --- LIBRARY/src/bid128_hypot.c	2021-03-05 16:07:08.000000000 -0500
 ***************

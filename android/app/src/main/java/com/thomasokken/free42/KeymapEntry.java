@@ -18,7 +18,6 @@
 package com.thomasokken.free42;
 
 import java.io.ByteArrayOutputStream;
-import java.text.NumberFormat;
 import java.util.StringTokenizer;
 
 public class KeymapEntry {

@@ -38,12 +38,6 @@
 #include "core_main.h"
 #include "core_display.h"
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wwrite-strings"
-#include "icon-128x128.xpm"
-#include "icon-48x48.xpm"
-#pragma GCC diagnostic pop
-
 #ifndef _POSIX_HOST_NAME_MAX
 #define _POSIX_HOST_NAME_MAX 255
 #endif
@@ -669,8 +663,8 @@ static void activate(GtkApplication *theApp, gpointer userData) {
     mainwindow = GTK_WIDGET(obj);
     gtk_window_set_application(GTK_WINDOW(mainwindow), app);
 
-    icon_128 = gdk_pixbuf_new_from_xpm_data((const char **) icon_128_xpm);
-    icon_48 = gdk_pixbuf_new_from_xpm_data((const char **) icon_48_xpm);
+    icon_128 = gdk_pixbuf_new_from_resource("/icons/icon-128x128.png", NULL);
+    icon_48 = gdk_pixbuf_new_from_resource("/icons/icon-48x48.png", NULL);
 
     gtk_window_set_icon(GTK_WINDOW(mainwindow), icon_128);
     gtk_window_set_title(GTK_WINDOW(mainwindow), TITLE);
@@ -3240,7 +3234,7 @@ void shell_blitter(const char *bits, int bytesperline, int x, int y,
 void shell_beeper(int tone) {
 #ifdef AUDIO_ALSA
     const char *display_name = gdk_display_get_name(gdk_display_get_default());
-    if (display_name == NULL || display_name[0] == ':') {
+    if (display_name == NULL || display_name[0] == ':' || strchr(display_name, ':') == NULL) {
         const int tone_freqs[] = { 165, 220, 247, 277, 294, 330, 370, 415, 440, 554, 1865 };
         int frequency = tone_freqs[tone];
         int duration = tone == 10 ? 125 : 250;

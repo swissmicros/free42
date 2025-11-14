@@ -28,6 +28,10 @@
     return self;
 }
 
+- (void) resetCursorRects {
+    [self addCursorRect:self.bounds cursor:[NSCursor pointingHandCursor]];
+}
+
 - (void) mouseUp:(NSEvent *)theEvent {
     NSString *urlStr = [self stringValue];
     NSURL *url = [NSURL URLWithString:urlStr];

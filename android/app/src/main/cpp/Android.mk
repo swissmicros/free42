@@ -22,7 +22,7 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := gcc111libbid
 ifeq ($(TARGET_ARCH_ABI),armeabi-v7a)
 LOCAL_SRC_FILES := libgcc111libbid-armv7.a
-INTEL_CFLAGS := -fsigned-char -DBID_SIZE_LONG=4
+INTEL_CFLAGS := -fsigned-char -DBID_SIZE_LONG=4 -mfpu=vfpv3-d16
 endif
 ifeq ($(TARGET_ARCH_ABI),arm64-v8a)
 LOCAL_SRC_FILES := libgcc111libbid-arm64.a
@@ -52,5 +52,13 @@ LOCAL_CPP_EXTENSION := .cc
 LOCAL_CPPFLAGS := $(FPTEST) $(INTEL_CFLAGS) $(BCD_MATH) -DANDROID -Wall -Wno-parentheses -Wno-narrowing -Wno-constant-conversion -Wno-sometimes-uninitialized -fno-exceptions -fno-rtti -fsigned-char -g -DDECIMAL_CALL_BY_REFERENCE=1 -DDECIMAL_GLOBAL_ROUNDING=1 -DDECIMAL_GLOBAL_ROUNDING_ACCESS_FUNCTIONS=1 -DDECIMAL_GLOBAL_EXCEPTION_FLAGS=1 -DDECIMAL_GLOBAL_EXCEPTION_FLAGS_ACCESS_FUNCTIONS=1 -D_WCHAR_T_DEFINED -DHAVE_SINCOS=1
 LOCAL_STATIC_LIBRARIES := gcc111libbid
 LOCAL_LDFLAGS := -lm
+ifeq ($(TARGET_ARCH_ABI),arm64-v8a)
+LOCAL_LDFLAGS += "-Wl,-z,max-page-size=16384"
+LOCAL_LDFLAGS += "-Wl,-z,common-page-size=16384"
+endif
+ifeq ($(TARGET_ARCH_ABI),x86_64)
+LOCAL_LDFLAGS += "-Wl,-z,max-page-size=16384"
+LOCAL_LDFLAGS += "-Wl,-z,common-page-size=16384"
+endif
 
 include $(BUILD_SHARED_LIBRARY)

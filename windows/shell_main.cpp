@@ -1262,7 +1262,7 @@ static LRESULT CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPa
         case WM_INITDIALOG:
             return TRUE;
 
-        case WM_COMMAND:
+        case WM_COMMAND: {
             int id = LOWORD(wParam);
             if (id == IDOK || id == IDCANCEL) 
             {
@@ -1276,6 +1276,31 @@ static LRESULT CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPa
                 ShellExecute(NULL, "open", buf, NULL, NULL, SW_SHOWNORMAL);
             }
             break;
+        }
+
+        case WM_CTLCOLORSTATIC: {
+            HWND item = (HWND) lParam;
+            if (item == GetDlgItem(hDlg, IDC_WEBSITELINK)
+                    || item == GetDlgItem(hDlg, IDC_FORUMLINK)
+                    || item == GetDlgItem(hDlg, IDC_WEBSITELINK_PLUS42)) {
+                SetTextColor((HDC) wParam, GetSysColor(COLOR_HOTLIGHT));
+                SetBkMode((HDC) wParam, TRANSPARENT);
+                return (INT_PTR) GetSysColorBrush(COLOR_MENU);
+            } else
+                return FALSE;
+        }
+
+        case WM_SETCURSOR: {
+            HWND item = (HWND)wParam;
+            if (item == GetDlgItem(hDlg, IDC_WEBSITELINK)
+                || item == GetDlgItem(hDlg, IDC_FORUMLINK)
+                || item == GetDlgItem(hDlg, IDC_WEBSITELINK_PLUS42)) {
+                SetCursor(LoadCursor(NULL, IDC_HAND));
+                SetWindowLongPtr(hDlg, DWLP_MSGRESULT, TRUE);
+                return TRUE;
+            } else
+                return FALSE;
+        }
     }
     return FALSE;
 }

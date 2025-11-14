@@ -1,3 +1,36 @@
+2025-10-28: release 3.3.10
+
+* Fixed crash in menu logic.
+
+2025-10-21: release 3.3.9a (Android only)
+
+* Another workaround for the buggy vibrator in Android 16. This one is a new
+  option, "use older haptic feedback logic," for phones like the Pixel 10 Pro,
+  where the pre-3.3.8f haptic feedback logic worked, but the new logic
+  introduced in 3.3.8f does not.
+
+2025-10-15: release 3.3.9
+
+* When a new program was created by inserting END, the new program could end up
+  being locked initially. Fixed.
+* Linux version: Fixed beeper when running under Wayland.
+* Linux version: Replaced built-in XPM icons with PNG ones, for compatibility
+  with certain recent Linux distros.
+* Windows and MacOS versions: Made the links in the About box more obviously
+  clickable.
+
+2025-10-10: release 3.3.8f (Android only)
+
+* Workaround for buggy vibrator in Android 16.
+
+2025-09-27: release 3.3.8e (Android only)
+
+* More Android 16 kB compatibility tweaks.
+
+2025-09-27: release 3.3.8d (Android only)
+
+* Updated build configuration to support 16 kB page size.
+
 2025-07-19: release 3.3.8c (Android only)
 
 * Fixed "No Status" and "Full Screen" modes. These got broken in 3.3.8.

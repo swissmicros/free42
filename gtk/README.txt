@@ -34,7 +34,7 @@ like this:
   Name=Free42
   Exec=/home/thomas/free42/free42dec
   Type=Application
-  Icon=/home/thomas/free42/free42icon-128x128.xpm
+  Icon=/home/thomas/free42/free42icon-128x128.png
 
 Change the /home/thomas/free42 part to where you have the free42dec executable
 and the icon.

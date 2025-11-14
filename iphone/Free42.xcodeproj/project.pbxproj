@@ -57,7 +57,6 @@
 		E935A89F22B54ED4007C41DF /* LoadSkinView.mm in Sources */ = {isa = PBXBuildFile; fileRef = E935A89D22B54ED4007C41DF /* LoadSkinView.mm */; };
 		E935A8A122B5525B007C41DF /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E935A8A022B5525B007C41DF /* WebKit.framework */; };
 		E93F2B560F894D9000CE8542 /* shell_spool.cc in Sources */ = {isa = PBXBuildFile; fileRef = E93F2B540F894D9000CE8542 /* shell_spool.cc */; };
-		E94025AF19312C320096B2E4 /* gcc111libbid.a in Frameworks */ = {isa = PBXBuildFile; fileRef = E94025AE19312C320096B2E4 /* gcc111libbid.a */; };
 		E94C3CFE132DAB0A00880A45 /* Entitlements.plist in Resources */ = {isa = PBXBuildFile; fileRef = E94C3CFD132DAB0A00880A45 /* Entitlements.plist */; };
 		E94DE6C61011E9AE005E6B19 /* about-icon.png in Resources */ = {isa = PBXBuildFile; fileRef = E94DE6C51011E9AE005E6B19 /* about-icon.png */; };
 		E95273352D3A82CE00363585 /* ToastAlert.m in Sources */ = {isa = PBXBuildFile; fileRef = E95273342D3A82CE00363585 /* ToastAlert.m */; };
@@ -192,7 +191,6 @@
 		E9FC4105260707AF00E52296 /* RootWindow.mm in Sources */ = {isa = PBXBuildFile; fileRef = E99C9AE3223ED0DC00DA48D0 /* RootWindow.mm */; };
 		E9FC4106260707AF00E52296 /* minizip_zip.c in Sources */ = {isa = PBXBuildFile; fileRef = E9F7136A16C5F1F0006A9553 /* minizip_zip.c */; settings = {COMPILER_FLAGS = "-DNOCRYPT"; }; };
 		E9FC4107260707AF00E52296 /* SelectProgramsView.mm in Sources */ = {isa = PBXBuildFile; fileRef = E908D3EC16D04D92000710EB /* SelectProgramsView.mm */; };
-		E9FC4109260707AF00E52296 /* gcc111libbid.a in Frameworks */ = {isa = PBXBuildFile; fileRef = E94025AE19312C320096B2E4 /* gcc111libbid.a */; };
 		E9FC410A260707AF00E52296 /* libz.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = E9CECB80255ED605003398B3 /* libz.tbd */; };
 		E9FC410B260707AF00E52296 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1D30AB110D05D00D00671497 /* Foundation.framework */; };
 		E9FC410C260707AF00E52296 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1DF5F4DF0D08C38300B7A737 /* UIKit.framework */; };
@@ -362,7 +360,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				E94025AF19312C320096B2E4 /* gcc111libbid.a in Frameworks */,
 				E9CECB81255ED605003398B3 /* libz.tbd in Frameworks */,
 				1D60589F0D05DD5A006BFB54 /* Foundation.framework in Frameworks */,
 				1DF5F4E00D08C38300B7A737 /* UIKit.framework in Frameworks */,
@@ -378,7 +375,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				E9FC4109260707AF00E52296 /* gcc111libbid.a in Frameworks */,
 				E9FC410A260707AF00E52296 /* libz.tbd in Frameworks */,
 				E9FC410B260707AF00E52296 /* Foundation.framework in Frameworks */,
 				E9FC410C260707AF00E52296 /* UIKit.framework in Frameworks */,
@@ -801,7 +797,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = "/bin/sh -x";
-			shellScript = "if [ -f gcc111libbid.a ]; then exit 0; fi\nARCHS=(arm64 x86_64)\nLIBNAMES=\nfor ARCH in ${ARCHS[@]}; do\n  rm -rf IntelRDFPMathLib20U1\n  tar xvfz ../inteldecimal/IntelRDFPMathLib20U1.tar.gz\n  cd IntelRDFPMathLib20U1\n  patch -p0 <../intel-lib-iphone-$ARCH.patch\n  cd LIBRARY\n  make CC=gcc CALL_BY_REF=1 GLOBAL_RND=1 GLOBAL_FLAGS=1 UNCHANGED_BINARY_FLAGS=0\n  mv libbid.a ../../gcc111libbid-$ARCH.a\n  LIBNAMES=\"$LIBNAMES gcc111libbid-$ARCH.a\"\n  cd ../..\ndone\nlipo -create $LIBNAMES -output gcc111libbid.a\n( echo '#ifdef FREE42_FPTEST'; echo 'const char *readtest_lines[] = {'; tr -d '\\r' < IntelRDFPMathLib20U1/TESTS/readtest.in | sed 's/^\\(.*\\)$/\"\\1\",/'; echo '0 };'; echo '#endif' ) > readtest_lines.cc\n";
+			shellScript = "if [ -f libbid-sim.a -a -f libbid-dev.a ]; then exit 0; fi\nARCHS=(arm64-dev arm64-sim x86_64)\nfor ARCH in ${ARCHS[@]}; do\n  rm -rf IntelRDFPMathLib20U1\n  tar xvfz ../inteldecimal/IntelRDFPMathLib20U1.tar.gz\n  cd IntelRDFPMathLib20U1\n  patch -p0 <../intel-lib-iphone-$ARCH.patch\n  cd LIBRARY\n  make CC=gcc CALL_BY_REF=1 GLOBAL_RND=1 GLOBAL_FLAGS=1 UNCHANGED_BINARY_FLAGS=0\n  mv libbid.a ../../libbid-$ARCH.a\n  cd ../..\ndone\nmv libbid-arm64-dev.a libbid-dev.a\nlipo -create libbid-arm64-sim.a libbid-x86_64.a -output libbid-sim.a\nrm libbid-arm64-sim.a libbid-x86_64.a\n( echo '#ifdef FREE42_FPTEST'; echo 'const char *readtest_lines[] = {'; tr -d '\\r' < IntelRDFPMathLib20U1/TESTS/readtest.in | sed 's/^\\(.*\\)$/\"\\1\",/'; echo '0 };'; echo '#endif' ) > readtest_lines.cc\n";
 		};
 		E9FC40B1260707AF00E52296 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -818,7 +814,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = "/bin/sh -x";
-			shellScript = "if [ -f gcc111libbid.a ]; then exit 0; fi\nARCHS=(arm64 x86_64)\nLIBNAMES=\nfor ARCH in ${ARCHS[@]}; do\n  rm -rf IntelRDFPMathLib20U1\n  tar xvfz ../inteldecimal/IntelRDFPMathLib20U1.tar.gz\n  cd IntelRDFPMathLib20U1\n  patch -p0 <../intel-lib-iphone-$ARCH.patch\n  cd LIBRARY\n  make CC=gcc CALL_BY_REF=1 GLOBAL_RND=1 GLOBAL_FLAGS=1 UNCHANGED_BINARY_FLAGS=0\n  mv libbid.a ../../gcc111libbid-$ARCH.a\n  LIBNAMES=\"$LIBNAMES gcc111libbid-$ARCH.a\"\n  cd ../..\ndone\nlipo -create $LIBNAMES -output gcc111libbid.a\n( echo '#ifdef FREE42_FPTEST'; echo 'const char *readtest_lines[] = {'; tr -d '\\r' < IntelRDFPMathLib20U1/TESTS/readtest.in | sed 's/^\\(.*\\)$/\"\\1\",/'; echo '0 };'; echo '#endif' ) > readtest_lines.cc\n";
+			shellScript = "if [ -f libbid-sim.a -a -f libbid-dev.a ]; then exit 0; fi\nARCHS=(arm64-dev arm64-sim x86_64)\nfor ARCH in ${ARCHS[@]}; do\n  rm -rf IntelRDFPMathLib20U1\n  tar xvfz ../inteldecimal/IntelRDFPMathLib20U1.tar.gz\n  cd IntelRDFPMathLib20U1\n  patch -p0 <../intel-lib-iphone-$ARCH.patch\n  cd LIBRARY\n  make CC=gcc CALL_BY_REF=1 GLOBAL_RND=1 GLOBAL_FLAGS=1 UNCHANGED_BINARY_FLAGS=0\n  mv libbid.a ../../libbid-$ARCH.a\n  cd ../..\ndone\nmv libbid-arm64-dev.a libbid-dev.a\nlipo -create libbid-arm64-sim.a libbid-x86_64.a -output libbid-sim.a\nrm libbid-arm64-sim.a libbid-x86_64.a\n( echo '#ifdef FREE42_FPTEST'; echo 'const char *readtest_lines[] = {'; tr -d '\\r' < IntelRDFPMathLib20U1/TESTS/readtest.in | sed 's/^\\(.*\\)$/\"\\1\",/'; echo '0 };'; echo '#endif' ) > readtest_lines.cc\n";
 		};
 		E9FC40B2260707AF00E52296 /* Run Script */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -963,7 +959,6 @@
 				COPY_PHASE_STRIP = NO;
 				DEVELOPMENT_TEAM = F4D88K2P5W;
 				ENABLE_BITCODE = NO;
-				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = arm64;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
@@ -982,6 +977,8 @@
 					"-fsigned-char",
 					"-DBID_SIZE_LONG=8",
 				);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = "-lbid-dev";
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = "-lbid-sim";
 				PRODUCT_BUNDLE_IDENTIFIER = com.yourcompany.Free42;
 				PRODUCT_NAME = Free42;
 				PROVISIONING_PROFILE = "";
@@ -1016,6 +1013,8 @@
 					"-fsigned-char",
 					"-DBID_SIZE_LONG=8",
 				);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = "-lbid-dev";
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = "-lbid-sim";
 				PRODUCT_BUNDLE_IDENTIFIER = com.yourcompany.Free42;
 				PRODUCT_NAME = Free42;
 				PROVISIONING_PROFILE = "";
@@ -1142,6 +1141,8 @@
 					"-fsigned-char",
 					"-DBID_SIZE_LONG=8",
 				);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = "-lbid-dev";
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = "-lbid-sim";
 				PRODUCT_BUNDLE_IDENTIFIER = com.yourcompany.Free42;
 				PRODUCT_NAME = Free42;
 				PROVISIONING_PROFILE = "";
@@ -1161,7 +1162,6 @@
 				COPY_PHASE_STRIP = NO;
 				DEVELOPMENT_TEAM = F4D88K2P5W;
 				ENABLE_BITCODE = NO;
-				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = arm64;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
@@ -1191,6 +1191,8 @@
 					"-fsigned-char",
 					"-DBID_SIZE_LONG=8",
 				);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = "-lbid-dev";
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = "-lbid-sim";
 				PRODUCT_BUNDLE_IDENTIFIER = com.thomasokken.Free42b;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE = "";
@@ -1236,6 +1238,8 @@
 					"-fsigned-char",
 					"-DBID_SIZE_LONG=8",
 				);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = "-lbid-dev";
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = "-lbid-sim";
 				PRODUCT_BUNDLE_IDENTIFIER = com.thomasokken.Free42b;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE = "";
@@ -1281,6 +1285,8 @@
 					"-fsigned-char",
 					"-DBID_SIZE_LONG=8",
 				);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = "-lbid-dev";
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = "-lbid-sim";
 				PRODUCT_BUNDLE_IDENTIFIER = com.thomasokken.Free42b;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE = "";

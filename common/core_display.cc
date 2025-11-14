@@ -2944,7 +2944,7 @@ void set_plainmenu(int menuid, const char *name, int length) {
         /* Even if it's a different menu than the current one, it should
          * still stick if it belongs to the same group.
          */
-        if (mode_plainmenu != MENU_NONE) {
+        if (menuid != MENU_NONE && mode_plainmenu != MENU_NONE) {
             int menu1 = mode_plainmenu;
             int menu2 = menuid;
             int parent;

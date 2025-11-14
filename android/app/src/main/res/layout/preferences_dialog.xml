@@ -109,9 +109,15 @@
 
             </LinearLayout>
 
+            <CheckBox android:id="@+id/hapticClassicCB"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Use older haptic feedback logic"
+                android:layout_below="@+id/hapticBox"
+                android:layout_alignParentLeft="true"/>
+
             <LinearLayout android:id="@+id/orientationBox"
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:layout_below="@+id/hapticBox"
+                android:layout_below="@+id/hapticClassicCB"
                 android:layout_alignParentLeft="true"
                 android:orientation="horizontal">
 
